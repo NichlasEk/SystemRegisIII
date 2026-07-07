@@ -99,6 +99,7 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x434B, "CD Block ID word 3 failed.");
     systemMap.Bus.WriteWord(0x2589_0008, 0x0BE1);
+    Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0001, "CD Block HIRQ CMOK bit failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x2000, "CD Block status word 0 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block status word 1 failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
@@ -251,6 +252,12 @@ static void VerifySh2BiosBringupInstructions()
     cpu.Registers.General[1] = 0x8000_0004;
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0x2000_0001, "SH-2 SHLR2 failed.");
+
+    WriteWord(code, 0x08, 0x6127);
+    cpu.Reset();
+    cpu.Registers.General[2] = 0x00FF_00FF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0xFF00_FF00, "SH-2 NOT Rm,Rn failed.");
 }
 
 static void VerifySh2BranchAndExceptionInstructions()

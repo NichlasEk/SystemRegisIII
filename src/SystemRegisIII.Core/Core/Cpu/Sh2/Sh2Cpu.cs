@@ -458,6 +458,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: MOV.L @R{source}+,R{destination}");
                     return;
                 }
+            case 0x6007:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.General[destination] = ~Registers.General[source];
+                    Trace($"0x{pc:X8}: NOT R{source},R{destination}");
+                    return;
+                }
             case 0x6008:
                 {
                     var destination = (opcode >> 8) & 0xF;

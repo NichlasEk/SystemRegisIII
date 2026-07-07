@@ -99,14 +99,15 @@ Work in small pushable slices:
 - `57c0d4f`: Fixed SH-2 indexed move decoding so `0x0000` is not treated as a valid instruction. The forced slave-ready path now correctly reports unimplemented `0x0000` at `0x06000600`.
 - `3924477`: Added BIOS-driven SH-2 coverage for displacement moves, PC-relative word loads, predecrement stores, control-register moves, compare/subtract forms, and shift/rotate forms. Added a conservative `0x05800000..0x058FFFFF` B-bus mirror stub so SH-2 cache-through reads like `0x25890018` no longer fault.
 - `908a51d`: Identified the `0x25890018..0x25890024` BIOS probe as the CD Block ID string `\0CDBLOCK` and modeled those four read-only words in the register mirror. Added a conservative `0x04000000..0x04FFFFFF` A-bus probe stub for the cache-through `0x24FFFFFF` BIOS read.
-- Current slice: Made the CD Block register mirror switch from ID signature to a minimal status snapshot after the BIOS command write to `0x25890008`, and added SH-2 `BT/S`, `RTE`, `CMP/GE`, and `LDC.L @Rn+` control-register coverage.
+- `7fe0fac`: Made the CD Block register mirror switch from ID signature to a minimal status snapshot after the BIOS command write to `0x25890008`, and added SH-2 `BT/S`, `RTE`, `CMP/GE`, and `LDC.L @Rn+` control-register coverage.
+- Current slice: Added a minimal CD Block HIRQ `CMOK` latch at `0x25890008` after the BIOS status transition and filled SH-2 `NOT Rm,Rn`. This moves BIOS through the first HIRQ wait and into repeated CR/HIRQ polling with no unimplemented opcodes.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `20M`-instruction run has no unimplemented opcodes and no bus faults. Master now reaches the CD status polling path around `0x00003B9E`. BIOS first accepts the `\0CDBLOCK` ID signature, then later reads a minimal status snapshot with the status bit set. Slave still waits on `2RDY` at `0x06000240`.
+In real dual mode, the verified `24M`-instruction run has no unimplemented opcodes and no bus faults. Master now loops in the CD status polling path around `0x00003BE6`, with repeated reads from HIRQ `0x25890008` and CR `0x25890018..0x25890024`. Slave still waits on `2RDY` at `0x06000240`.
 
 The next slice should identify whether BIOS expects:
 
-- CD Block command completion/progression after the first minimal status snapshot, especially what should change while BIOS polls around `0x00003B9E`,
+- CD Block command completion/progression after the first minimal status snapshot, especially HIRQ clearing/setting and CR changes while BIOS polls around `0x00003BE6`,
 - a real VDP/SCU/SMPC status behavior before master writes the slave-ready word,
 - or a scheduling/timing issue where master eventually releases slave only after a longer verified run.
