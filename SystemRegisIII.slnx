@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SystemRegisIII.Core/SystemRegisIII.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SystemRegisIII.Smoke/SystemRegisIII.Smoke.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,41 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+publish/
+
+# IDE and local settings
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET package outputs
+*.nupkg
+*.snupkg
+
+# Test and coverage outputs
+TestResults/
+coverage/
+coverage.*
+*.trx
+*.coverage
+*.coveragexml
+*.opencover.xml
+*.cobertura.xml
+
+# Emulator media and copyrighted local inputs
+bios/
+roms/
+isos/
+discs/
+captures/
+savestates/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
