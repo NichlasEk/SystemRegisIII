@@ -133,10 +133,10 @@ The current diagnostic slice identifies the relevant Work RAM and handler paths:
 - `0x06020720..0x06020727` are initialized to `0xFE`, while `0x06020728` and the surrounding callback/state entries remain zero at the final snapshot.
 - the V-Blank callback table at `0x06000A00` contains `0x06028D64`, `0x06028D9E`, then default return stubs.
 - callback PC heat proves execution reaches `0x06028D64`, scans the callback/state table around `0x06028D7E..0x06028D8E`, and reaches helper code at `0x06028934`.
+- setup PC heat around `0x06028C52..0x06028C6A` has only eight hits, matching the one-time `0xFE` initialization of `0x06020720..0x06020727`.
 
-The next slice should identify why the callback/state table never receives an active entry:
+The next slice should identify which hardware status path is expected to activate the callback/state entry:
 
-- inspect the setup call at `0x06028C44` and its writes to `0x06020248/0x0602024C/0x06020720`;
-- add either call-target hit reporting or a one-shot trace around `0x06028C44..0x06028C9E`;
+- inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
 - decide whether callback activation depends on CD status, SCSP status, or a second SCU interrupt source;
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

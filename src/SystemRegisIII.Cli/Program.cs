@@ -64,6 +64,7 @@ static int RunBios(string[] args)
     var masterPcHits = new Dictionary<uint, long>();
     var masterHandlerPcHits = new Dictionary<uint, long>();
     var masterCallbackPcHits = new Dictionary<uint, long>();
+    var masterSetupPcHits = new Dictionary<uint, long>();
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
     var busFaults = new List<string>();
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
@@ -86,9 +87,13 @@ static int RunBios(string[] args)
         {
             RecordPc(masterHandlerPcHits, masterPc);
         }
-        else if (masterPc is >= 0x0602_8900 and <= 0x0602_8E20)
+        if (masterPc is >= 0x0602_8900 and <= 0x0602_8E20)
         {
             RecordPc(masterCallbackPcHits, masterPc);
+        }
+        if (masterPc is >= 0x0602_8C40 and <= 0x0602_8D40)
+        {
+            RecordPc(masterSetupPcHits, masterPc);
         }
 
         if (!TryStep(master, trace, busFaults))
@@ -146,6 +151,7 @@ static int RunBios(string[] args)
     PrintHotProgramCounters(master.Name, masterPcHits);
     PrintHotProgramCounters($"{master.Name} handler", masterHandlerPcHits);
     PrintHotProgramCounters($"{master.Name} callback", masterCallbackPcHits);
+    PrintHotProgramCounters($"{master.Name} setup", masterSetupPcHits);
     if (slave is not null)
     {
         PrintHotProgramCounters(slave.Name, slavePcHits!);
@@ -187,7 +193,7 @@ static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
 {
     var hot = hits
         .OrderByDescending(static pair => pair.Value)
-        .Take(name.Contains("handler", StringComparison.Ordinal) || name.Contains("callback", StringComparison.Ordinal) ? 32 : 4)
+        .Take(IsDetailedHotPcReport(name) ? 32 : 4)
         .Where(static pair => pair.Value > 1)
         .ToArray();
 
@@ -202,6 +208,11 @@ static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
         Console.WriteLine($"  0x{pc:X8}: {count:N0}");
     }
 }
+
+static bool IsDetailedHotPcReport(string name) =>
+    name.Contains("handler", StringComparison.Ordinal)
+    || name.Contains("callback", StringComparison.Ordinal)
+    || name.Contains("setup", StringComparison.Ordinal);
 
 static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 {
@@ -229,7 +240,7 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
         PrintWordWindow(bus, 0x0600_0A00, 32, "  handler target 0x06000A00");
         PrintWordWindow(bus, 0x0602_0720, 32, "  flag callback area 0x06020720");
         PrintWordWindow(bus, 0x0602_8920, 48, "  vblank helper target 0x06028920");
-        PrintWordWindow(bus, 0x0602_8C40, 48, "  wait setup target 0x06028C40");
+        PrintWordWindow(bus, 0x0602_8C40, 80, "  wait setup target 0x06028C40");
         PrintWordWindow(bus, 0x0602_8D60, 48, "  vblank callback 0x06028D60");
         PrintWordWindow(bus, 0x0602_8D98, 48, "  vblank callback 0x06028D98");
     }
