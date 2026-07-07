@@ -36,6 +36,7 @@ Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full fr
 
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
+VerifySh2InternalRegisterBus();
 
 Console.WriteLine("SystemRegisIII smoke passed.");
 
@@ -90,6 +91,26 @@ static void VerifySaturnSystemMap()
         new SaturnBringupOptions { SimulateSlaveReady = true });
     simulatedMap.Bus.WriteLong(0x4600_0240, 0);
     Require(simulatedMap.Bus.ReadLong(0x0600_0240) == 0x3252_4459, "Slave-ready bringup overlay failed.");
+}
+
+static void VerifySh2InternalRegisterBus()
+{
+    var ram = new ByteArrayMemory("Shared RAM", 0x1000);
+    var externalBus = new SaturnAddressMapBuilder()
+        .Map(0x0600_0000, 0x0600_0FFF, ram)
+        .Build();
+    var masterBus = new Sh2InternalRegisterBus(externalBus, Sh2CpuRole.Master);
+    var slaveBus = new Sh2InternalRegisterBus(externalBus, Sh2CpuRole.Slave);
+
+    Require(masterBus.ReadLong(0xFFFF_FFE0) == 0, "Master SH-2 CPU-id register failed.");
+    Require(slaveBus.ReadLong(0xFFFF_FFE0) == 0x2000_0000, "Slave SH-2 CPU-id register failed.");
+
+    masterBus.WriteLong(0x0600_0000, 0x1122_3344);
+    Require(slaveBus.ReadLong(0x0600_0000) == 0x1122_3344, "SH-2 internal bus did not share external RAM.");
+
+    masterBus.WriteByte(0xFFFF_FE92, 0x40);
+    Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 internal latch failed.");
+    Require(slaveBus.ReadByte(0xFFFF_FE92) == 0, "SH-2 internal latch leaked across CPUs.");
 }
 
 static void Require(bool condition, string message)

@@ -42,10 +42,15 @@ static int RunBios(string[] args)
         bios,
         new SaturnBringupOptions { SimulateSlaveReady = simulateSlaveReady });
     var addressMap = systemMap.Bus;
-    ISaturnBus bus = traceEnabled ? new TracingBus(addressMap, trace) : addressMap;
+    var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
+    var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterInternalBus, trace) : masterInternalBus;
+    ISaturnBus? slaveBus = slaveInternalBus is null
+        ? null
+        : traceEnabled ? new TracingBus(slaveInternalBus, trace) : slaveInternalBus;
 
-    var master = new Sh2Cpu("Master SH-2", bus, resetVectorAddress: 0x0000_0000, trace);
-    var slave = dualSh2 ? new Sh2Cpu("Slave SH-2", bus, resetVectorAddress: 0x0000_0008, trace) : null;
+    var master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
+    var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
     master.Reset();
     slave?.Reset();
 
@@ -76,6 +81,12 @@ static int RunBios(string[] args)
     Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
     PrintMemoryActivity("Work RAM Low", systemMap.WorkRamLow);
     PrintMemoryActivity("Work RAM High", systemMap.WorkRamHigh);
+    PrintInternalActivity("Master SH-2 internal", masterInternalBus);
+    if (slaveInternalBus is not null)
+    {
+        PrintInternalActivity("Slave SH-2 internal", slaveInternalBus);
+    }
+
     PrintUnimplemented(master);
     if (slave is not null)
     {
@@ -96,6 +107,16 @@ static int RunBios(string[] args)
     }
 
     return 0;
+}
+
+static void PrintInternalActivity(string label, Sh2InternalRegisterBus bus)
+{
+    if (bus.InternalReadCount == 0 && bus.InternalWriteCount == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine($"{label}: reads={bus.InternalReadCount:N0} writes={bus.InternalWriteCount:N0}");
 }
 
 static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace)
