@@ -219,7 +219,7 @@ public sealed class Sh2Cpu : ISh2Cpu
 
         switch (opcode & 0xF00F)
         {
-            case 0x0000:
+            case 0x0004:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;
@@ -227,7 +227,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: MOV.B R{source},@(R0,R{destination})");
                 return;
             }
-            case 0x0001:
+            case 0x0005:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;
@@ -235,7 +235,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: MOV.W R{source},@(R0,R{destination})");
                 return;
             }
-            case 0x0002:
+            case 0x0006:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;
@@ -243,7 +243,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: MOV.L R{source},@(R0,R{destination})");
                 return;
             }
-            case 0x0004:
+            case 0x000C:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;
@@ -252,7 +252,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: MOV.B @(R0,R{source}),R{destination}");
                 return;
             }
-            case 0x0005:
+            case 0x000D:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;
@@ -261,7 +261,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: MOV.W @(R0,R{source}),R{destination}");
                 return;
             }
-            case 0x0006:
+            case 0x000E:
             {
                 var destination = (opcode >> 8) & 0xF;
                 var source = (opcode >> 4) & 0xF;

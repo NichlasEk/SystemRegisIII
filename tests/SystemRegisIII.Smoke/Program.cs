@@ -37,6 +37,7 @@ Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full fr
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
 VerifySh2InternalRegisterBus();
+VerifySh2IndexedMoveDecoding();
 
 Console.WriteLine("SystemRegisIII smoke passed.");
 
@@ -111,6 +112,47 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteByte(0xFFFF_FE92, 0x40);
     Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 internal latch failed.");
     Require(slaveBus.ReadByte(0xFFFF_FE92) == 0, "SH-2 internal latch leaked across CPUs.");
+}
+
+static void VerifySh2IndexedMoveDecoding()
+{
+    var code = new ByteArrayMemory("Code RAM", 0x100);
+    var data = new ByteArrayMemory("Data RAM", 0x100);
+    WriteLong(code, 0x00, 0x0000_0008);
+    WriteLong(code, 0x04, 0);
+    WriteWord(code, 0x08, 0x0000);
+
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_00FF, code)
+        .Map(0x0600_0000, 0x0600_00FF, data)
+        .Build();
+    var cpu = new Sh2Cpu("Test SH-2", bus, 0x0000_0000);
+    cpu.Reset();
+    cpu.StepInstruction();
+    Require(cpu.FirstUnimplementedOpcode == 0x0000, "SH-2 opcode 0x0000 was decoded as a valid indexed move.");
+
+    WriteWord(code, 0x08, 0x0165);
+    cpu.Reset();
+    cpu.Registers.General[0] = 4;
+    cpu.Registers.General[1] = 0x0600_0000;
+    cpu.Registers.General[6] = 0xCAFE;
+    cpu.StepInstruction();
+    Require(ReadWord(data, 4) == 0xCAFE, "SH-2 MOV.W Rm,@(R0,Rn) failed.");
+}
+
+static ushort ReadWord(ByteArrayMemory memory, uint offset) =>
+    (ushort)((memory.ReadByte(offset) << 8) | memory.ReadByte(offset + 1));
+
+static void WriteWord(ByteArrayMemory memory, uint offset, ushort value)
+{
+    memory.WriteByte(offset, (byte)(value >> 8));
+    memory.WriteByte(offset + 1, (byte)value);
+}
+
+static void WriteLong(ByteArrayMemory memory, uint offset, uint value)
+{
+    WriteWord(memory, offset, (ushort)(value >> 16));
+    WriteWord(memory, offset + 2, (ushort)value);
 }
 
 static void Require(bool condition, string message)
