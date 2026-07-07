@@ -34,6 +34,7 @@ static int RunBios(string[] args)
     var instructionCount = GetIntOption(args, "--instructions", defaultValue: 64);
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
+    var dualSh2 = Has(args, "--dual-sh2");
 
     var bios = BiosImageLoader.Load(biosPath);
     var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
@@ -44,17 +45,19 @@ static int RunBios(string[] args)
     ISaturnBus bus = traceEnabled ? new TracingBus(addressMap, trace) : addressMap;
 
     var master = new Sh2Cpu("Master SH-2", bus, resetVectorAddress: 0x0000_0000, trace);
+    var slave = dualSh2 ? new Sh2Cpu("Slave SH-2", bus, resetVectorAddress: 0x0000_0008, trace) : null;
     master.Reset();
+    slave?.Reset();
 
     for (var i = 0; i < instructionCount; i++)
     {
-        try
+        if (!TryStep(master, trace))
         {
-            master.StepInstruction();
+            break;
         }
-        catch (BusFaultException exception)
+
+        if (slave is not null && !TryStep(slave, trace))
         {
-            trace.Write(new TraceEvent("Bus", 0, $"fault at 0x{exception.Address:X8}"));
             break;
         }
     }
@@ -63,16 +66,20 @@ static int RunBios(string[] args)
     Console.WriteLine($"BIOS bytes: {bios.Bytes.Length:N0}");
     Console.WriteLine($"Master SH-2 PC: 0x{master.Registers.ProgramCounter:X8}");
     Console.WriteLine($"Master SH-2 SR: 0x{master.Registers.StatusRegister:X8}");
+    if (slave is not null)
+    {
+        Console.WriteLine($"Slave SH-2 PC: 0x{slave.Registers.ProgramCounter:X8}");
+        Console.WriteLine($"Slave SH-2 SR: 0x{slave.Registers.StatusRegister:X8}");
+    }
+
     Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
+    Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
     PrintMemoryActivity("Work RAM Low", systemMap.WorkRamLow);
     PrintMemoryActivity("Work RAM High", systemMap.WorkRamHigh);
-    if (master.FirstUnimplementedOpcode is not null)
+    PrintUnimplemented(master);
+    if (slave is not null)
     {
-        Console.WriteLine(
-            $"First unimplemented: 0x{master.FirstUnimplementedOpcode:X4} at 0x{master.FirstUnimplementedProgramCounter:X8}");
-        Console.WriteLine(
-            $"Last unimplemented: 0x{master.LastUnimplementedOpcode:X4} at 0x{master.LastUnimplementedProgramCounter:X8}");
-        Console.WriteLine($"Unimplemented count: {master.UnimplementedInstructionCount:N0}");
+        PrintUnimplemented(slave);
     }
 
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
@@ -89,6 +96,34 @@ static int RunBios(string[] args)
     }
 
     return 0;
+}
+
+static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace)
+{
+    try
+    {
+        cpu.StepInstruction();
+        return true;
+    }
+    catch (BusFaultException exception)
+    {
+        trace.Write(new TraceEvent("Bus", 0, $"{cpu.Name} fault at 0x{exception.Address:X8}"));
+        return false;
+    }
+}
+
+static void PrintUnimplemented(Sh2Cpu cpu)
+{
+    if (cpu.FirstUnimplementedOpcode is null)
+    {
+        return;
+    }
+
+    Console.WriteLine(
+        $"{cpu.Name} first unimplemented: 0x{cpu.FirstUnimplementedOpcode:X4} at 0x{cpu.FirstUnimplementedProgramCounter:X8}");
+    Console.WriteLine(
+        $"{cpu.Name} last unimplemented: 0x{cpu.LastUnimplementedOpcode:X4} at 0x{cpu.LastUnimplementedProgramCounter:X8}");
+    Console.WriteLine($"{cpu.Name} unimplemented count: {cpu.UnimplementedInstructionCount:N0}");
 }
 
 static void PrintMemoryActivity(string label, IMainMemory memory)
@@ -160,5 +195,5 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace] [--simulate-slave-ready]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
 }
