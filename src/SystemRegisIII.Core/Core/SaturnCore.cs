@@ -14,6 +14,8 @@ namespace SystemRegisIII.Core.Core;
 
 public sealed class SaturnCore
 {
+    private const long CpuSliceCycles = 1024;
+
     private readonly IReadOnlyList<IClockedDevice> _devices;
 
     public SaturnCore(
@@ -45,8 +47,6 @@ public sealed class SaturnCore
 
         _devices =
         [
-            MasterSh2,
-            SlaveSh2,
             Vdp1,
             Vdp2,
             Scsp,
@@ -80,10 +80,31 @@ public sealed class SaturnCore
     public void StepFrame()
     {
         var budget = Clock.GetFrameBudget();
+        StepCpus(budget);
 
         foreach (var device in _devices)
         {
             device.Step(budget);
+        }
+    }
+
+    private void StepCpus(SaturnCycleBudget frameBudget)
+    {
+        var remaining = frameBudget;
+        while (remaining.HasCycles)
+        {
+            var slice = remaining.TakeSlice(CpuSliceCycles);
+            if (slice.MasterCycles > 0)
+            {
+                MasterSh2.Step(new SaturnCycleBudget(slice.MasterCycles, 0));
+            }
+
+            if (slice.SlaveCycles > 0)
+            {
+                SlaveSh2.Step(new SaturnCycleBudget(0, slice.SlaveCycles));
+            }
+
+            remaining = remaining.Subtract(slice);
         }
     }
 }

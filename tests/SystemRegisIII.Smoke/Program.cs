@@ -11,9 +11,11 @@ using SystemRegisIII.Core.Host.Input;
 using SystemRegisIII.Core.Host.Timing;
 using SystemRegisIII.Core.Host.Video;
 
+var masterSh2 = new StubSh2("Master SH-2");
+var slaveSh2 = new StubSh2("Slave SH-2");
 var core = new SaturnCore(
-    new StubSh2("Master SH-2"),
-    new StubSh2("Slave SH-2"),
+    masterSh2,
+    slaveSh2,
     new StubBus(),
     new StubMemory(2 * 1024 * 1024),
     new StubVdp1(),
@@ -27,6 +29,10 @@ var core = new SaturnCore(
 
 core.Reset();
 core.StepFrame();
+Require(masterSh2.StepCount > 1, "Master SH-2 was not frame-sliced.");
+Require(slaveSh2.StepCount == masterSh2.StepCount, "Slave SH-2 was not interleaved with master.");
+Require(masterSh2.TotalCycles == 536_931, "Master SH-2 did not receive the full frame budget.");
+Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full frame budget.");
 
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
@@ -98,6 +104,8 @@ internal sealed class StubSh2(string name) : ISh2Cpu
 {
     public string Name { get; } = name;
     public Sh2Registers Registers { get; } = new();
+    public int StepCount { get; private set; }
+    public long TotalCycles { get; private set; }
 
     public void Reset()
     {
@@ -107,11 +115,16 @@ internal sealed class StubSh2(string name) : ISh2Cpu
         Registers.GlobalBaseRegister = 0;
         Registers.VectorBaseRegister = 0;
         Array.Clear(Registers.General);
+        StepCount = 0;
+        TotalCycles = 0;
     }
 
     public void Step(SaturnCycleBudget budget)
     {
-        Registers.ProgramCounter += (uint)(budget.MasterCycles & 0xffff);
+        var cycles = budget.MasterCycles + budget.SlaveCycles;
+        StepCount++;
+        TotalCycles += cycles;
+        Registers.ProgramCounter += (uint)(cycles & 0xffff);
     }
 }
 

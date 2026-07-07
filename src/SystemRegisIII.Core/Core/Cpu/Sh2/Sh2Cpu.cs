@@ -45,7 +45,13 @@ public sealed class Sh2Cpu : ISh2Cpu
 
     public void Step(SaturnCycleBudget budget)
     {
-        var instructions = Math.Max(1, Math.Min(256, budget.MasterCycles / 4));
+        var cycles = budget.MasterCycles > 0 ? budget.MasterCycles : budget.SlaveCycles;
+        if (cycles <= 0)
+        {
+            return;
+        }
+
+        var instructions = Math.Max(1, Math.Min(256, cycles / 4));
 
         for (var i = 0; i < instructions; i++)
         {
