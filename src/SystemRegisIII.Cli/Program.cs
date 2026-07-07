@@ -55,11 +55,12 @@ static int RunBios(string[] args)
     slave?.Reset();
     var masterPcHits = new Dictionary<uint, long>();
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
+    var busFaults = new List<string>();
 
     for (var i = 0; i < instructionCount; i++)
     {
         RecordPc(masterPcHits, master.Registers.ProgramCounter);
-        if (!TryStep(master, trace))
+        if (!TryStep(master, trace, busFaults))
         {
             break;
         }
@@ -67,7 +68,7 @@ static int RunBios(string[] args)
         if (slave is not null)
         {
             RecordPc(slavePcHits!, slave.Registers.ProgramCounter);
-            if (!TryStep(slave, trace))
+            if (!TryStep(slave, trace, busFaults))
             {
                 break;
             }
@@ -106,6 +107,7 @@ static int RunBios(string[] args)
         PrintHotProgramCounters(slave.Name, slavePcHits!);
     }
 
+    PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
 
@@ -158,7 +160,7 @@ static void PrintInternalActivity(string label, Sh2InternalRegisterBus bus)
     Console.WriteLine($"{label}: reads={bus.InternalReadCount:N0} writes={bus.InternalWriteCount:N0}");
 }
 
-static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace)
+static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace, List<string> busFaults)
 {
     try
     {
@@ -167,8 +169,24 @@ static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace)
     }
     catch (BusFaultException exception)
     {
-        trace.Write(new TraceEvent("Bus", 0, $"{cpu.Name} fault at 0x{exception.Address:X8}"));
+        var message = $"{cpu.Name} fault at 0x{exception.Address:X8}";
+        busFaults.Add(message);
+        trace.Write(new TraceEvent("Bus", 0, message));
         return false;
+    }
+}
+
+static void PrintBusFaults(IReadOnlyList<string> busFaults)
+{
+    if (busFaults.Count == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine("Bus faults:");
+    foreach (var busFault in busFaults)
+    {
+        Console.WriteLine($"  {busFault}");
     }
 }
 
