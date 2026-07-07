@@ -97,11 +97,14 @@ Work in small pushable slices:
 - `d923e2e`: Added hot-PC reporting to the CLI. Current BIOS evidence shows master hot at `0x00001D3C/0x00001D3E` and slave hot at `0x00000240/0x00000242` in dual mode.
 - `2246675`: Added bus fault summary output. `--dual-sh2 --simulate-slave-ready` currently reports `Slave SH-2 fault at 0x06100000` after running through empty high RAM.
 - `57c0d4f`: Fixed SH-2 indexed move decoding so `0x0000` is not treated as a valid instruction. The forced slave-ready path now correctly reports unimplemented `0x0000` at `0x06000600`.
+- Current slice: Added BIOS-driven SH-2 coverage for displacement moves, PC-relative word loads, predecrement stores, control-register moves, compare/subtract forms, and shift/rotate forms. Added a conservative `0x05800000..0x058FFFFF` B-bus/VDP mirror stub so SH-2 cache-through reads like `0x25890018` no longer fault.
 
 ## Current Next Blocker
 
-In real dual mode, slave waits for `2RDY` at `0x06000240`. Master reaches the BIOS delay loop without writing that ready word. In forced slave-ready mode, slave jumps to `0x06000600`, which is still empty RAM. The next slice should identify whether BIOS expects:
+In real dual mode, the verified `16M`-instruction run now has no unimplemented opcodes and no bus faults. Master reaches BIOS code around `0x00002304` while repeatedly reading the `0x25890018..0x25890024` cache-through range, which is currently backed by the conservative B-bus/VDP mirror stub returning zero. Slave still waits on `2RDY` at `0x06000240`.
 
-- a real slave release/reset handshake before master continues,
-- a missing SMPC/SCU status behavior,
-- or a BIOS RAM-copy/startup sequence we are skipping with the current simulation.
+The next slice should identify whether BIOS expects:
+
+- specific status bits or changing values from the `0x05890018..0x05890024` mirror range,
+- a real VDP/SCU status behavior before master writes the slave-ready word,
+- or a scheduling/timing issue where master eventually releases slave only after a longer verified run.

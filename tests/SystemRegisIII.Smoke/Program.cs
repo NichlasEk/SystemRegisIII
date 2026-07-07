@@ -38,6 +38,7 @@ VerifyPageMappedBus();
 VerifySaturnSystemMap();
 VerifySh2InternalRegisterBus();
 VerifySh2IndexedMoveDecoding();
+VerifySh2BiosBringupInstructions();
 
 Console.WriteLine("SystemRegisIII smoke passed.");
 
@@ -84,6 +85,10 @@ static void VerifySaturnSystemMap()
         systemMap.Bus.TryResolve(0x0010_0000, out var region, out _) &&
         region.Device.Name == "SMPC Registers",
         "SMPC stub mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x2589_0018, out region, out _) &&
+        region.Device.Name == "VDP / B-Bus Mirror Area",
+        "VDP/B-Bus mirror stub mapping failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
 
@@ -140,8 +145,100 @@ static void VerifySh2IndexedMoveDecoding()
     Require(ReadWord(data, 4) == 0xCAFE, "SH-2 MOV.W Rm,@(R0,Rn) failed.");
 }
 
+static void VerifySh2BiosBringupInstructions()
+{
+    var code = new ByteArrayMemory("Code RAM", 0x100);
+    var data = new ByteArrayMemory("Data RAM", 0x100);
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_00FF, code)
+        .Map(0x0600_0000, 0x0600_00FF, data)
+        .Build();
+    var cpu = new Sh2Cpu("Test SH-2", bus, 0x0000_0000);
+
+    WriteLong(code, 0x00, 0x0000_0008);
+    WriteLong(code, 0x04, 0);
+    WriteLong(data, 0x08, 0x1122_3344);
+    WriteWord(code, 0x08, 0x5122);
+    cpu.Reset();
+    cpu.Registers.General[2] = 0x0600_0000;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x1122_3344, "SH-2 MOV.L @(disp,Rm),Rn failed.");
+
+    WriteWord(code, 0x08, 0x9300);
+    WriteWord(code, 0x0C, 0xFF80);
+    cpu.Reset();
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[3] == 0xFFFF_FF80, "SH-2 MOV.W @(disp,PC),Rn failed.");
+
+    WriteWord(code, 0x08, 0x8013);
+    cpu.Reset();
+    cpu.Registers.General[0] = 0xAB;
+    cpu.Registers.General[1] = 0x0600_0000;
+    cpu.StepInstruction();
+    Require(data.ReadByte(3) == 0xAB, "SH-2 MOV.B R0,@(disp,Rn) failed.");
+
+    WriteWord(data, 4, 0x8001);
+    WriteWord(code, 0x08, 0x8512);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0000;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[0] == 0xFFFF_8001, "SH-2 MOV.W @(disp,Rn),R0 failed.");
+
+    WriteWord(code, 0x08, 0x2126);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0008;
+    cpu.Registers.General[2] = 0x5566_7788;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 MOV.L Rm,@-Rn did not predecrement.");
+    Require(ReadLong(data, 4) == 0x5566_7788, "SH-2 MOV.L Rm,@-Rn failed.");
+
+    WriteWord(code, 0x08, 0x4122);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0008;
+    cpu.Registers.ProcedureRegister = 0xCAFEBABE;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STS.L PR,@-Rn did not predecrement.");
+    Require(ReadLong(data, 4) == 0xCAFE_BABE, "SH-2 STS.L PR,@-Rn failed.");
+
+    WriteWord(code, 0x08, 0x3122);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8000_0000;
+    cpu.Registers.General[2] = 0x7FFF_FFFF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 CMP/HS Rm,Rn failed unsigned comparison.");
+
+    WriteWord(code, 0x08, 0x3127);
+    cpu.Reset();
+    cpu.Registers.General[1] = 1;
+    cpu.Registers.General[2] = 0xFFFF_FFFF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 CMP/GT Rm,Rn failed signed comparison.");
+
+    WriteWord(code, 0x08, 0x4119);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8123_4567;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0081_2345, "SH-2 SHLR8 failed.");
+
+    WriteWord(code, 0x08, 0x3128);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x1000_0000;
+    cpu.Registers.General[2] = 0x0000_0001;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0FFF_FFFF, "SH-2 SUB Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x4109);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8000_0004;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x2000_0001, "SH-2 SHLR2 failed.");
+}
+
 static ushort ReadWord(ByteArrayMemory memory, uint offset) =>
     (ushort)((memory.ReadByte(offset) << 8) | memory.ReadByte(offset + 1));
+
+static uint ReadLong(ByteArrayMemory memory, uint offset) =>
+    ((uint)ReadWord(memory, offset) << 16) | ReadWord(memory, offset + 2);
 
 static void WriteWord(ByteArrayMemory memory, uint offset, ushort value)
 {

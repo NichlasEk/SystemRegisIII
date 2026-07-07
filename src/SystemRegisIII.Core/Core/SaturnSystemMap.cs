@@ -35,6 +35,7 @@ public sealed class SaturnSystemMap
             new("Backup RAM / Cartridge Area"),
             new("Cartridge / Expansion Area"),
             new("CD Block Area"),
+            new("VDP / B-Bus Mirror Area"),
             new("SCSP Area"),
             new("VDP1 Area"),
             new("VDP2 Area"),
@@ -50,14 +51,15 @@ public sealed class SaturnSystemMap
             .Map(0x0100_0000, 0x010F_FFFF, stubs[1])
             .Map(0x0180_0000, 0x01FF_FFFF, stubs[2])
             .Map(0x0200_0000, 0x020F_FFFF, stubs[3])
-            .Map(0x05A0_0000, 0x05AF_FFFF, stubs[4])
-            .Map(0x05B0_0000, 0x05BF_FFFF, stubs[5])
-            .Map(0x05C0_0000, 0x05DF_FFFF, stubs[6])
-            .Map(0x05E0_0000, 0x05EF_FFFF, stubs[7])
-            .Map(0x05F0_0000, 0x05FF_FFFF, stubs[8])
+            .Map(0x0580_0000, 0x058F_FFFF, stubs[4])
+            .Map(0x05A0_0000, 0x05AF_FFFF, stubs[5])
+            .Map(0x05B0_0000, 0x05BF_FFFF, stubs[6])
+            .Map(0x05C0_0000, 0x05DF_FFFF, stubs[7])
+            .Map(0x05E0_0000, 0x05EF_FFFF, stubs[8])
+            .Map(0x05F0_0000, 0x05FF_FFFF, stubs[9])
             .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
             .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
-            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[9]);
+            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[10]);
 
         return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, stubs);
     }
