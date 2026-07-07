@@ -7,8 +7,8 @@ public sealed class SaturnSystemMap
 {
     private SaturnSystemMap(
         PageMappedBus bus,
-        ByteArrayMemory workRamLow,
-        ByteArrayMemory workRamHigh,
+        IMainMemory workRamLow,
+        IMainMemory workRamHigh,
         IReadOnlyList<StubBusDevice> stubs)
     {
         Bus = bus;
@@ -18,15 +18,17 @@ public sealed class SaturnSystemMap
     }
 
     public PageMappedBus Bus { get; }
-    public ByteArrayMemory WorkRamLow { get; }
-    public ByteArrayMemory WorkRamHigh { get; }
+    public IMainMemory WorkRamLow { get; }
+    public IMainMemory WorkRamHigh { get; }
     public IReadOnlyList<StubBusDevice> Stubs { get; }
 
-    public static SaturnSystemMap CreateBringup(BiosImage bios)
+    public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
     {
+        options ??= new SaturnBringupOptions();
         var biosRom = new RomDevice("BIOS ROM", bios.Bytes);
         var workRamLow = new ByteArrayMemory("Work RAM Low", 1024 * 1024);
-        var workRamHigh = new ByteArrayMemory("Work RAM High", 1024 * 1024);
+        IMainMemory workRamHigh = CreateHighWorkRam(options);
+        var workRamHighDevice = (IBusDevice)workRamHigh;
         StubBusDevice[] stubs =
         [
             new("SMPC Registers"),
@@ -53,10 +55,23 @@ public sealed class SaturnSystemMap
             .Map(0x05C0_0000, 0x05DF_FFFF, stubs[6])
             .Map(0x05E0_0000, 0x05EF_FFFF, stubs[7])
             .Map(0x05F0_0000, 0x05FF_FFFF, stubs[8])
-            .Map(0x0600_0000, 0x060F_FFFF, workRamHigh)
-            .Map(0x6000_0000, 0x600F_FFFF, workRamHigh)
-            .Map(0xFFFF_FE00, 0xFFFF_FFFF, stubs[9]);
+            .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
+            .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
+            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[9]);
 
         return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, stubs);
+    }
+
+    private static IMainMemory CreateHighWorkRam(SaturnBringupOptions options)
+    {
+        var highRam = new ByteArrayMemory("Work RAM High", 1024 * 1024);
+        if (!options.SimulateSlaveReady)
+        {
+            return highRam;
+        }
+
+        var overlay = new OverlayMemory(highRam);
+        overlay.AddReadOnlyLong(0x240, 0x3252_4459);
+        return overlay;
     }
 }

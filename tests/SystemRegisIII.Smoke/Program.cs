@@ -78,6 +78,12 @@ static void VerifySaturnSystemMap()
         "SMPC stub mapping failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
+
+    var simulatedMap = SaturnSystemMap.CreateBringup(
+        bios,
+        new SaturnBringupOptions { SimulateSlaveReady = true });
+    simulatedMap.Bus.WriteLong(0x4600_0240, 0);
+    Require(simulatedMap.Bus.ReadLong(0x0600_0240) == 0x3252_4459, "Slave-ready bringup overlay failed.");
 }
 
 static void Require(bool condition, string message)

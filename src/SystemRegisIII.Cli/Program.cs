@@ -2,6 +2,7 @@ using SystemRegisIII.Cli;
 using SystemRegisIII.Core.Core;
 using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
+using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
 return Run(args);
@@ -32,10 +33,13 @@ static int RunBios(string[] args)
 
     var instructionCount = GetIntOption(args, "--instructions", defaultValue: 64);
     var traceEnabled = Has(args, "--trace");
+    var simulateSlaveReady = Has(args, "--simulate-slave-ready");
 
     var bios = BiosImageLoader.Load(biosPath);
-    var trace = new RingTraceEventSink(capacity: Math.Max(512, instructionCount * 8));
-    var systemMap = SaturnSystemMap.CreateBringup(bios);
+    var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
+    var systemMap = SaturnSystemMap.CreateBringup(
+        bios,
+        new SaturnBringupOptions { SimulateSlaveReady = simulateSlaveReady });
     var addressMap = systemMap.Bus;
     ISaturnBus bus = traceEnabled ? new TracingBus(addressMap, trace) : addressMap;
 
@@ -59,6 +63,9 @@ static int RunBios(string[] args)
     Console.WriteLine($"BIOS bytes: {bios.Bytes.Length:N0}");
     Console.WriteLine($"Master SH-2 PC: 0x{master.Registers.ProgramCounter:X8}");
     Console.WriteLine($"Master SH-2 SR: 0x{master.Registers.StatusRegister:X8}");
+    Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
+    PrintMemoryActivity("Work RAM Low", systemMap.WorkRamLow);
+    PrintMemoryActivity("Work RAM High", systemMap.WorkRamHigh);
     if (master.FirstUnimplementedOpcode is not null)
     {
         Console.WriteLine(
@@ -82,6 +89,23 @@ static int RunBios(string[] args)
     }
 
     return 0;
+}
+
+static void PrintMemoryActivity(string label, IMainMemory memory)
+{
+    if (memory is not IWriteTrackedMemory tracked)
+    {
+        return;
+    }
+
+    if (tracked.WriteCount == 0)
+    {
+        Console.WriteLine($"{label}: no writes");
+        return;
+    }
+
+    Console.WriteLine(
+        $"{label}: writes={tracked.WriteCount:N0} first=0x{tracked.FirstWriteOffset!.Value:X6} last=0x{tracked.LastWriteOffset!.Value:X6}");
 }
 
 static void PrintTouchedStubs(SaturnSystemMap systemMap)
@@ -136,5 +160,5 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace] [--simulate-slave-ready]");
 }
