@@ -15,3 +15,14 @@ The first design rule is a modular core:
 - `Tools` for trace viewing, ROM inspection, audio exploration, and translation overlays.
 
 Core emulation code should not depend on a UI framework, audio backend, renderer, or network service.
+The future UI shell is intentionally undecided; the core is built so any desktop, web, or EutherDrive host can attach later.
+
+## First Bringup
+
+Run a local BIOS trace from the CLI:
+
+```sh
+dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --instructions 220 --trace
+```
+
+The `bios/` directory is intentionally ignored by Git.

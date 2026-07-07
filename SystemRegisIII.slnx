@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj" />
     <Project Path="src/SystemRegisIII.Core/SystemRegisIII.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
