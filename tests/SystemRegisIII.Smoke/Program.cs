@@ -133,16 +133,22 @@ static void VerifySaturnSystemMap()
     var smpcRegisters = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     Require(smpcRegisters.LastCommand == 0x02, "SMPC command latch failed.");
     Require(smpcRegisters.SlaveSh2Enabled, "SMPC SSHON command failed.");
+    systemMap.Bus.WriteByte(0x0010_001F, 0x10);
+    Require(smpcRegisters.TryConsumeInterrupt(), "SMPC INTBACK interrupt latch failed.");
     var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     scuRegisters.RaiseVBlankIn();
     Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");
     scuRegisters.RaiseVBlankOut();
     Require(!scuRegisters.HasPendingVBlankOut, "SCU VBlank-OUT interrupt ignored reset mask failed.");
+    scuRegisters.RaiseSmpc();
+    Require(!scuRegisters.HasPendingSmpc, "SCU SMPC interrupt ignored reset mask failed.");
     systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FFFC);
     Require(systemMap.Bus.ReadLong(0x25FE_00A0) == 0xFFFF_FFFC, "SCU interrupt mask latch failed.");
     Require(scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt pending failed.");
     Require(scuRegisters.HasPendingVBlankOut, "SCU VBlank-OUT interrupt pending failed.");
-    systemMap.Bus.WriteLong(0x25FE_00A4, 0xFFFF_FFFC);
+    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FF7C);
+    Require(scuRegisters.HasPendingSmpc, "SCU SMPC interrupt pending failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A4, 0xFFFF_FF7C);
     Require(systemMap.Bus.ReadLong(0x25FE_00A4) == 0x0000_0000, "SCU interrupt status clear failed.");
 
     var simulatedMap = SaturnSystemMap.CreateBringup(

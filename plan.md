@@ -108,6 +108,8 @@ Work in small pushable slices:
 - Current slice: Modeled CD Block command `0x00` as an explicit current-status response, exposed response CR values in the CLI, and changed the no-media bringup default from `<PAUSE>` to `<NODISC>`. This keeps the headless BIOS run honest until a host disc image is mounted.
 - Current slice: Added focused Work RAM watches around `0x06020230..0x0602024F` and `0x06020720..0x0602075F`, plus compact BIOS code/data windows for the wait loop, SCU V-Blank-IN handler, callback table, and V-Blank helper code. The watched wait flag at `0x06020240` is only written as zero so far; nearby `0x0602024C` points at callback/state storage `0x06020728`, while the V-Blank callback table at `0x06000A00` points to `0x06028D64` and `0x06028D9E`. PC heat now proves V-Blank callback/helper code is reached, including `0x06028934`.
 - Current slice: Added SCU V-Blank-OUT pending/status support and deterministic CLI raising between V-Blank-IN ticks. The 40M BIOS run still stops at `0x06028318`; the wait flag and callback-state table remain unchanged, so V-Blank-OUT alone is not the missing activation source.
+- Current slice: Used Mednafen's local Saturn source only as a GPL black-box/behavioral oracle and corrected the active SCU interrupt-mask interpretation: bits `7/8` are SMPC/PAD, not timers. Built a Saturn-only Mednafen oracle binary in `/tmp/systemregis_mednafen_probe/mednafen/src/mednafen`, and added a narrow SMPC `INTBACK` completion interrupt path through SCU bit `7`, vector `0x47`, level `8`.
+- Current slice result: the 40M BIOS run still stops at `0x06028318` with SMPC pending interrupts drained and `smpc-pending=False`. The next suspect is SMPC `INTBACK` output/status data or PAD interrupt behavior, not basic SCU SMPC interrupt delivery.
 
 ## Current Next Blocker
 
@@ -139,5 +141,5 @@ The current diagnostic slice identifies the relevant Work RAM and handler paths:
 The next slice should identify which remaining hardware status path is expected to activate the callback/state entry:
 
 - inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
-- decide whether callback activation depends on CD periodic status, SCSP DSP/status, or SCU timer bits `7/8` from the active `0x0183` interrupt mask;
+- decide whether callback activation depends on CD periodic status, SCSP DSP/status, SMPC `INTBACK` result data, or PAD interrupt behavior from the active `0x0183` interrupt mask;
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

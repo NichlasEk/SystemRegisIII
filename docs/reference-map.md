@@ -26,7 +26,19 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - SCU interrupt status register: `25FE00A4`.
   - V-Blank-IN interrupt: status/mask bit `0`, vector `0x40`, level `0xF`.
   - V-Blank-OUT interrupt: status/mask bit `1`, vector `0x41`, level `0xE`.
+  - SMPC interrupt: status/mask bit `7`, vector `0x47`, level `0x8`.
+  - PAD interrupt: status/mask bit `8`, vector `0x48`, level `0x8`.
   - In this repo's current SCU mirror mapping, cache-through `0x25FE00A0/0x25FE00A4` appears at device offsets `0x0E00A0` and `0x0E00A4`.
+
+### Mednafen Sega Saturn Core
+
+- Local source archive inspected outside this repository: `/home/nichlas/mednafen.github.io/releases/files/mednafen-1.32.1.tar.xz`.
+- License status: GPL; use only as a black-box or behavioral oracle, never as implementation source for the MIT core.
+- Local probe build: `/tmp/systemregis_mednafen_probe/mednafen/src/mednafen`, configured with only the Saturn core, SDL audio/video disabled, and debugger enabled.
+- Useful clean-room facts:
+  - SCU exposes separate interrupt factors for V-Blank-IN, V-Blank-OUT, SMPC, PAD, DMA, DSP, and external A-Bus sources.
+  - SMPC `INTBACK` behavior can raise the SCU SMPC interrupt source.
+  - Mednafen has debugger-visible SCU register groups for interrupt level, vector, pending bits, asserted bits, and mask.
 
 ### SMPC User's Manual
 

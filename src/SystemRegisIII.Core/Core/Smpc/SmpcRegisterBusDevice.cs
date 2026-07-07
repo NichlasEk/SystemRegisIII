@@ -6,6 +6,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
 {
     private const uint CommandRegister = 0x1F;
     private const uint StatusFlagRegister = 0x63;
+    private const byte IntbackCommand = 0x10;
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private readonly Queue<byte> _recentCommands = new();
@@ -19,6 +20,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     public uint? LastWriteOffset { get; private set; }
     public byte LastCommand { get; private set; }
     public bool SlaveSh2Enabled { get; private set; }
+    public int PendingInterrupts { get; private set; }
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
 
     public byte ReadByte(uint offset)
@@ -53,6 +55,9 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
 
         switch (value)
         {
+            case IntbackCommand:
+                PendingInterrupts++;
+                break;
             case 0x02:
                 SlaveSh2Enabled = true;
                 break;
@@ -60,6 +65,17 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
                 SlaveSh2Enabled = false;
                 break;
         }
+    }
+
+    public bool TryConsumeInterrupt()
+    {
+        if (PendingInterrupts <= 0)
+        {
+            return false;
+        }
+
+        PendingInterrupts--;
+        return true;
     }
 
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>

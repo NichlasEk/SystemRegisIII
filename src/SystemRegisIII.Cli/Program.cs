@@ -71,6 +71,11 @@ static int RunBios(string[] args)
 
     for (var i = 0; i < instructionCount; i++)
     {
+        while (smpc.TryConsumeInterrupt())
+        {
+            scu.RaiseSmpc();
+        }
+
         if (i > 0 && i % 1_000_000 == 0)
         {
             scu.RaiseVBlankIn();
@@ -87,6 +92,10 @@ static int RunBios(string[] args)
         else if (scu.HasPendingVBlankOut)
         {
             _ = master.RequestInterrupt(14, 0x41);
+        }
+        else if (scu.HasPendingSmpc)
+        {
+            _ = master.RequestInterrupt(8, 0x47);
         }
 
         var masterPc = master.Registers.ProgramCounter;
@@ -267,7 +276,7 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
 
     Console.WriteLine("SCU interrupt state:");
     Console.WriteLine(
-        $"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn} vblank-out-pending={scu.HasPendingVBlankOut}");
+        $"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn} vblank-out-pending={scu.HasPendingVBlankOut} smpc-pending={scu.HasPendingSmpc}");
     Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
 }
 
@@ -396,6 +405,7 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine($"    last command: 0x{smpcRegisters.LastCommand:X2}");
             Console.WriteLine($"    recent commands: {string.Join(", ", smpcRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
+            Console.WriteLine($"    pending interrupts: {smpcRegisters.PendingInterrupts}");
             Console.WriteLine($"    slave SH-2 enabled: {smpcRegisters.SlaveSh2Enabled}");
         }
         else if (stub is ScuRegisterBusDevice scuRegisters)
