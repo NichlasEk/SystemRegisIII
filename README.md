@@ -17,6 +17,8 @@ The first design rule is a modular core:
 Core emulation code should not depend on a UI framework, audio backend, renderer, or network service.
 The future UI shell is intentionally undecided; the core is built so any desktop, web, or EutherDrive host can attach later.
 
+The bus is page-mapped for the hot path. Tracing is attached as an optional bus wrapper instead of being built into every device lookup.
+
 ## First Bringup
 
 Run a local BIOS trace from the CLI:

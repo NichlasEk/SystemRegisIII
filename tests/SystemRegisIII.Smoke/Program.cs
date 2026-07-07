@@ -28,7 +28,45 @@ var core = new SaturnCore(
 core.Reset();
 core.StepFrame();
 
+VerifyPageMappedBus();
+
 Console.WriteLine("SystemRegisIII smoke passed.");
+
+static void VerifyPageMappedBus()
+{
+    var rom = new RomDevice("Test ROM", [0x12, 0x34, 0x56, 0x78]);
+    var ram = new ByteArrayMemory("Test RAM", 0x2000);
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_0003, rom)
+        .Map(0x6000_0FF0, 0x6000_1FFF, ram)
+        .Build();
+
+    Require(bus.ReadLong(0x0000_0000) == 0x1234_5678, "ROM long read failed.");
+    Require(bus.ReadWord(0x2000_0000) == 0x1234, "SH-2 BIOS alias read failed.");
+
+    bus.WriteWord(0x6000_0FFE, 0xCAFE);
+    Require(bus.ReadWord(0x6000_0FFE) == 0xCAFE, "Partial page RAM write failed.");
+
+    try
+    {
+        _ = new SaturnAddressMapBuilder()
+            .Map(0x0000_0000, 0x0000_00FF, rom)
+            .Map(0x0000_0080, 0x0000_00FF, ram)
+            .Build();
+        throw new InvalidOperationException("Overlapping bus regions were accepted.");
+    }
+    catch (InvalidOperationException)
+    {
+    }
+}
+
+static void Require(bool condition, string message)
+{
+    if (!condition)
+    {
+        throw new InvalidOperationException(message);
+    }
+}
 
 internal sealed class StubSh2(string name) : ISh2Cpu
 {

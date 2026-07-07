@@ -1,37 +1,40 @@
 namespace SystemRegisIII.Core.Core.Bus;
 
-public sealed class MappedBus : ISaturnBus
+public sealed class PageMappedBus : ISaturnBus, IAddressMap
 {
-    private readonly List<BusRegion> _regions = [];
+    public const int PageBits = 12;
+    public const uint PageSize = 1u << PageBits;
+    public const uint PageMask = PageSize - 1;
 
-    public event EventHandler<BusAccessEventArgs>? Accessed;
+    private const int PageCount = 1 << (32 - PageBits);
 
-    public IReadOnlyList<BusRegion> Regions => _regions;
+    private readonly List<BusRegion>?[] _pages = new List<BusRegion>?[PageCount];
 
-    public void Map(uint start, uint endInclusive, IBusDevice device)
+    internal PageMappedBus(IReadOnlyList<BusRegion> regions)
     {
-        var region = new BusRegion(start, endInclusive, device);
+        Regions = regions
+            .OrderBy(static region => region.Start)
+            .ToArray();
 
-        foreach (var existing in _regions)
+        foreach (var region in Regions)
         {
-            var overlaps = start <= existing.EndInclusive && endInclusive >= existing.Start;
-            if (overlaps)
+            var firstPage = region.Start >> PageBits;
+            var lastPage = region.EndInclusive >> PageBits;
+
+            for (var page = firstPage; page <= lastPage; page++)
             {
-                throw new InvalidOperationException(
-                    $"Bus region 0x{start:X8}-0x{endInclusive:X8} overlaps {existing.Device.Name}.");
+                _pages[page] ??= [];
+                _pages[page]!.Add(region);
             }
         }
-
-        _regions.Add(region);
-        _regions.Sort(static (left, right) => left.Start.CompareTo(right.Start));
     }
+
+    public IReadOnlyList<BusRegion> Regions { get; }
 
     public byte ReadByte(uint address)
     {
         var (region, offset) = Resolve(address);
-        var value = region.Device.ReadByte(offset);
-        Publish(address, 1, value, isWrite: false, region.Device.Name);
-        return value;
+        return region.Device.ReadByte(offset);
     }
 
     public ushort ReadWord(uint address)
@@ -52,7 +55,6 @@ public sealed class MappedBus : ISaturnBus
     {
         var (region, offset) = Resolve(address);
         region.Device.WriteByte(offset, value);
-        Publish(address, 1, value, isWrite: true, region.Device.Name);
     }
 
     public void WriteWord(uint address, ushort value)
@@ -70,12 +72,17 @@ public sealed class MappedBus : ISaturnBus
     private (BusRegion Region, uint Offset) Resolve(uint address)
     {
         var physicalAddress = Normalize(address);
+        var page = physicalAddress >> PageBits;
+        var candidates = _pages[page];
 
-        foreach (var region in _regions)
+        if (candidates is not null)
         {
-            if (region.Contains(physicalAddress))
+            foreach (var region in candidates)
             {
-                return (region, physicalAddress - region.Start);
+                if (region.Contains(physicalAddress))
+                {
+                    return (region, physicalAddress - region.Start);
+                }
             }
         }
 
@@ -90,10 +97,5 @@ public sealed class MappedBus : ISaturnBus
         }
 
         return address;
-    }
-
-    private void Publish(uint address, int sizeBytes, uint value, bool isWrite, string deviceName)
-    {
-        Accessed?.Invoke(this, new BusAccessEventArgs(new BusAccess(address, sizeBytes, value, isWrite, deviceName)));
     }
 }
