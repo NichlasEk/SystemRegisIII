@@ -1,6 +1,7 @@
 using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Smpc;
 
 namespace SystemRegisIII.Core.Core;
 
@@ -30,11 +31,12 @@ public sealed class SaturnSystemMap
         var workRamLow = new ByteArrayMemory("Work RAM Low", 1024 * 1024);
         IMainMemory workRamHigh = CreateHighWorkRam(options);
         var workRamHighDevice = (IBusDevice)workRamHigh;
+        var smpcRegisters = new SmpcRegisterBusDevice();
         var cdBlockRegisterMirror = new CdBlockRegisterBusDevice();
 
         IInspectableBusDevice[] stubs =
         [
-            new StubBusDevice("SMPC Registers"),
+            smpcRegisters,
             new StubBusDevice("Backup RAM / Cartridge Area"),
             new StubBusDevice("Cartridge / Expansion Area"),
             new StubBusDevice("CD Block Area"),

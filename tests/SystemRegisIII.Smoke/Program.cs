@@ -3,6 +3,7 @@ using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Smpc;
 using SystemRegisIII.Core.Core.Scsp;
 using SystemRegisIII.Core.Core.Vdp1;
 using SystemRegisIII.Core.Core.Vdp2;
@@ -120,6 +121,10 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadLong(0x25A0_0000) == 0x0000_A000, "SCSP register write-back failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
+    systemMap.Bus.WriteByte(0x0010_001F, 0x02);
+    var smpcRegisters = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
+    Require(smpcRegisters.LastCommand == 0x02, "SMPC command latch failed.");
+    Require(smpcRegisters.SlaveSh2Enabled, "SMPC SSHON command failed.");
 
     var simulatedMap = SaturnSystemMap.CreateBringup(
         bios,

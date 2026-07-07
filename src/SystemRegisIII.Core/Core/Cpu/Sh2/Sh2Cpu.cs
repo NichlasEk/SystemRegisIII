@@ -904,42 +904,42 @@ public sealed class Sh2Cpu : ISh2Cpu
                 {
                     var address = Registers.GlobalBaseRegister + displacement;
                     _bus.WriteByte(address, (byte)Registers.General[0]);
-                    Trace($"0x{pc:X8}: MOV.B R0,@(0x{displacement:X2},GBR)");
+                    Trace($"0x{pc:X8}: MOV.B R0,@(0x{displacement:X2},GBR) [0x{address:X8}]=0x{(byte)Registers.General[0]:X2}");
                     return;
                 }
             case 0xC100:
                 {
                     var address = Registers.GlobalBaseRegister + (displacement * 2);
                     _bus.WriteWord(address, (ushort)Registers.General[0]);
-                    Trace($"0x{pc:X8}: MOV.W R0,@(0x{displacement:X2},GBR)");
+                    Trace($"0x{pc:X8}: MOV.W R0,@(0x{displacement:X2},GBR) [0x{address:X8}]=0x{(ushort)Registers.General[0]:X4}");
                     return;
                 }
             case 0xC200:
                 {
                     var address = Registers.GlobalBaseRegister + (displacement * 4);
                     _bus.WriteLong(address, Registers.General[0]);
-                    Trace($"0x{pc:X8}: MOV.L R0,@(0x{displacement:X2},GBR)");
+                    Trace($"0x{pc:X8}: MOV.L R0,@(0x{displacement:X2},GBR) [0x{address:X8}]=0x{Registers.General[0]:X8}");
                     return;
                 }
             case 0xC400:
                 {
                     var address = Registers.GlobalBaseRegister + displacement;
                     Registers.General[0] = (uint)(sbyte)_bus.ReadByte(address);
-                    Trace($"0x{pc:X8}: MOV.B @(0x{displacement:X2},GBR),R0");
+                    Trace($"0x{pc:X8}: MOV.B @(0x{displacement:X2},GBR),R0 [0x{address:X8}]=0x{Registers.General[0]:X8}");
                     return;
                 }
             case 0xC500:
                 {
                     var address = Registers.GlobalBaseRegister + (displacement * 2);
                     Registers.General[0] = (uint)(short)_bus.ReadWord(address);
-                    Trace($"0x{pc:X8}: MOV.W @(0x{displacement:X2},GBR),R0");
+                    Trace($"0x{pc:X8}: MOV.W @(0x{displacement:X2},GBR),R0 [0x{address:X8}]=0x{Registers.General[0]:X8}");
                     return;
                 }
             case 0xC600:
                 {
                     var address = Registers.GlobalBaseRegister + (displacement * 4);
                     Registers.General[0] = _bus.ReadLong(address);
-                    Trace($"0x{pc:X8}: MOV.L @(0x{displacement:X2},GBR),R0");
+                    Trace($"0x{pc:X8}: MOV.L @(0x{displacement:X2},GBR),R0 [0x{address:X8}]=0x{Registers.General[0]:X8}");
                     return;
                 }
             case 0xCC00:

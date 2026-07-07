@@ -103,15 +103,26 @@ Work in small pushable slices:
 - `70d37db`: Added a minimal CD Block HIRQ `CMOK` latch at `0x25890008` after the BIOS status transition and filled SH-2 `NOT Rm,Rn`. This moves BIOS through the first HIRQ wait and into repeated CR/HIRQ polling with no unimplemented opcodes.
 - `753d185`: Split the CD Block register mirror out of `SaturnSystemMap` into a dedicated `CdBlockRegisterBusDevice`, added HIRQ clear/mask-ish behavior, CR command latches, and CLI reporting for the last CR command. Yabause was used only as a behavioral/register reference for HIRQ/CR naming and status shape; no GPL implementation code was copied.
 - Current slice: Implemented CD Block command `0x01` (`Get Hardware Info`) as a clean room register response, added SCSP register write-back for BIOS audio init, and filled the SH-2 coverage that BIOS hit after leaving the CD loop: `CMP/HI`, `SHLR`, and GBR byte immediate `TST.B/AND.B/XOR.B/OR.B`.
+- Current slice: Added a dedicated SMPC register device from the official SMPC command model, including command history, immediate status-flag completion, and `SSHON`/`SSHOFF` slave enable state. The CLI now gates experimental slave stepping on SMPC state and prints a compact Work RAM loop probe when BIOS reaches the hot `0x06028314..0x06028318` loop. Official Saturn manuals from antime's Sega documentation archive were used as behavior references for SMPC command numbers, SCSP register map/timer notes, and SCU interrupt/mask direction.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `80M`-instruction run now has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, and now loops around `0x06028314..0x06028318`. Slave still waits on `2RDY` at `0x06000240`.
+In real dual mode, the verified `40M`-instruction run now has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, and loops around `0x06028314..0x06028318`.
+
+The loop is now identified as a Work RAM change wait:
+
+- `GBR=0x06020000`
+- `MOV.L @(0x90,GBR),R0` reads `0x06020240`
+- `R4` is initialized from the same address and remains `0x00000000`
+- BIOS loops while `[0x06020240] == R4`
+
+SMPC command history before the loop is `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06`, ending in `SNDON`. There is no `SSHON` yet, so the previous slave-ready theory is weaker: BIOS appears to be waiting for an interrupt/tick or sound-init completion flag before enabling the slave SH-2.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify whether BIOS expects:
+The next slice should implement the smallest correct interrupt path:
 
-- the Work RAM High loop around `0x06028314..0x06028318`, especially the hot SCSP reads around offsets `0x000700`, `0x000710`, and `0x000720`,
-- a real VDP/SCU/SMPC status behavior before master writes the slave-ready word,
-- or a scheduling/timing issue where master eventually releases slave only after a longer verified run.
+- add SH-2 exception/interrupt state accurately enough for BIOS handlers and `RTE`,
+- replace the generic SCU stub with a narrow interrupt/mask/status device for V-Blank-IN/OUT first,
+- drive a deterministic VBlank tick from the CLI/core frame loop,
+- verify whether the BIOS interrupt handler mutates `0x06020240` and advances to the next hardware wait.

@@ -4,6 +4,7 @@ using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Smpc;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
 return Run(args);
@@ -52,11 +53,13 @@ static int RunBios(string[] args)
 
     var master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
     var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
+    var smpc = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     master.Reset();
     slave?.Reset();
     var masterPcHits = new Dictionary<uint, long>();
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
     var busFaults = new List<string>();
+    var slaveWasEnabled = smpc.SlaveSh2Enabled;
 
     for (var i = 0; i < instructionCount; i++)
     {
@@ -66,14 +69,21 @@ static int RunBios(string[] args)
             break;
         }
 
-        if (slave is not null)
+        if (slave is not null && smpc.SlaveSh2Enabled)
         {
+            if (!slaveWasEnabled)
+            {
+                slave.Reset();
+            }
+
             RecordPc(slavePcHits!, slave.Registers.ProgramCounter);
             if (!TryStep(slave, trace, busFaults))
             {
                 break;
             }
         }
+
+        slaveWasEnabled = smpc.SlaveSh2Enabled;
     }
 
     Console.WriteLine($"BIOS: {bios.Name}");
@@ -88,6 +98,10 @@ static int RunBios(string[] args)
 
     Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
     Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
+    if (slave is not null)
+    {
+        Console.WriteLine($"Slave SH-2 enabled by SMPC: {(smpc.SlaveSh2Enabled ? "on" : "off")}");
+    }
     PrintMemoryActivity("Work RAM Low", systemMap.WorkRamLow);
     PrintMemoryActivity("Work RAM High", systemMap.WorkRamHigh);
     PrintInternalActivity("Master SH-2 internal", masterInternalBus);
@@ -108,6 +122,7 @@ static int RunBios(string[] args)
         PrintHotProgramCounters(slave.Name, slavePcHits!);
     }
 
+    PrintMasterGbrLoopProbe(master, addressMap);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
@@ -148,6 +163,40 @@ static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
     foreach (var (pc, count) in hot)
     {
         Console.WriteLine($"  0x{pc:X8}: {count:N0}");
+    }
+}
+
+static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
+{
+    var pc = master.Registers.ProgramCounter;
+    if (pc is < 0x0602_8314 or > 0x0602_831A)
+    {
+        return;
+    }
+
+    var gbr = master.Registers.GlobalBaseRegister;
+    var watchedAddress = gbr + (0x90u * 4);
+    Console.WriteLine("Master SH-2 GBR loop probe:");
+    Console.WriteLine($"  GBR=0x{gbr:X8} R0=0x{master.Registers.General[0]:X8} R4=0x{master.Registers.General[4]:X8}");
+    try
+    {
+        Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}]=0x{bus.ReadLong(watchedAddress):X8}");
+        PrintWordWindow(bus, watchedAddress - 0x10, 12, "  flag window");
+        PrintWordWindow(bus, 0x0602_8300, 16, "  code window");
+    }
+    catch (BusFaultException exception)
+    {
+        Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}] faulted at 0x{exception.Address:X8}");
+    }
+}
+
+static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
+{
+    Console.WriteLine($"{label}:");
+    for (var index = 0; index < wordCount; index++)
+    {
+        var address = startAddress + (uint)(index * 2);
+        Console.WriteLine($"    0x{address:X8}: 0x{bus.ReadWord(address):X4}");
     }
 }
 
@@ -243,6 +292,12 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
+        }
+        else if (stub is SmpcRegisterBusDevice smpcRegisters)
+        {
+            Console.WriteLine($"    last command: 0x{smpcRegisters.LastCommand:X2}");
+            Console.WriteLine($"    recent commands: {string.Join(", ", smpcRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
+            Console.WriteLine($"    slave SH-2 enabled: {smpcRegisters.SlaveSh2Enabled}");
         }
 
         PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(8));
