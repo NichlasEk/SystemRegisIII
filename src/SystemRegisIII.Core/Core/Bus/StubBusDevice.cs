@@ -1,6 +1,6 @@
 namespace SystemRegisIII.Core.Core.Bus;
 
-public sealed class StubBusDevice(string name, byte readValue = 0) : IBusDevice
+public sealed class StubBusDevice(string name, byte readValue = 0) : IInspectableBusDevice
 {
     private readonly Dictionary<uint, Func<byte>> _readProviders = [];
     private readonly Dictionary<uint, byte> _readOverrides = [];

@@ -1,6 +1,7 @@
 using SystemRegisIII.Cli;
 using SystemRegisIII.Core.Core;
 using SystemRegisIII.Core.Core.Bus;
+using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Tools.TraceViewer;
@@ -238,8 +239,14 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         Console.WriteLine($"  {stub.Name}: reads={stub.ReadCount:N0} writes={stub.WriteCount:N0}");
         PrintStubRange("read", stub.FirstReadOffset, stub.LastReadOffset);
         PrintStubRange("write", stub.FirstWriteOffset, stub.LastWriteOffset);
-        PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(4));
-        PrintHotStubOffsets("hot writes", stub.GetHotWriteOffsets(4));
+        if (stub is CdBlockRegisterBusDevice cdRegisters)
+        {
+            Console.WriteLine(
+                $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
+        }
+
+        PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(8));
+        PrintHotStubOffsets("hot writes", stub.GetHotWriteOffsets(8));
     }
 }
 

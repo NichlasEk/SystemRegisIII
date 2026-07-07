@@ -1,4 +1,5 @@
 using SystemRegisIII.Core.Core.Bus;
+using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Memory;
 
 namespace SystemRegisIII.Core.Core;
@@ -9,7 +10,7 @@ public sealed class SaturnSystemMap
         PageMappedBus bus,
         IMainMemory workRamLow,
         IMainMemory workRamHigh,
-        IReadOnlyList<StubBusDevice> stubs)
+        IReadOnlyList<IInspectableBusDevice> stubs)
     {
         Bus = bus;
         WorkRamLow = workRamLow;
@@ -20,7 +21,7 @@ public sealed class SaturnSystemMap
     public PageMappedBus Bus { get; }
     public IMainMemory WorkRamLow { get; }
     public IMainMemory WorkRamHigh { get; }
-    public IReadOnlyList<StubBusDevice> Stubs { get; }
+    public IReadOnlyList<IInspectableBusDevice> Stubs { get; }
 
     public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
     {
@@ -29,39 +30,22 @@ public sealed class SaturnSystemMap
         var workRamLow = new ByteArrayMemory("Work RAM Low", 1024 * 1024);
         IMainMemory workRamHigh = CreateHighWorkRam(options);
         var workRamHighDevice = (IBusDevice)workRamHigh;
-        var cdStatusMode = false;
-        ushort cdHirq = 0;
-        var cdBlockRegisterMirror = new StubBusDevice("CD Block Register Mirror")
-            .AddReadWordProvider(0x090008, () => cdHirq)
-            .AddReadWordProvider(0x090018, () => cdStatusMode ? (ushort)0x2000 : (ushort)0x0043)
-            .AddReadWordProvider(0x09001C, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x4442)
-            .AddReadWordProvider(0x090020, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x4C4F)
-            .AddReadWordProvider(0x090024, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x434B)
-            .AddWriteObserver(0x090008, _ =>
-            {
-                cdStatusMode = true;
-                cdHirq = 0x0001;
-            })
-            .AddWriteObserver(0x090009, _ =>
-            {
-                cdStatusMode = true;
-                cdHirq = 0x0001;
-            });
+        var cdBlockRegisterMirror = new CdBlockRegisterBusDevice();
 
-        StubBusDevice[] stubs =
+        IInspectableBusDevice[] stubs =
         [
-            new("SMPC Registers"),
-            new("Backup RAM / Cartridge Area"),
-            new("Cartridge / Expansion Area"),
-            new("CD Block Area"),
-            new("A-Bus Probe Area"),
+            new StubBusDevice("SMPC Registers"),
+            new StubBusDevice("Backup RAM / Cartridge Area"),
+            new StubBusDevice("Cartridge / Expansion Area"),
+            new StubBusDevice("CD Block Area"),
+            new StubBusDevice("A-Bus Probe Area"),
             cdBlockRegisterMirror,
-            new("SCSP Area"),
-            new("VDP1 Area"),
-            new("VDP2 Area"),
-            new("VDP2 CRAM Area"),
-            new("SCU / System Control Area"),
-            new("SH-2 Internal Registers"),
+            new StubBusDevice("SCSP Area"),
+            new StubBusDevice("VDP1 Area"),
+            new StubBusDevice("VDP2 Area"),
+            new StubBusDevice("VDP2 CRAM Area"),
+            new StubBusDevice("SCU / System Control Area"),
+            new StubBusDevice("SH-2 Internal Registers"),
         ];
 
         var builder = new SaturnAddressMapBuilder()

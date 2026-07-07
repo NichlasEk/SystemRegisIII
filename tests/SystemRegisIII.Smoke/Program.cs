@@ -102,6 +102,12 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0001, "CD Block HIRQ CMOK bit failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x2000, "CD Block status word 0 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block status word 1 failed.");
+    systemMap.Bus.WriteWord(0x2589_0008, 0x0000);
+    Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0000, "CD Block HIRQ clear failed.");
+    systemMap.Bus.WriteWord(0x2589_0018, 0x1234);
+    Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0001, "CD Block command completion HIRQ failed.");
+    var cdRegisters = systemMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+    Require(cdRegisters.LastCommandCr1 == 0x1234, "CD Block CR1 command latch failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
 
