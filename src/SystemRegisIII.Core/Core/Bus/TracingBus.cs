@@ -4,6 +4,8 @@ namespace SystemRegisIII.Core.Core.Bus;
 
 public sealed class TracingBus(ISaturnBus inner, ITraceEventSink trace) : ISaturnBus
 {
+    private readonly IAddressMap? _addressMap = inner as IAddressMap;
+
     public byte ReadByte(uint address)
     {
         var value = inner.ReadByte(address);
@@ -46,6 +48,9 @@ public sealed class TracingBus(ISaturnBus inner, ITraceEventSink trace) : ISatur
     private void WriteTrace(uint address, int sizeBytes, uint value, bool isWrite)
     {
         var op = isWrite ? "write" : "read";
-        trace.Write(new TraceEvent("Bus", 0, $"{op}{sizeBytes * 8} 0x{address:X8}=0x{value:X8}"));
+        var device = _addressMap is not null && _addressMap.TryResolve(address, out var region, out _)
+            ? $" {region.Device.Name}"
+            : string.Empty;
+        trace.Write(new TraceEvent("Bus", 0, $"{op}{sizeBytes * 8} 0x{address:X8}=0x{value:X8}{device}"));
     }
 }

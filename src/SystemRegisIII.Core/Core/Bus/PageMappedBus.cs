@@ -31,6 +31,30 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
 
     public IReadOnlyList<BusRegion> Regions { get; }
 
+    public bool TryResolve(uint address, out BusRegion region, out uint offset)
+    {
+        var physicalAddress = Normalize(address);
+        var page = physicalAddress >> PageBits;
+        var candidates = _pages[page];
+
+        if (candidates is not null)
+        {
+            foreach (var candidate in candidates)
+            {
+                if (candidate.Contains(physicalAddress))
+                {
+                    region = candidate;
+                    offset = physicalAddress - candidate.Start;
+                    return true;
+                }
+            }
+        }
+
+        region = null!;
+        offset = 0;
+        return false;
+    }
+
     public byte ReadByte(uint address)
     {
         var (region, offset) = Resolve(address);
@@ -71,19 +95,9 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
 
     private (BusRegion Region, uint Offset) Resolve(uint address)
     {
-        var physicalAddress = Normalize(address);
-        var page = physicalAddress >> PageBits;
-        var candidates = _pages[page];
-
-        if (candidates is not null)
+        if (TryResolve(address, out var region, out var offset))
         {
-            foreach (var region in candidates)
-            {
-                if (region.Contains(physicalAddress))
-                {
-                    return (region, physicalAddress - region.Start);
-                }
-            }
+            return (region, offset);
         }
 
         throw new BusFaultException(address);
@@ -94,6 +108,11 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
         if (address is >= 0x2000_0000 and <= 0x3FFF_FFFF)
         {
             return address - 0x2000_0000;
+        }
+
+        if (address is >= 0x4000_0000 and <= 0x5FFF_FFFF)
+        {
+            return address - 0x4000_0000;
         }
 
         return address;

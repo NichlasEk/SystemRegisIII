@@ -18,6 +18,7 @@ Core emulation code should not depend on a UI framework, audio backend, renderer
 The future UI shell is intentionally undecided; the core is built so any desktop, web, or EutherDrive host can attach later.
 
 The bus is page-mapped for the hot path. Tracing is attached as an optional bus wrapper instead of being built into every device lookup.
+`SaturnSystemMap.CreateBringup` builds the early BIOS map with RAM aliases and named MMIO stubs so CLI runs can report which missing hardware blocks were touched.
 
 ## First Bringup
 
@@ -28,3 +29,4 @@ dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --b
 ```
 
 The `bios/` directory is intentionally ignored by Git.
+Without `--trace`, the CLI prints a compact bringup summary with the current PC, first/last unimplemented opcode if any, and touched stub devices.

@@ -8,6 +8,10 @@ public sealed class Sh2Registers
 
     public uint ProcedureRegister { get; set; }
 
+    public uint GlobalBaseRegister { get; set; }
+
+    public uint VectorBaseRegister { get; set; }
+
     public uint[] General { get; } = new uint[16];
 
     public bool T
