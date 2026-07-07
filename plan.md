@@ -107,6 +107,7 @@ Work in small pushable slices:
 - Current slice: Added repo-local `docs/reference-map.md` with link-only Saturn reference notes and license cautions, added SH-2 interrupt entry with level masking and vector lookup, replaced the generic SCU stub with a narrow interrupt mask/status device, and drove deterministic V-Blank-IN interrupt requests from the CLI. Filled the BIOS interrupt-handler SH-2 opcodes `SHLR16` and `STC.L SR/GBR/VBR,@-Rn`.
 - Current slice: Modeled CD Block command `0x00` as an explicit current-status response, exposed response CR values in the CLI, and changed the no-media bringup default from `<PAUSE>` to `<NODISC>`. This keeps the headless BIOS run honest until a host disc image is mounted.
 - Current slice: Added focused Work RAM watches around `0x06020230..0x0602024F` and `0x06020720..0x0602075F`, plus compact BIOS code/data windows for the wait loop, SCU V-Blank-IN handler, callback table, and V-Blank helper code. The watched wait flag at `0x06020240` is only written as zero so far; nearby `0x0602024C` points at callback/state storage `0x06020728`, while the V-Blank callback table at `0x06000A00` points to `0x06028D64` and `0x06028D9E`. PC heat now proves V-Blank callback/helper code is reached, including `0x06028934`.
+- Current slice: Added SCU V-Blank-OUT pending/status support and deterministic CLI raising between V-Blank-IN ticks. The 40M BIOS run still stops at `0x06028318`; the wait flag and callback-state table remain unchanged, so V-Blank-OUT alone is not the missing activation source.
 
 ## Current Next Blocker
 
@@ -121,7 +122,7 @@ The loop is now identified as a Work RAM change wait:
 
 SMPC command history before the loop is `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06`, ending in `SNDON`. There is no `SSHON` yet, so the previous slave-ready theory is weaker: BIOS appears to be waiting for an interrupt/tick or sound-init completion flag before enabling the slave SH-2.
 
-With V-Blank-IN enabled, SCU state is `mask=0xFFFFFE7C` and the last status write is `0xFFFFFE7C`, which clears V-Blank-IN correctly before the next deterministic tick raises it again. The BIOS interrupt handler repeatedly writes the CD Block command registers with command `0x00`; the current no-media response is now `CR1=0x0700`, `CR2=CR3=CR4=0`.
+With V-Blank-IN and V-Blank-OUT enabled, SCU state is `mask=0xFFFFFE7C` and the last status write is `0xFFFFFE7C`, which clears the modeled V-Blank bits before the next deterministic ticks raise them again. The BIOS interrupt handler repeatedly writes the CD Block command registers with command `0x00`; the current no-media response is now `CR1=0x0700`, `CR2=CR3=CR4=0`.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
@@ -135,8 +136,8 @@ The current diagnostic slice identifies the relevant Work RAM and handler paths:
 - callback PC heat proves execution reaches `0x06028D64`, scans the callback/state table around `0x06028D7E..0x06028D8E`, and reaches helper code at `0x06028934`.
 - setup PC heat around `0x06028C52..0x06028C6A` has only eight hits, matching the one-time `0xFE` initialization of `0x06020720..0x06020727`.
 
-The next slice should identify which hardware status path is expected to activate the callback/state entry:
+The next slice should identify which remaining hardware status path is expected to activate the callback/state entry:
 
 - inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
-- decide whether callback activation depends on CD status, SCSP status, or a second SCU interrupt source;
+- decide whether callback activation depends on CD periodic status, SCSP DSP/status, or SCU timer bits `7/8` from the active `0x0183` interrupt mask;
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

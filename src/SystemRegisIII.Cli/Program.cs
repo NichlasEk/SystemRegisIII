@@ -75,10 +75,18 @@ static int RunBios(string[] args)
         {
             scu.RaiseVBlankIn();
         }
+        else if (i > 0 && i % 1_000_000 == 500_000)
+        {
+            scu.RaiseVBlankOut();
+        }
 
         if (scu.HasPendingVBlankIn)
         {
             _ = master.RequestInterrupt(15, 0x40);
+        }
+        else if (scu.HasPendingVBlankOut)
+        {
+            _ = master.RequestInterrupt(14, 0x41);
         }
 
         var masterPc = master.Registers.ProgramCounter;
@@ -258,7 +266,8 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
     }
 
     Console.WriteLine("SCU interrupt state:");
-    Console.WriteLine($"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn}");
+    Console.WriteLine(
+        $"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn} vblank-out-pending={scu.HasPendingVBlankOut}");
     Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
 }
 

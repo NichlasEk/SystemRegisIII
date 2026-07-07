@@ -136,10 +136,13 @@ static void VerifySaturnSystemMap()
     var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     scuRegisters.RaiseVBlankIn();
     Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");
-    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FFFE);
-    Require(systemMap.Bus.ReadLong(0x25FE_00A0) == 0xFFFF_FFFE, "SCU interrupt mask latch failed.");
+    scuRegisters.RaiseVBlankOut();
+    Require(!scuRegisters.HasPendingVBlankOut, "SCU VBlank-OUT interrupt ignored reset mask failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FFFC);
+    Require(systemMap.Bus.ReadLong(0x25FE_00A0) == 0xFFFF_FFFC, "SCU interrupt mask latch failed.");
     Require(scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt pending failed.");
-    systemMap.Bus.WriteLong(0x25FE_00A4, 0xFFFF_FFFE);
+    Require(scuRegisters.HasPendingVBlankOut, "SCU VBlank-OUT interrupt pending failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A4, 0xFFFF_FFFC);
     Require(systemMap.Bus.ReadLong(0x25FE_00A4) == 0x0000_0000, "SCU interrupt status clear failed.");
 
     var simulatedMap = SaturnSystemMap.CreateBringup(

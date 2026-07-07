@@ -7,6 +7,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     private const uint InterruptMaskOffset = 0x0E00A0;
     private const uint InterruptStatusOffset = 0x0E00A4;
     private const uint VBlankInBit = 1u << 0;
+    private const uint VBlankOutBit = 1u << 1;
     private readonly Dictionary<uint, byte> _registers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
@@ -22,6 +23,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public uint InterruptStatus { get; private set; }
     public uint LastInterruptStatusWrite { get; private set; } = 0xFFFF_FFFF;
     public bool HasPendingVBlankIn => (InterruptStatus & VBlankInBit) != 0 && (InterruptMask & VBlankInBit) == 0;
+    public bool HasPendingVBlankOut => (InterruptStatus & VBlankOutBit) != 0 && (InterruptMask & VBlankOutBit) == 0;
 
     public byte ReadByte(uint offset)
     {
@@ -68,6 +70,8 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     }
 
     public void RaiseVBlankIn() => InterruptStatus |= VBlankInBit;
+
+    public void RaiseVBlankOut() => InterruptStatus |= VBlankOutBit;
 
     public void AcknowledgeVBlankIn() => InterruptStatus &= ~VBlankInBit;
 
