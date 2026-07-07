@@ -53,17 +53,24 @@ static int RunBios(string[] args)
     var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
     master.Reset();
     slave?.Reset();
+    var masterPcHits = new Dictionary<uint, long>();
+    var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
 
     for (var i = 0; i < instructionCount; i++)
     {
+        RecordPc(masterPcHits, master.Registers.ProgramCounter);
         if (!TryStep(master, trace))
         {
             break;
         }
 
-        if (slave is not null && !TryStep(slave, trace))
+        if (slave is not null)
         {
-            break;
+            RecordPc(slavePcHits!, slave.Registers.ProgramCounter);
+            if (!TryStep(slave, trace))
+            {
+                break;
+            }
         }
     }
 
@@ -93,6 +100,12 @@ static int RunBios(string[] args)
         PrintUnimplemented(slave);
     }
 
+    PrintHotProgramCounters(master.Name, masterPcHits);
+    if (slave is not null)
+    {
+        PrintHotProgramCounters(slave.Name, slavePcHits!);
+    }
+
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
 
@@ -107,6 +120,32 @@ static int RunBios(string[] args)
     }
 
     return 0;
+}
+
+static void RecordPc(Dictionary<uint, long> hits, uint pc)
+{
+    hits.TryGetValue(pc, out var count);
+    hits[pc] = count + 1;
+}
+
+static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
+{
+    var hot = hits
+        .OrderByDescending(static pair => pair.Value)
+        .Take(4)
+        .Where(static pair => pair.Value > 1)
+        .ToArray();
+
+    if (hot.Length == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine($"{name} hot PCs:");
+    foreach (var (pc, count) in hot)
+    {
+        Console.WriteLine($"  0x{pc:X8}: {count:N0}");
+    }
 }
 
 static void PrintInternalActivity(string label, Sh2InternalRegisterBus bus)
