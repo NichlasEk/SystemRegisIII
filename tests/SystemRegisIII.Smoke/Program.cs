@@ -39,6 +39,7 @@ VerifySaturnSystemMap();
 VerifySh2InternalRegisterBus();
 VerifySh2IndexedMoveDecoding();
 VerifySh2BiosBringupInstructions();
+VerifySh2BranchAndExceptionInstructions();
 
 Console.WriteLine("SystemRegisIII smoke passed.");
 
@@ -87,8 +88,16 @@ static void VerifySaturnSystemMap()
         "SMPC stub mapping failed.");
     Require(
         systemMap.Bus.TryResolve(0x2589_0018, out region, out _) &&
-        region.Device.Name == "VDP / B-Bus Mirror Area",
-        "VDP/B-Bus mirror stub mapping failed.");
+        region.Device.Name == "CD Block Register Mirror",
+        "CD Block register mirror stub mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x24FF_FFFF, out region, out _) &&
+        region.Device.Name == "A-Bus Probe Area",
+        "A-Bus probe area mapping failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0043, "CD Block ID word 0 failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x4442, "CD Block ID word 1 failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x434B, "CD Block ID word 3 failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
 
@@ -232,6 +241,47 @@ static void VerifySh2BiosBringupInstructions()
     cpu.Registers.General[1] = 0x8000_0004;
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0x2000_0001, "SH-2 SHLR2 failed.");
+}
+
+static void VerifySh2BranchAndExceptionInstructions()
+{
+    var code = new ByteArrayMemory("Code RAM", 0x100);
+    var stack = new ByteArrayMemory("Stack RAM", 0x100);
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_00FF, code)
+        .Map(0x0600_0000, 0x0600_00FF, stack)
+        .Build();
+    var cpu = new Sh2Cpu("Test SH-2", bus, 0x0000_0000);
+
+    WriteLong(code, 0x00, 0x0000_0008);
+    WriteLong(code, 0x04, 0);
+    WriteWord(code, 0x08, 0x8D01);
+    WriteWord(code, 0x0A, 0xE101);
+    WriteWord(code, 0x0C, 0xE102);
+    WriteWord(code, 0x0E, 0xE103);
+    cpu.Reset();
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 1, "SH-2 BT/S did not execute delay slot.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_000E, "SH-2 BT/S did not branch when T=true.");
+
+    cpu.Reset();
+    cpu.Registers.T = false;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 1, "SH-2 BT/S did not execute fallthrough delay slot.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_000C, "SH-2 BT/S branched when T=false.");
+
+    WriteWord(code, 0x08, 0x002B);
+    WriteWord(code, 0x0A, 0xE201);
+    WriteLong(stack, 0x10, 0x0000_0040);
+    WriteLong(stack, 0x14, 0x0000_00F0);
+    cpu.Reset();
+    cpu.Registers.General[15] = 0x0600_0010;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[2] == 1, "SH-2 RTE did not execute delay slot.");
+    Require(cpu.Registers.General[15] == 0x0600_0018, "SH-2 RTE did not pop PC/SR.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_0040, "SH-2 RTE did not restore PC.");
+    Require(cpu.Registers.StatusRegister == 0x0000_00F0, "SH-2 RTE did not restore SR.");
 }
 
 static ushort ReadWord(ByteArrayMemory memory, uint offset) =>

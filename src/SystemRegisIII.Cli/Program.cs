@@ -236,6 +236,34 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
     foreach (var stub in touched)
     {
         Console.WriteLine($"  {stub.Name}: reads={stub.ReadCount:N0} writes={stub.WriteCount:N0}");
+        PrintStubRange("read", stub.FirstReadOffset, stub.LastReadOffset);
+        PrintStubRange("write", stub.FirstWriteOffset, stub.LastWriteOffset);
+        PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(4));
+        PrintHotStubOffsets("hot writes", stub.GetHotWriteOffsets(4));
+    }
+}
+
+static void PrintStubRange(string label, uint? firstOffset, uint? lastOffset)
+{
+    if (firstOffset is null || lastOffset is null)
+    {
+        return;
+    }
+
+    Console.WriteLine($"    {label}: first=0x{firstOffset.Value:X6} last=0x{lastOffset.Value:X6}");
+}
+
+static void PrintHotStubOffsets(string label, IReadOnlyList<(uint Offset, long Count)> offsets)
+{
+    if (offsets.Count == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine($"    {label}:");
+    foreach (var (offset, count) in offsets)
+    {
+        Console.WriteLine($"      0x{offset:X6}: {count:N0}");
     }
 }
 

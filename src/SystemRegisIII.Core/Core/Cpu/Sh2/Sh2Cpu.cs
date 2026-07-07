@@ -173,6 +173,20 @@ public sealed class Sh2Cpu : ISh2Cpu
             return;
         }
 
+        if ((opcode & 0xFF00) == 0x8D00)
+        {
+            var displacement = SignExtend8(opcode & 0xFF) * 2;
+            var target = (uint)(Registers.ProgramCounter + 2 + displacement);
+            Trace($"0x{pc:X8}: BT/S 0x{target:X8} T={Registers.T}");
+            ExecuteDelaySlot();
+            if (Registers.T)
+            {
+                Registers.ProgramCounter = target;
+            }
+
+            return;
+        }
+
         switch (opcode & 0xFF00)
         {
             case 0x8000:
@@ -793,6 +807,17 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Registers.ProgramCounter = Registers.ProcedureRegister;
                 Trace($"0x{pc:X8}: RTS -> 0x{Registers.ProgramCounter:X8}");
                 break;
+            case 0x002B:
+                {
+                    var returnPc = _bus.ReadLong(Registers.General[15]);
+                    var returnSr = _bus.ReadLong(Registers.General[15] + 4);
+                    Registers.General[15] += 8;
+                    ExecuteDelaySlot();
+                    Registers.ProgramCounter = returnPc;
+                    Registers.StatusRegister = returnSr;
+                    Trace($"0x{pc:X8}: RTE -> pc=0x{returnPc:X8} sr=0x{returnSr:X8}");
+                    break;
+                }
             default:
                 RecordUnimplemented(pc, opcode);
                 Trace($"0x{pc:X8}: opcode=0x{opcode:X4} (unimplemented)");
