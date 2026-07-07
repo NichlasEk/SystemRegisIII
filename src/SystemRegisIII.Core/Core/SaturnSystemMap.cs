@@ -29,11 +29,14 @@ public sealed class SaturnSystemMap
         var workRamLow = new ByteArrayMemory("Work RAM Low", 1024 * 1024);
         IMainMemory workRamHigh = CreateHighWorkRam(options);
         var workRamHighDevice = (IBusDevice)workRamHigh;
+        var cdStatusMode = false;
         var cdBlockRegisterMirror = new StubBusDevice("CD Block Register Mirror")
-            .AddReadOnlyWord(0x090018, 0x0043)
-            .AddReadOnlyWord(0x09001C, 0x4442)
-            .AddReadOnlyWord(0x090020, 0x4C4F)
-            .AddReadOnlyWord(0x090024, 0x434B);
+            .AddReadWordProvider(0x090018, () => cdStatusMode ? (ushort)0x2000 : (ushort)0x0043)
+            .AddReadWordProvider(0x09001C, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x4442)
+            .AddReadWordProvider(0x090020, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x4C4F)
+            .AddReadWordProvider(0x090024, () => cdStatusMode ? (ushort)0x0000 : (ushort)0x434B)
+            .AddWriteObserver(0x090008, _ => cdStatusMode = true)
+            .AddWriteObserver(0x090009, _ => cdStatusMode = true);
 
         StubBusDevice[] stubs =
         [

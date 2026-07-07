@@ -98,6 +98,9 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x4442, "CD Block ID word 1 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x434B, "CD Block ID word 3 failed.");
+    systemMap.Bus.WriteWord(0x2589_0008, 0x0BE1);
+    Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x2000, "CD Block status word 0 failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block status word 1 failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
 
@@ -223,6 +226,13 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.T, "SH-2 CMP/GT Rm,Rn failed signed comparison.");
 
+    WriteWord(code, 0x08, 0x3123);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0xFFFF_FFFF;
+    cpu.Registers.General[2] = 0xFFFF_FFFE;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 CMP/GE Rm,Rn failed signed comparison.");
+
     WriteWord(code, 0x08, 0x4119);
     cpu.Reset();
     cpu.Registers.General[1] = 0x8123_4567;
@@ -282,6 +292,14 @@ static void VerifySh2BranchAndExceptionInstructions()
     Require(cpu.Registers.General[15] == 0x0600_0018, "SH-2 RTE did not pop PC/SR.");
     Require(cpu.Registers.ProgramCounter == 0x0000_0040, "SH-2 RTE did not restore PC.");
     Require(cpu.Registers.StatusRegister == 0x0000_00F0, "SH-2 RTE did not restore SR.");
+
+    WriteWord(code, 0x08, 0x4127);
+    WriteLong(stack, 0x20, 0x1234_5678);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0020;
+    cpu.StepInstruction();
+    Require(cpu.Registers.VectorBaseRegister == 0x1234_5678, "SH-2 LDC.L @Rn+,VBR failed.");
+    Require(cpu.Registers.General[1] == 0x0600_0024, "SH-2 LDC.L @Rn+,VBR did not postincrement.");
 }
 
 static ushort ReadWord(ByteArrayMemory memory, uint offset) =>

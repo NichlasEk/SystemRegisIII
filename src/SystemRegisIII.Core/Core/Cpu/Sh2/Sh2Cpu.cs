@@ -355,6 +355,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: CMP/HS R{source},R{destination} T={Registers.T}");
                     return;
                 }
+            case 0x3003:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.T = (int)Registers.General[destination] >= (int)Registers.General[source];
+                    Trace($"0x{pc:X8}: CMP/GE R{source},R{destination} T={Registers.T}");
+                    return;
+                }
             case 0x3007:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -777,6 +785,30 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var register = (opcode >> 8) & 0xF;
                     Registers.StatusRegister = Registers.General[register];
                     Trace($"0x{pc:X8}: LDC R{register},SR <- 0x{Registers.StatusRegister:X8}");
+                    return;
+                }
+            case 0x4007:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.StatusRegister = _bus.ReadLong(Registers.General[register]);
+                    Registers.General[register] += 4;
+                    Trace($"0x{pc:X8}: LDC.L @R{register}+,SR <- 0x{Registers.StatusRegister:X8}");
+                    return;
+                }
+            case 0x4017:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.GlobalBaseRegister = _bus.ReadLong(Registers.General[register]);
+                    Registers.General[register] += 4;
+                    Trace($"0x{pc:X8}: LDC.L @R{register}+,GBR <- 0x{Registers.GlobalBaseRegister:X8}");
+                    return;
+                }
+            case 0x4027:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.VectorBaseRegister = _bus.ReadLong(Registers.General[register]);
+                    Registers.General[register] += 4;
+                    Trace($"0x{pc:X8}: LDC.L @R{register}+,VBR <- 0x{Registers.VectorBaseRegister:X8}");
                     return;
                 }
             case 0x4022:

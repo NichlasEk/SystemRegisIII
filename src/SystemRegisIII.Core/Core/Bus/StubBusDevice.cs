@@ -2,7 +2,9 @@ namespace SystemRegisIII.Core.Core.Bus;
 
 public sealed class StubBusDevice(string name, byte readValue = 0) : IBusDevice
 {
+    private readonly Dictionary<uint, Func<byte>> _readProviders = [];
     private readonly Dictionary<uint, byte> _readOverrides = [];
+    private readonly Dictionary<uint, Action<byte>> _writeObservers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
 
@@ -20,6 +22,11 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IBusDevice
         FirstReadOffset ??= offset;
         LastReadOffset = offset;
         RecordOffset(_readOffsets, offset);
+        if (_readProviders.TryGetValue(offset, out var provider))
+        {
+            return provider();
+        }
+
         return _readOverrides.TryGetValue(offset, out var value) ? value : readValue;
     }
 
@@ -29,6 +36,10 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IBusDevice
         FirstWriteOffset ??= offset;
         LastWriteOffset = offset;
         RecordOffset(_writeOffsets, offset);
+        if (_writeObservers.TryGetValue(offset, out var observer))
+        {
+            observer(value);
+        }
     }
 
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>
@@ -41,6 +52,19 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IBusDevice
     {
         _readOverrides[offset] = (byte)(value >> 8);
         _readOverrides[offset + 1] = (byte)value;
+        return this;
+    }
+
+    public StubBusDevice AddReadWordProvider(uint offset, Func<ushort> provider)
+    {
+        _readProviders[offset] = () => (byte)(provider() >> 8);
+        _readProviders[offset + 1] = () => (byte)provider();
+        return this;
+    }
+
+    public StubBusDevice AddWriteObserver(uint offset, Action<byte> observer)
+    {
+        _writeObservers[offset] = observer;
         return this;
     }
 
