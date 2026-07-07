@@ -7,6 +7,7 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IInspectabl
     private readonly Dictionary<uint, Action<byte>> _writeObservers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
+    private bool _writeBack;
 
     public string Name { get; } = name;
     public long ReadCount { get; private set; }
@@ -36,6 +37,11 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IInspectabl
         FirstWriteOffset ??= offset;
         LastWriteOffset = offset;
         RecordOffset(_writeOffsets, offset);
+        if (_writeBack)
+        {
+            _readOverrides[offset] = value;
+        }
+
         if (_writeObservers.TryGetValue(offset, out var observer))
         {
             observer(value);
@@ -65,6 +71,12 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IInspectabl
     public StubBusDevice AddWriteObserver(uint offset, Action<byte> observer)
     {
         _writeObservers[offset] = observer;
+        return this;
+    }
+
+    public StubBusDevice EnableWriteBack()
+    {
+        _writeBack = true;
         return this;
     }
 

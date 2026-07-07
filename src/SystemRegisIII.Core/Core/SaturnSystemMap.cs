@@ -40,7 +40,7 @@ public sealed class SaturnSystemMap
             new StubBusDevice("CD Block Area"),
             new StubBusDevice("A-Bus Probe Area"),
             cdBlockRegisterMirror,
-            new StubBusDevice("SCSP Area"),
+            new StubBusDevice("SCSP Area").EnableWriteBack(),
             new StubBusDevice("VDP1 Area"),
             new StubBusDevice("VDP2 Area"),
             new StubBusDevice("VDP2 CRAM Area"),

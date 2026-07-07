@@ -125,7 +125,8 @@ public sealed class Sh2Cpu : ISh2Cpu
             return;
         }
 
-        if ((opcode & 0xFF00) is 0xC000 or 0xC100 or 0xC200 or 0xC400 or 0xC500 or 0xC600)
+        if ((opcode & 0xFF00) is 0xC000 or 0xC100 or 0xC200 or 0xC400 or 0xC500 or 0xC600
+            or 0xCC00 or 0xCD00 or 0xCE00 or 0xCF00)
         {
             ExecuteGbrMove(pc, opcode);
             return;
@@ -361,6 +362,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var source = (opcode >> 4) & 0xF;
                     Registers.T = (int)Registers.General[destination] >= (int)Registers.General[source];
                     Trace($"0x{pc:X8}: CMP/GE R{source},R{destination} T={Registers.T}");
+                    return;
+                }
+            case 0x3006:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.T = Registers.General[destination] > Registers.General[source];
+                    Trace($"0x{pc:X8}: CMP/HI R{source},R{destination} T={Registers.T}");
                     return;
                 }
             case 0x3007:
@@ -674,6 +683,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: SHLL R{register} T={Registers.T}");
                     return;
                 }
+            case 0x4001:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.T = (Registers.General[register] & 1) != 0;
+                    Registers.General[register] >>= 1;
+                    Trace($"0x{pc:X8}: SHLR R{register} T={Registers.T}");
+                    return;
+                }
             case 0x4010:
                 {
                     var register = (opcode >> 8) & 0xF;
@@ -923,6 +940,38 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var address = Registers.GlobalBaseRegister + (displacement * 4);
                     Registers.General[0] = _bus.ReadLong(address);
                     Trace($"0x{pc:X8}: MOV.L @(0x{displacement:X2},GBR),R0");
+                    return;
+                }
+            case 0xCC00:
+                {
+                    var immediate = (byte)displacement;
+                    var address = Registers.GlobalBaseRegister + Registers.General[0];
+                    Registers.T = (_bus.ReadByte(address) & immediate) == 0;
+                    Trace($"0x{pc:X8}: TST.B #0x{immediate:X2},@(R0,GBR) T={Registers.T}");
+                    return;
+                }
+            case 0xCD00:
+                {
+                    var immediate = (byte)displacement;
+                    var address = Registers.GlobalBaseRegister + Registers.General[0];
+                    _bus.WriteByte(address, (byte)(_bus.ReadByte(address) & immediate));
+                    Trace($"0x{pc:X8}: AND.B #0x{immediate:X2},@(R0,GBR)");
+                    return;
+                }
+            case 0xCE00:
+                {
+                    var immediate = (byte)displacement;
+                    var address = Registers.GlobalBaseRegister + Registers.General[0];
+                    _bus.WriteByte(address, (byte)(_bus.ReadByte(address) ^ immediate));
+                    Trace($"0x{pc:X8}: XOR.B #0x{immediate:X2},@(R0,GBR)");
+                    return;
+                }
+            case 0xCF00:
+                {
+                    var immediate = (byte)displacement;
+                    var address = Registers.GlobalBaseRegister + Registers.General[0];
+                    _bus.WriteByte(address, (byte)(_bus.ReadByte(address) | immediate));
+                    Trace($"0x{pc:X8}: OR.B #0x{immediate:X2},@(R0,GBR)");
                     return;
                 }
         }

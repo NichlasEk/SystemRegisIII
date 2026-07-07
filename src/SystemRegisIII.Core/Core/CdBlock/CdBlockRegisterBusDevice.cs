@@ -12,7 +12,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
-    private const ushort CdStatusBusyOrPeriodic = 0x2000;
+    private const byte CdStatusPause = 0x01;
+    private const byte CdStatusPeriodic = 0x20;
 
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
@@ -21,6 +22,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _hirq;
     private ushort _hirqMask;
     private bool _statusMode;
+    private byte _status = CdStatusPause;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -37,6 +39,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort LastCommandCr2 { get; private set; }
     public ushort LastCommandCr3 { get; private set; }
     public ushort LastCommandCr4 { get; private set; }
+    public byte LastCommandCode { get; private set; }
 
     public byte ReadByte(uint offset)
     {
@@ -100,8 +103,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
             case Cr1Offset:
                 LastCommandCr1 = value;
-                EnterStatusMode();
-                _hirq |= HirqCmok;
+                LastCommandCode = (byte)(value >> 8);
                 break;
             case Cr2Offset:
                 LastCommandCr2 = value;
@@ -111,10 +113,34 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
             case Cr4Offset:
                 LastCommandCr4 = value;
-                EnterStatusMode();
-                _hirq |= HirqCmok;
+                ExecuteCommand();
                 break;
         }
+    }
+
+    private void ExecuteCommand()
+    {
+        switch (LastCommandCode)
+        {
+            case 0x01:
+                GetHardwareInfo();
+                break;
+            default:
+                EnterStatusMode();
+                break;
+        }
+
+        _hirq |= HirqCmok;
+    }
+
+    private void GetHardwareInfo()
+    {
+        _statusMode = true;
+        _status &= unchecked((byte)~CdStatusPeriodic);
+        _cr1 = (ushort)(_status << 8);
+        _cr2 = 0x0201;
+        _cr3 = 0x0000;
+        _cr4 = 0x0400;
     }
 
     private void EnterStatusMode()
@@ -125,7 +151,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _statusMode = true;
-        _cr1 = CdStatusBusyOrPeriodic;
+        _cr1 = (ushort)(CdStatusPeriodic << 8);
         _cr2 = 0;
         _cr3 = 0;
         _cr4 = 0;

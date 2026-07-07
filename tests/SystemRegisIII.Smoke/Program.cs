@@ -104,10 +104,20 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block status word 1 failed.");
     systemMap.Bus.WriteWord(0x2589_0008, 0x0000);
     Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0000, "CD Block HIRQ clear failed.");
-    systemMap.Bus.WriteWord(0x2589_0018, 0x1234);
+    systemMap.Bus.WriteWord(0x2589_0018, 0x0100);
+    systemMap.Bus.WriteWord(0x2589_001C, 0x0000);
+    systemMap.Bus.WriteWord(0x2589_0020, 0x0000);
+    systemMap.Bus.WriteWord(0x2589_0024, 0x0000);
     Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0001, "CD Block command completion HIRQ failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block hardware info status failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0201, "CD Block hardware info flags failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block MPEG version failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x0400, "CD Block drive info failed.");
     var cdRegisters = systemMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
-    Require(cdRegisters.LastCommandCr1 == 0x1234, "CD Block CR1 command latch failed.");
+    Require(cdRegisters.LastCommandCr1 == 0x0100, "CD Block CR1 command latch failed.");
+    Require(cdRegisters.LastCommandCode == 0x01, "CD Block command code latch failed.");
+    systemMap.Bus.WriteLong(0x25A0_0000, 0x0000_A000);
+    Require(systemMap.Bus.ReadLong(0x25A0_0000) == 0x0000_A000, "SCSP register write-back failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
 
@@ -226,6 +236,13 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.T, "SH-2 CMP/HS Rm,Rn failed unsigned comparison.");
 
+    WriteWord(code, 0x08, 0x3126);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8000_0000;
+    cpu.Registers.General[2] = 0x7FFF_FFFF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 CMP/HI Rm,Rn failed unsigned comparison.");
+
     WriteWord(code, 0x08, 0x3127);
     cpu.Reset();
     cpu.Registers.General[1] = 1;
@@ -259,11 +276,33 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0x2000_0001, "SH-2 SHLR2 failed.");
 
+    WriteWord(code, 0x08, 0x4101);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8000_0001;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x4000_0000, "SH-2 SHLR failed.");
+    Require(cpu.Registers.T, "SH-2 SHLR did not move bit 0 into T.");
+
     WriteWord(code, 0x08, 0x6127);
     cpu.Reset();
     cpu.Registers.General[2] = 0x00FF_00FF;
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0xFF00_FF00, "SH-2 NOT Rm,Rn failed.");
+
+    data.WriteByte(0x20, 0x01);
+    WriteWord(code, 0x08, 0xCF80);
+    cpu.Reset();
+    cpu.Registers.GlobalBaseRegister = 0x0600_0010;
+    cpu.Registers.General[0] = 0x10;
+    cpu.StepInstruction();
+    Require(data.ReadByte(0x20) == 0x81, "SH-2 OR.B #imm,@(R0,GBR) failed.");
+
+    WriteWord(code, 0x08, 0xCC80);
+    cpu.Reset();
+    cpu.Registers.GlobalBaseRegister = 0x0600_0010;
+    cpu.Registers.General[0] = 0x10;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.T, "SH-2 TST.B #imm,@(R0,GBR) failed set-bit test.");
 }
 
 static void VerifySh2BranchAndExceptionInstructions()
