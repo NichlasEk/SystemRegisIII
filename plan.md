@@ -90,3 +90,18 @@ Work in small pushable slices:
 2. Verify with build, smoke, and BIOS CLI.
 3. Commit and push.
 4. Record the next blocker in this plan or CLI output.
+
+## Progress Log
+
+- `648976b`: Added this plan and CPU-local SH-2 internal register buses. Master reads CPU-id `0`, slave reads `0x20000000`, so BIOS can take distinct master/slave paths while external RAM remains shared.
+- `d923e2e`: Added hot-PC reporting to the CLI. Current BIOS evidence shows master hot at `0x00001D3C/0x00001D3E` and slave hot at `0x00000240/0x00000242` in dual mode.
+- `2246675`: Added bus fault summary output. `--dual-sh2 --simulate-slave-ready` currently reports `Slave SH-2 fault at 0x06100000` after running through empty high RAM.
+- `57c0d4f`: Fixed SH-2 indexed move decoding so `0x0000` is not treated as a valid instruction. The forced slave-ready path now correctly reports unimplemented `0x0000` at `0x06000600`.
+
+## Current Next Blocker
+
+In real dual mode, slave waits for `2RDY` at `0x06000240`. Master reaches the BIOS delay loop without writing that ready word. In forced slave-ready mode, slave jumps to `0x06000600`, which is still empty RAM. The next slice should identify whether BIOS expects:
+
+- a real slave release/reset handshake before master continues,
+- a missing SMPC/SCU status behavior,
+- or a BIOS RAM-copy/startup sequence we are skipping with the current simulation.
