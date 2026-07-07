@@ -4,6 +4,7 @@ using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
@@ -54,6 +55,7 @@ static int RunBios(string[] args)
     var master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
     var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
     var smpc = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
+    var scu = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     master.Reset();
     slave?.Reset();
     var masterPcHits = new Dictionary<uint, long>();
@@ -63,6 +65,16 @@ static int RunBios(string[] args)
 
     for (var i = 0; i < instructionCount; i++)
     {
+        if (i > 0 && i % 1_000_000 == 0)
+        {
+            scu.RaiseVBlankIn();
+        }
+
+        if (scu.HasPendingVBlankIn)
+        {
+            _ = master.RequestInterrupt(15, 0x40);
+        }
+
         RecordPc(masterPcHits, master.Registers.ProgramCounter);
         if (!TryStep(master, trace, busFaults))
         {
@@ -123,6 +135,7 @@ static int RunBios(string[] args)
     }
 
     PrintMasterGbrLoopProbe(master, addressMap);
+    PrintScuInterruptState(scu);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
@@ -188,6 +201,17 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
     {
         Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}] faulted at 0x{exception.Address:X8}");
     }
+}
+
+static void PrintScuInterruptState(ScuRegisterBusDevice scu)
+{
+    if (scu.ReadCount == 0 && scu.WriteCount == 0 && scu.InterruptStatus == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine("SCU interrupt state:");
+    Console.WriteLine($"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn}");
 }
 
 static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
@@ -298,6 +322,11 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
             Console.WriteLine($"    last command: 0x{smpcRegisters.LastCommand:X2}");
             Console.WriteLine($"    recent commands: {string.Join(", ", smpcRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
             Console.WriteLine($"    slave SH-2 enabled: {smpcRegisters.SlaveSh2Enabled}");
+        }
+        else if (stub is ScuRegisterBusDevice scuRegisters)
+        {
+            Console.WriteLine($"    interrupt mask: 0x{scuRegisters.InterruptMask:X8}");
+            Console.WriteLine($"    interrupt status: 0x{scuRegisters.InterruptStatus:X8}");
         }
 
         PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(8));

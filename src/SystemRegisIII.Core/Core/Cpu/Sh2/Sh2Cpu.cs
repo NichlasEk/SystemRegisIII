@@ -723,8 +723,15 @@ public sealed class Sh2Cpu : ISh2Cpu
             case 0x4028:
                 {
                     var register = (opcode >> 8) & 0xF;
-                    Registers.General[register] <<= 2;
-                    Trace($"0x{pc:X8}: SHLL2 R{register}");
+                    Registers.General[register] <<= 16;
+                    Trace($"0x{pc:X8}: SHLL16 R{register}");
+                    return;
+                }
+            case 0x4029:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] >>= 16;
+                    Trace($"0x{pc:X8}: SHLR16 R{register}");
                     return;
                 }
             case 0x4008:
@@ -844,6 +851,30 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: STS.L PR,@-R{register}");
                     return;
                 }
+            case 0x4003:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] -= 4;
+                    _bus.WriteLong(Registers.General[register], Registers.StatusRegister);
+                    Trace($"0x{pc:X8}: STC.L SR,@-R{register}");
+                    return;
+                }
+            case 0x4013:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] -= 4;
+                    _bus.WriteLong(Registers.General[register], Registers.GlobalBaseRegister);
+                    Trace($"0x{pc:X8}: STC.L GBR,@-R{register}");
+                    return;
+                }
+            case 0x4023:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] -= 4;
+                    _bus.WriteLong(Registers.General[register], Registers.VectorBaseRegister);
+                    Trace($"0x{pc:X8}: STC.L VBR,@-R{register}");
+                    return;
+                }
             case 0x4026:
                 {
                     var register = (opcode >> 8) & 0xF;
@@ -880,6 +911,26 @@ public sealed class Sh2Cpu : ISh2Cpu
                 Trace($"0x{pc:X8}: opcode=0x{opcode:X4} (unimplemented)");
                 return;
         }
+    }
+
+    public bool RequestInterrupt(int level, byte vector)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(level, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(level, 15);
+
+        if (level <= Registers.InterruptLevelMask)
+        {
+            return false;
+        }
+
+        Registers.General[15] -= 4;
+        _bus.WriteLong(Registers.General[15], Registers.StatusRegister);
+        Registers.General[15] -= 4;
+        _bus.WriteLong(Registers.General[15], Registers.ProgramCounter);
+        Registers.InterruptLevelMask = level;
+        Registers.ProgramCounter = _bus.ReadLong(Registers.VectorBaseRegister + ((uint)vector * 4));
+        Trace($"interrupt level={level:X1} vector=0x{vector:X2} -> pc=0x{Registers.ProgramCounter:X8}");
+        return true;
     }
 
     private static uint BranchTarget(uint instructionAddress, int displacement)

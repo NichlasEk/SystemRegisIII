@@ -1,6 +1,7 @@
 using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
 
 namespace SystemRegisIII.Core.Core;
@@ -33,6 +34,7 @@ public sealed class SaturnSystemMap
         var workRamHighDevice = (IBusDevice)workRamHigh;
         var smpcRegisters = new SmpcRegisterBusDevice();
         var cdBlockRegisterMirror = new CdBlockRegisterBusDevice();
+        var scuRegisters = new ScuRegisterBusDevice();
 
         IInspectableBusDevice[] stubs =
         [
@@ -46,7 +48,7 @@ public sealed class SaturnSystemMap
             new StubBusDevice("VDP1 Area"),
             new StubBusDevice("VDP2 Area"),
             new StubBusDevice("VDP2 CRAM Area"),
-            new StubBusDevice("SCU / System Control Area"),
+            scuRegisters,
             new StubBusDevice("SH-2 Internal Registers"),
         ];
 

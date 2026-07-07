@@ -104,10 +104,11 @@ Work in small pushable slices:
 - `753d185`: Split the CD Block register mirror out of `SaturnSystemMap` into a dedicated `CdBlockRegisterBusDevice`, added HIRQ clear/mask-ish behavior, CR command latches, and CLI reporting for the last CR command. Yabause was used only as a behavioral/register reference for HIRQ/CR naming and status shape; no GPL implementation code was copied.
 - Current slice: Implemented CD Block command `0x01` (`Get Hardware Info`) as a clean room register response, added SCSP register write-back for BIOS audio init, and filled the SH-2 coverage that BIOS hit after leaving the CD loop: `CMP/HI`, `SHLR`, and GBR byte immediate `TST.B/AND.B/XOR.B/OR.B`.
 - Current slice: Added a dedicated SMPC register device from the official SMPC command model, including command history, immediate status-flag completion, and `SSHON`/`SSHOFF` slave enable state. The CLI now gates experimental slave stepping on SMPC state and prints a compact Work RAM loop probe when BIOS reaches the hot `0x06028314..0x06028318` loop. Official Saturn manuals from antime's Sega documentation archive were used as behavior references for SMPC command numbers, SCSP register map/timer notes, and SCU interrupt/mask direction.
+- Current slice: Added repo-local `docs/reference-map.md` with link-only Saturn reference notes and license cautions, added SH-2 interrupt entry with level masking and vector lookup, replaced the generic SCU stub with a narrow interrupt mask/status device, and drove deterministic V-Blank-IN interrupt requests from the CLI. Filled the BIOS interrupt-handler SH-2 opcodes `SHLR16` and `STC.L SR/GBR/VBR,@-Rn`.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `40M`-instruction run now has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, and loops around `0x06028314..0x06028318`.
+In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN interrupts, and still returns to the Work RAM wait around `0x06028314..0x06028318`.
 
 The loop is now identified as a Work RAM change wait:
 
@@ -118,11 +119,13 @@ The loop is now identified as a Work RAM change wait:
 
 SMPC command history before the loop is `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06`, ending in `SNDON`. There is no `SSHON` yet, so the previous slave-ready theory is weaker: BIOS appears to be waiting for an interrupt/tick or sound-init completion flag before enabling the slave SH-2.
 
+With V-Blank-IN enabled, SCU state is `mask=0xFFFFFE7C` and `status=0x00000001`. The BIOS interrupt handler repeatedly writes the CD Block command registers with command `0x00`, then returns to the same Work RAM flag wait. This makes CD command `0x00`/current-status or periodic-status behavior the next likely blocker.
+
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should implement the smallest correct interrupt path:
+The next slice should implement the smallest correct CD status path:
 
-- add SH-2 exception/interrupt state accurately enough for BIOS handlers and `RTE`,
-- replace the generic SCU stub with a narrow interrupt/mask/status device for V-Blank-IN/OUT first,
-- drive a deterministic VBlank tick from the CLI/core frame loop,
-- verify whether the BIOS interrupt handler mutates `0x06020240` and advances to the next hardware wait.
+- identify CD command `0x00` response shape from a clean reference,
+- add CLI reporting of current CD response CR values, not only the last command CR values,
+- model current/periodic CD status enough for the BIOS interrupt handler,
+- verify whether `0x06020240` changes and whether BIOS reaches `SSHON`.

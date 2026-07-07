@@ -3,6 +3,7 @@ using SystemRegisIII.Core.Core.Bus;
 using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
+using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
 using SystemRegisIII.Core.Core.Scsp;
 using SystemRegisIII.Core.Core.Vdp1;
@@ -38,6 +39,7 @@ Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full fr
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
 VerifySh2InternalRegisterBus();
+VerifySh2InterruptEntry();
 VerifySh2IndexedMoveDecoding();
 VerifySh2BiosBringupInstructions();
 VerifySh2BranchAndExceptionInstructions();
@@ -125,6 +127,14 @@ static void VerifySaturnSystemMap()
     var smpcRegisters = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     Require(smpcRegisters.LastCommand == 0x02, "SMPC command latch failed.");
     Require(smpcRegisters.SlaveSh2Enabled, "SMPC SSHON command failed.");
+    var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
+    scuRegisters.RaiseVBlankIn();
+    Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FFFE);
+    Require(systemMap.Bus.ReadLong(0x25FE_00A0) == 0xFFFF_FFFE, "SCU interrupt mask latch failed.");
+    Require(scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt pending failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A4, 0xFFFF_FFFE);
+    Require(systemMap.Bus.ReadLong(0x25FE_00A4) == 0x0000_0000, "SCU interrupt status clear failed.");
 
     var simulatedMap = SaturnSystemMap.CreateBringup(
         bios,
@@ -151,6 +161,31 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteByte(0xFFFF_FE92, 0x40);
     Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 internal latch failed.");
     Require(slaveBus.ReadByte(0xFFFF_FE92) == 0, "SH-2 internal latch leaked across CPUs.");
+}
+
+static void VerifySh2InterruptEntry()
+{
+    var ram = new ByteArrayMemory("RAM", 0x2000);
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_1FFF, ram)
+        .Build();
+    bus.WriteLong(0x0000_0000, 0x0000_0100);
+    bus.WriteLong(0x0000_0004, 0x0000_0000);
+    bus.WriteWord(0x0000_0100, 0x0009);
+    bus.WriteLong(0x40 * 4, 0x0000_0800);
+
+    var cpu = new Sh2Cpu("IRQ SH-2", bus, 0x0000_0000);
+    cpu.Reset();
+    cpu.Registers.General[15] = 0x0000_1000;
+    cpu.StepInstruction();
+    Require(cpu.Registers.ProgramCounter == 0x0000_0102, "SH-2 interrupt setup failed.");
+    Require(cpu.RequestInterrupt(15, 0x40), "SH-2 interrupt request was not accepted.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_0800, "SH-2 interrupt vector failed.");
+    Require(cpu.Registers.General[15] == 0x0000_0FF8, "SH-2 interrupt stack pointer failed.");
+    Require(bus.ReadLong(0x0000_0FF8) == 0x0000_0102, "SH-2 interrupt stacked PC failed.");
+    Require(bus.ReadLong(0x0000_0FFC) == 0x0000_0000, "SH-2 interrupt stacked SR failed.");
+    Require(cpu.Registers.InterruptLevelMask == 15, "SH-2 interrupt level mask failed.");
+    Require(!cpu.RequestInterrupt(14, 0x40), "SH-2 interrupt mask accepted lower priority.");
 }
 
 static void VerifySh2IndexedMoveDecoding()
@@ -234,6 +269,14 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STS.L PR,@-Rn did not predecrement.");
     Require(ReadLong(data, 4) == 0xCAFE_BABE, "SH-2 STS.L PR,@-Rn failed.");
 
+    WriteWord(code, 0x08, 0x4113);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0008;
+    cpu.Registers.GlobalBaseRegister = 0x0602_0000;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STC.L GBR,@-Rn did not predecrement.");
+    Require(ReadLong(data, 4) == 0x0602_0000, "SH-2 STC.L GBR,@-Rn failed.");
+
     WriteWord(code, 0x08, 0x3122);
     cpu.Reset();
     cpu.Registers.General[1] = 0x8000_0000;
@@ -267,6 +310,12 @@ static void VerifySh2BiosBringupInstructions()
     cpu.Registers.General[1] = 0x8123_4567;
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0x0081_2345, "SH-2 SHLR8 failed.");
+
+    WriteWord(code, 0x08, 0x4129);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8123_4567;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0000_8123, "SH-2 SHLR16 failed.");
 
     WriteWord(code, 0x08, 0x3128);
     cpu.Reset();

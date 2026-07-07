@@ -2,6 +2,8 @@ namespace SystemRegisIII.Core.Core.Cpu.Sh2;
 
 public sealed class Sh2Registers
 {
+    private const uint InterruptMask = 0x0000_00F0;
+
     public uint ProgramCounter { get; set; }
 
     public uint StatusRegister { get; set; }
@@ -18,5 +20,11 @@ public sealed class Sh2Registers
     {
         get => (StatusRegister & 1) != 0;
         set => StatusRegister = value ? StatusRegister | 1u : StatusRegister & ~1u;
+    }
+
+    public int InterruptLevelMask
+    {
+        get => (int)((StatusRegister & InterruptMask) >> 4);
+        set => StatusRegister = (StatusRegister & ~InterruptMask) | (((uint)value & 0xF) << 4);
     }
 }
