@@ -106,6 +106,7 @@ Work in small pushable slices:
 - Current slice: Added a dedicated SMPC register device from the official SMPC command model, including command history, immediate status-flag completion, and `SSHON`/`SSHOFF` slave enable state. The CLI now gates experimental slave stepping on SMPC state and prints a compact Work RAM loop probe when BIOS reaches the hot `0x06028314..0x06028318` loop. Official Saturn manuals from antime's Sega documentation archive were used as behavior references for SMPC command numbers, SCSP register map/timer notes, and SCU interrupt/mask direction.
 - Current slice: Added repo-local `docs/reference-map.md` with link-only Saturn reference notes and license cautions, added SH-2 interrupt entry with level masking and vector lookup, replaced the generic SCU stub with a narrow interrupt mask/status device, and drove deterministic V-Blank-IN interrupt requests from the CLI. Filled the BIOS interrupt-handler SH-2 opcodes `SHLR16` and `STC.L SR/GBR/VBR,@-Rn`.
 - Current slice: Modeled CD Block command `0x00` as an explicit current-status response, exposed response CR values in the CLI, and changed the no-media bringup default from `<PAUSE>` to `<NODISC>`. This keeps the headless BIOS run honest until a host disc image is mounted.
+- Current slice: Added focused Work RAM watches around `0x06020230..0x0602024F` and `0x06020720..0x0602075F`, plus compact BIOS code/data windows for the wait loop, SCU V-Blank-IN handler, callback table, and V-Blank helper code. The watched wait flag at `0x06020240` is only written as zero so far; nearby `0x0602024C` points at callback/state storage `0x06020728`, while the V-Blank callback table at `0x06000A00` points to `0x06028D64` and `0x06028D9E`. PC heat now proves V-Blank callback/helper code is reached, including `0x06028934`.
 
 ## Current Next Blocker
 
@@ -124,9 +125,18 @@ With V-Blank-IN enabled, SCU state is `mask=0xFFFFFE7C` and the last status writ
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify what mutates the Work RAM flag:
+The current diagnostic slice identifies the relevant Work RAM and handler paths:
 
-- add a focused RAM write watch for `0x06020240` and nearby words,
-- trace the BIOS interrupt handler around `0x0600083C..0x0600094C` without full instruction logging,
-- verify whether the flag is meant to be changed by CD status handling, SCSP sound init, or another SCU interrupt source,
-- only then decide whether to deepen CD status, SCSP DSP/status, or VDP/SCU timing.
+- `0x06020240` is the wait flag and is still `0x00000000` at the loop.
+- the flag watch records only three writes to `0x06020240`, all zero.
+- `0x06020248` ends as `0x00000022`; `0x0602024C` ends as `0x06020728`.
+- `0x06020720..0x06020727` are initialized to `0xFE`, while `0x06020728` and the surrounding callback/state entries remain zero at the final snapshot.
+- the V-Blank callback table at `0x06000A00` contains `0x06028D64`, `0x06028D9E`, then default return stubs.
+- callback PC heat proves execution reaches `0x06028D64`, scans the callback/state table around `0x06028D7E..0x06028D8E`, and reaches helper code at `0x06028934`.
+
+The next slice should identify why the callback/state table never receives an active entry:
+
+- inspect the setup call at `0x06028C44` and its writes to `0x06020248/0x0602024C/0x06020720`;
+- add either call-target hit reporting or a one-shot trace around `0x06028C44..0x06028C9E`;
+- decide whether callback activation depends on CD status, SCSP status, or a second SCU interrupt source;
+- keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

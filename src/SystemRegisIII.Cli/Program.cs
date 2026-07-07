@@ -47,10 +47,13 @@ static int RunBios(string[] args)
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterInternalBus, trace) : masterInternalBus;
+    var masterFlagWatch = new WatchedBus(masterInternalBus, 0x0602_0230, 0x0602_024F);
+    var masterCallbackWatch = new WatchedBus(masterFlagWatch, 0x0602_0720, 0x0602_075F);
+    WatchedBus? slaveFlagWatch = slaveInternalBus is null ? null : new WatchedBus(slaveInternalBus, 0x0602_0230, 0x0602_024F);
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCallbackWatch, trace) : masterCallbackWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
-        : traceEnabled ? new TracingBus(slaveInternalBus, trace) : slaveInternalBus;
+        : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
 
     var master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
     var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
@@ -59,6 +62,8 @@ static int RunBios(string[] args)
     master.Reset();
     slave?.Reset();
     var masterPcHits = new Dictionary<uint, long>();
+    var masterHandlerPcHits = new Dictionary<uint, long>();
+    var masterCallbackPcHits = new Dictionary<uint, long>();
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
     var busFaults = new List<string>();
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
@@ -75,7 +80,17 @@ static int RunBios(string[] args)
             _ = master.RequestInterrupt(15, 0x40);
         }
 
-        RecordPc(masterPcHits, master.Registers.ProgramCounter);
+        var masterPc = master.Registers.ProgramCounter;
+        RecordPc(masterPcHits, masterPc);
+        if (masterPc is >= 0x0600_083C and <= 0x0600_094C)
+        {
+            RecordPc(masterHandlerPcHits, masterPc);
+        }
+        else if (masterPc is >= 0x0602_8900 and <= 0x0602_8E20)
+        {
+            RecordPc(masterCallbackPcHits, masterPc);
+        }
+
         if (!TryStep(master, trace, busFaults))
         {
             break;
@@ -129,12 +144,21 @@ static int RunBios(string[] args)
     }
 
     PrintHotProgramCounters(master.Name, masterPcHits);
+    PrintHotProgramCounters($"{master.Name} handler", masterHandlerPcHits);
+    PrintHotProgramCounters($"{master.Name} callback", masterCallbackPcHits);
     if (slave is not null)
     {
         PrintHotProgramCounters(slave.Name, slavePcHits!);
     }
 
     PrintMasterGbrLoopProbe(master, addressMap);
+    PrintWatchWindow("Master flag watch", masterFlagWatch);
+    PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
+    if (slaveFlagWatch is not null)
+    {
+        PrintWatchWindow("Slave flag watch", slaveFlagWatch);
+    }
+
     PrintScuInterruptState(scu);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
@@ -163,7 +187,7 @@ static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
 {
     var hot = hits
         .OrderByDescending(static pair => pair.Value)
-        .Take(4)
+        .Take(name.Contains("handler", StringComparison.Ordinal) || name.Contains("callback", StringComparison.Ordinal) ? 32 : 4)
         .Where(static pair => pair.Value > 1)
         .ToArray();
 
@@ -196,6 +220,18 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
         Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}]=0x{bus.ReadLong(watchedAddress):X8}");
         PrintWordWindow(bus, watchedAddress - 0x10, 12, "  flag window");
         PrintWordWindow(bus, 0x0602_8300, 16, "  code window");
+        PrintWordWindow(bus, 0x0602_8350, 32, "  loop literals 0x06028350");
+        PrintWordWindow(bus, 0x0600_0830, 32, "  handler window 0x06000830");
+        PrintWordWindow(bus, 0x0600_08E0, 40, "  handler window 0x060008E0");
+        PrintWordWindow(bus, 0x0600_0930, 64, "  handler window 0x06000930");
+        PrintWordWindow(bus, 0x0600_0340, 16, "  handler data 0x06000340");
+        PrintWordWindow(bus, 0x0600_0980, 32, "  handler target 0x06000980");
+        PrintWordWindow(bus, 0x0600_0A00, 32, "  handler target 0x06000A00");
+        PrintWordWindow(bus, 0x0602_0720, 32, "  flag callback area 0x06020720");
+        PrintWordWindow(bus, 0x0602_8920, 48, "  vblank helper target 0x06028920");
+        PrintWordWindow(bus, 0x0602_8C40, 48, "  wait setup target 0x06028C40");
+        PrintWordWindow(bus, 0x0602_8D60, 48, "  vblank callback 0x06028D60");
+        PrintWordWindow(bus, 0x0602_8D98, 48, "  vblank callback 0x06028D98");
     }
     catch (BusFaultException exception)
     {
@@ -213,6 +249,22 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
     Console.WriteLine("SCU interrupt state:");
     Console.WriteLine($"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn}");
     Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
+}
+
+static void PrintWatchWindow(string label, WatchedBus watch)
+{
+    Console.WriteLine($"{label}: writes={watch.WriteCount:N0}");
+    if (watch.WriteCount == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine(
+        $"  first=0x{watch.FirstWriteAddress!.Value:X8} last=0x{watch.LastWriteAddress!.Value:X8} value=0x{watch.LastWriteValue!.Value:X8}");
+    foreach (var (address, count, value) in watch.GetHotWrites(12))
+    {
+        Console.WriteLine($"  0x{address:X8}: {count:N0} last=0x{value:X8}");
+    }
 }
 
 static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
