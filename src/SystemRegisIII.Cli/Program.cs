@@ -212,6 +212,7 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
 
     Console.WriteLine("SCU interrupt state:");
     Console.WriteLine($"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn}");
+    Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
 }
 
 static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
@@ -316,6 +317,8 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
+            Console.WriteLine(
+                $"    response CR: 0x{cdRegisters.ResponseCr1:X4} 0x{cdRegisters.ResponseCr2:X4} 0x{cdRegisters.ResponseCr3:X4} 0x{cdRegisters.ResponseCr4:X4}");
         }
         else if (stub is SmpcRegisterBusDevice smpcRegisters)
         {
@@ -327,6 +330,7 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine($"    interrupt mask: 0x{scuRegisters.InterruptMask:X8}");
             Console.WriteLine($"    interrupt status: 0x{scuRegisters.InterruptStatus:X8}");
+            Console.WriteLine($"    last interrupt status write: 0x{scuRegisters.LastInterruptStatusWrite:X8}");
         }
 
         PrintHotStubOffsets("hot reads", stub.GetHotReadOffsets(8));

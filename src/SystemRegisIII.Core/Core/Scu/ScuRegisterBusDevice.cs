@@ -20,6 +20,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public uint? LastWriteOffset { get; private set; }
     public uint InterruptMask { get; private set; } = 0xFFFF_FFFF;
     public uint InterruptStatus { get; private set; }
+    public uint LastInterruptStatusWrite { get; private set; } = 0xFFFF_FFFF;
     public bool HasPendingVBlankIn => (InterruptStatus & VBlankInBit) != 0 && (InterruptMask & VBlankInBit) == 0;
 
     public byte ReadByte(uint offset)
@@ -58,6 +59,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
         if (IsInterruptStatus(offset))
         {
             var written = WriteWordByte(0xFFFF_FFFF, offset - InterruptStatusOffset, value);
+            LastInterruptStatusWrite = WriteWordByte(LastInterruptStatusWrite, offset - InterruptStatusOffset, value);
             InterruptStatus &= written;
             return;
         }

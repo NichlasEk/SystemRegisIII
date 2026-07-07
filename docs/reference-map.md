@@ -50,6 +50,16 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - DSP control area begins at `0x100700`.
   - The BIOS hot reads around SCSP offsets `0x700`, `0x710`, and `0x720` are therefore DSP-control-facing reads, not timer register reads.
 
+### System Library User's Guide / CD Communication Interface
+
+- URL: https://antime.kapsi.fi/sega/files/ST-162-062094.pdf
+- License status: marked SEGA Confidential; do not vendor.
+- Useful clean-room facts:
+  - CD status information is an 8-byte response spread across CR1-CR4.
+  - `CDC_GetCurStat` issues a CD block command and returns current status/report.
+  - `CDC_GetPeriStat` reads periodic response without issuing a CD block command.
+  - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
+
 ## Current BIOS Bringup Evidence
 
 Verified with:
@@ -68,4 +78,4 @@ Current hot loop:
 
 Next likely reference target:
 
-- SH-2 exception/interrupt behavior from the Hitachi/Renesas SH-2 programming/hardware manuals, preferably from a source with clear redistribution terms before vendoring.
+- CD block command/status details from a source with clear redistribution terms before vendoring.

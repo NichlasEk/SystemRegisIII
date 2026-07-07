@@ -12,7 +12,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
-    private const byte CdStatusPause = 0x01;
+    private const byte CdStatusNoDisc = 0x07;
     private const byte CdStatusPeriodic = 0x20;
 
     private readonly Dictionary<uint, long> _readOffsets = [];
@@ -22,7 +22,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _hirq;
     private ushort _hirqMask;
     private bool _statusMode;
-    private byte _status = CdStatusPause;
+    private byte _status = CdStatusNoDisc;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -40,6 +40,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort LastCommandCr3 { get; private set; }
     public ushort LastCommandCr4 { get; private set; }
     public byte LastCommandCode { get; private set; }
+    public ushort ResponseCr1 => _cr1;
+    public ushort ResponseCr2 => _cr2;
+    public ushort ResponseCr3 => _cr3;
+    public ushort ResponseCr4 => _cr4;
 
     public byte ReadByte(uint offset)
     {
@@ -122,6 +126,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         switch (LastCommandCode)
         {
+            case 0x00:
+                GetCurrentStatus();
+                break;
             case 0x01:
                 GetHardwareInfo();
                 break;
@@ -131,6 +138,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _hirq |= HirqCmok;
+    }
+
+    private void GetCurrentStatus()
+    {
+        _statusMode = true;
+        _status &= unchecked((byte)~CdStatusPeriodic);
+        WriteStatusResponse();
     }
 
     private void GetHardwareInfo()
@@ -152,6 +166,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         _statusMode = true;
         _cr1 = (ushort)(CdStatusPeriodic << 8);
+        _cr2 = 0;
+        _cr3 = 0;
+        _cr4 = 0;
+    }
+
+    private void WriteStatusResponse()
+    {
+        _cr1 = (ushort)(_status << 8);
         _cr2 = 0;
         _cr3 = 0;
         _cr4 = 0;
