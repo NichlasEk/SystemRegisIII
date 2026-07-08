@@ -12,9 +12,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
+    private const ushort HirqDataReady = 0x0002;
+    private const ushort HirqEndHostIo = 0x0080;
     private const ushort HirqEndFileSystem = 0x0200;
     private const ushort HirqMountedStatusReady = 0x4658;
     private const byte CdStatusPeriodic = 0x20;
+    private const byte CdStatusDataTransferRequest = 0x40;
     private const byte CdRomStatusBit = 0x80;
     private const byte DataTrackControlAdr = 0x41;
     private const byte FirstTrackNumber = 0x01;
@@ -31,6 +34,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _statusMode;
     private byte _status;
     private bool _hasExecutedCommand;
+    private bool _dataTransferActive;
+    private bool _endHostIoCompleted;
+    private ushort _dataTransferWordCount;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -154,6 +160,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void ExecuteCommand()
     {
         _hasExecutedCommand = true;
+        _endHostIoCompleted = false;
         switch (LastCommandCode)
         {
             case 0x00:
@@ -161,6 +168,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
             case 0x01:
                 GetHardwareInfo();
+                break;
+            case 0x02:
+                GetTableOfContents();
+                break;
+            case 0x03:
+                GetSessionInfo();
+                break;
+            case 0x06:
+                EndDataTransfer();
                 break;
             case 0x75:
                 AbortFile();
@@ -174,6 +190,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (_discImage is not null && LastCommandCode == 0x00)
         {
             _hirq |= HirqMountedStatusReady;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x02)
+        {
+            _hirq |= HirqDataReady;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x06 && _endHostIoCompleted)
+        {
+            _hirq |= HirqEndHostIo;
         }
         else if (_discImage is not null && LastCommandCode == 0x75)
         {
@@ -198,9 +222,77 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr4 = 0x0400;
     }
 
+    private void GetTableOfContents()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        _statusMode = true;
+        _dataTransferActive = true;
+        _dataTransferWordCount = 0x00CC;
+        _cr1 = (ushort)(CdStatusDataTransferRequest << 8 | CdRomStatusBit);
+        _cr2 = _dataTransferWordCount;
+        _cr3 = 0;
+        _cr4 = 0;
+    }
+
+    private void GetSessionInfo()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        var session = LastCommandCr1 & 0x00FF;
+        uint fad;
+        byte resultStatus;
+        if (session == 0)
+        {
+            fad = FirstTrackFad + (uint)Math.Min(_discImage.SectorCount, 0x7F_FFFF);
+            resultStatus = 0x01;
+        }
+        else if (session == 1)
+        {
+            fad = FirstTrackFad;
+            resultStatus = 0x01;
+        }
+        else
+        {
+            fad = 0xFF_FFFF;
+            resultStatus = 0xFF;
+        }
+
+        _statusMode = true;
+        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr2 = 0;
+        var sessionWord = ((uint)resultStatus << 8) | ((fad >> 16) & 0xFF);
+        _cr3 = (ushort)sessionWord;
+        _cr4 = (ushort)fad;
+    }
+
+    private void EndDataTransfer()
+    {
+        _statusMode = true;
+        var transferredWords = _dataTransferActive ? _dataTransferWordCount : (ushort)0;
+        _dataTransferActive = false;
+        _endHostIoCompleted = transferredWords > 0;
+        _dataTransferWordCount = 0;
+        _cr1 = (ushort)(((_discImage is null ? _status : (byte)(_status | CdStatusPeriodic)) << 8)
+            | ((transferredWords >> 16) & 0xFF));
+        _cr2 = transferredWords;
+        _cr3 = 0;
+        _cr4 = 0;
+    }
+
     private void AbortFile()
     {
         _statusMode = true;
+        _dataTransferActive = false;
+        _dataTransferWordCount = 0;
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 

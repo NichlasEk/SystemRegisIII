@@ -37,6 +37,8 @@ static int RunBios(string[] args)
     var discPath = GetOption(args, "--disc");
     var cdStatus = GetCdStatusOption(args);
     var instructionCount = GetIntOption(args, "--instructions", defaultValue: 64);
+    var vblankInterval = Math.Max(2, GetIntOption(args, "--vblank-interval", defaultValue: 1_000_000));
+    var vblankOutOffset = vblankInterval / 2;
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var dualSh2 = Has(args, "--dual-sh2");
@@ -116,11 +118,11 @@ static int RunBios(string[] args)
             scu.RaiseSmpc();
         }
 
-        if (i > 0 && i % 1_000_000 == 0)
+        if (i > 0 && i % vblankInterval == 0)
         {
             scu.RaiseVBlankIn();
         }
-        else if (i > 0 && i % 1_000_000 == 500_000)
+        else if (i > 0 && i % vblankInterval == vblankOutOffset)
         {
             scu.RaiseVBlankOut();
         }
@@ -202,6 +204,7 @@ static int RunBios(string[] args)
 
     Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
     Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
+    Console.WriteLine($"VBlank interval: {vblankInterval:N0} instructions");
     if (slave is not null)
     {
         Console.WriteLine($"Slave SH-2 enabled by SMPC: {(smpc.SlaveSh2Enabled ? "on" : "off")}");
@@ -1074,7 +1077,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
 }
 
 sealed class ScuInterruptProbe

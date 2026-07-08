@@ -73,9 +73,11 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - CD status information is an 8-byte response spread across CR1-CR4.
   - `CDC_GetCurStat` issues a CD block command and returns current status/report.
   - `CDC_GetPeriStat` reads periodic response without issuing a CD block command.
+  - `CDC_GetToc`/CD command `0x02` returns a data-transfer-ready response and exposes TOC data through the host transfer path.
   - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
   - Mounted dummy media currently reports a simple periodic data-track status response: `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
   - BIOS-observed command `0x75` is modeled as Abort File for bringup, returning mounted periodic status and raising `EFLS` (`0x0200`) with `CMOK`.
+  - Current clean-room CD coverage includes register-level `Get TOC`, `Get Session Info`, and `End Data Transfer`; the TOC data FIFO itself is still a next step.
 
 ## Current BIOS Bringup Evidence
 
@@ -97,7 +99,8 @@ Current bringup position:
 - The current 80M run reports no unimplemented opcodes or bus faults after adding SH-2 `ROTCR Rn` and `NEG Rm,Rn`.
 - Memory-map additions needed by the latest BIOS path: internal Backup RAM at `0x00180000..0x001FFFFF` with cache-through write-back, and Work RAM High mirror at `0x0C000000..0x0C0FFFFF`.
 - The hot frame-wait loop at `0x06040226..0x0604022A` reads `GBR+0x90` / `0x06020240`; V-Blank callbacks are still accepted and increment that flag to `0x2E` in the 80M run.
+- `--vblank-interval 100000` is available as a probe-only accelerator. It confirms the same dummy-disc path remains frame-paced at `0x06040226/0x06040228`, with faster V-Blank flag increments but no new CD command sequence.
 
 Next likely reference target:
 
-- CD Block TOC/read-sector/filter/selector behavior and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
+- CD Block TOC host-transfer data path, read-sector/filter/selector behavior, and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
