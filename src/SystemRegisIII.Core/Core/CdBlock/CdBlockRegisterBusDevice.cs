@@ -35,6 +35,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly Dictionary<uint, ushort> _writtenWords = [];
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
+    private readonly Dictionary<byte, long> _commandCounts = [];
     private readonly Queue<byte> _recentCommands = new();
     private byte _getSectorLength;
     private byte _putSectorLength;
@@ -91,6 +92,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public long DiscSectorCount => _discImage?.SectorCount ?? 0;
     public byte AuthenticationType => _authDiscType;
     public bool AuthStartupCompleted => _authStartupCompleted;
+    public IReadOnlyList<(byte Command, long Count)> CommandCounts =>
+        _commandCounts
+            .OrderByDescending(static pair => pair.Value)
+            .ThenBy(static pair => pair.Key)
+            .Select(static pair => (pair.Key, pair.Value))
+            .ToArray();
+
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
@@ -853,6 +861,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void RecordRecentCommand(byte command)
     {
+        _commandCounts.TryGetValue(command, out var count);
+        _commandCounts[command] = count + 1;
+
         if (_recentCommands.Count == 16)
         {
             _recentCommands.Dequeue();

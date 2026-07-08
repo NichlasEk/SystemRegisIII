@@ -369,6 +369,7 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
         PrintInstructionWindow(bus, 0x0604_01B0, 96, "  frame wait loop 0x060401B0");
         PrintInstructionWindow(bus, 0x0604_14A0, 64, "  caller/status sequence 0x060414A0");
         PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
+        PrintWordWindow(bus, 0x060B_3060, 16, "  BIOS menu state 0x060B3060");
     }
     else if (pc is >= 0x0604_0B70 and <= 0x0604_0C20)
     {
@@ -977,6 +978,8 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
             Console.WriteLine($"    auth startup completed: {cdRegisters.AuthStartupCompleted}");
             Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
+            Console.WriteLine(
+                $"    command counts: {string.Join(", ", cdRegisters.CommandCounts.Select(static item => $"0x{item.Command:X2}:{item.Count:N0}"))}");
             Console.WriteLine($"    recent commands: {string.Join(", ", cdRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
             Console.WriteLine(
                 $"    response CR: 0x{cdRegisters.ResponseCr1:X4} 0x{cdRegisters.ResponseCr2:X4} 0x{cdRegisters.ResponseCr3:X4} 0x{cdRegisters.ResponseCr4:X4}");

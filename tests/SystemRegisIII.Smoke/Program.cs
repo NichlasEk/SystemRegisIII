@@ -154,8 +154,11 @@ static void VerifySaturnSystemMap()
     systemMap.Bus.WriteByte(0x0010_0005, 0xF0);
     systemMap.Bus.WriteByte(0x0010_001F, 0x10);
     Require(systemMap.Bus.ReadByte(0x0010_0061) == 0xC0, "SMPC INTBACK peripheral status failed.");
-    Require(systemMap.Bus.ReadByte(0x0010_0021) == 0xF0, "SMPC INTBACK port 1 status failed.");
-    Require(systemMap.Bus.ReadByte(0x0010_0023) == 0xF0, "SMPC INTBACK port 2 status failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0021) == 0xF1, "SMPC INTBACK port 1 digital pad ID failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0023) == 0x02, "SMPC INTBACK port 1 digital pad size failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0025) == 0xFF, "SMPC INTBACK port 1 digital pad data 1 failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC INTBACK port 1 digital pad data 2 failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0029) == 0xF0, "SMPC INTBACK port 2 status failed.");
     var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     scuRegisters.RaiseVBlankIn();
     Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");

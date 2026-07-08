@@ -111,8 +111,10 @@ Current bringup position:
 - Minimal auth status support detects `SEGA SEGASATURN ` in sector 0 as auth type `0x04` and exposes it through command `0xE1`. Nights Into Dreams reports `auth type: 0x04`, but the BIOS still polls current status only (`0x00`) in the 80M probe.
 - `Get Current Status` command responses now omit the periodic bit (`0x0280` mounted standby), while periodic reads still report `0x2280`. This distinction moves Nights into CD setup commands before the next frame-loop blocker.
 - Current setup-command coverage includes `Init` (`0x04`), `Reset Selector` (`0x48`), `Set Sector Length` (`0x60`), and `Get Copy Error` (`0x67`), implemented as register-level clean-room behavior from Mednafen-observed command semantics.
+- SMPC INTBACK peripheral data now reports an idle digital pad on port 1 as `F1 02 FF FF`, with port 2 disconnected as `F0`.
+- The latest Nights probe ends in BIOS menu state `0x060B306C = 0x0401`, with CD command counts `0x00:51, 0x01:4, 0x04:2, 0x06:3, 0x48:2, 0x60:2, 0x67:2, 0x75:3`.
 
 Next likely reference target:
 
-- Real-disc boot gaps: selector/filter/buffer side effects after CD init, richer status transitions while BIOS polls current status, multi-directory ISO9660 behavior, and any transfer semantics proven by a bootable Saturn image.
+- Real-disc boot gaps: BIOS menu state `0x0401` exit conditions, selector/filter/buffer side effects after CD init, richer status transitions while BIOS polls current status, multi-directory ISO9660 behavior, and any transfer semantics proven by a bootable Saturn image.
 - BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

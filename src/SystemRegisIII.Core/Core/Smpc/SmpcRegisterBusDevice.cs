@@ -17,6 +17,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private const byte SystemStatus1Default = 0x34;
     private const byte SystemStatus2Default = 0x00;
     private const byte NoPeripheralPortStatus = 0xF0;
+    private static readonly byte[] IdleDigitalPadPortData = [0xF1, 0x02, 0xFF, 0xFF];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private readonly Queue<byte> _recentCommands = new();
@@ -147,7 +148,8 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             var outputIndex = 0;
             if (port1Mode != 0x03)
             {
-                _outputRegisters[outputIndex++] = NoPeripheralPortStatus;
+                IdleDigitalPadPortData.CopyTo(_outputRegisters, outputIndex);
+                outputIndex += IdleDigitalPadPortData.Length;
             }
 
             if (port2Mode != 0x03 && outputIndex < _outputRegisters.Length)
