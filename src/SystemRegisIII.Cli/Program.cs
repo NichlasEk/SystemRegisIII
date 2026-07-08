@@ -84,6 +84,7 @@ static int RunBios(string[] args)
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
     var busFaults = new List<string>();
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
+    var interruptProbe = new ScuInterruptProbe();
 
     for (var i = 0; i < instructionCount; i++)
     {
@@ -103,15 +104,25 @@ static int RunBios(string[] args)
 
         if (scu.HasPendingVBlankIn)
         {
-            _ = master.RequestInterrupt(15, 0x40);
+            var accepted = master.RequestInterrupt(15, 0x40);
+            interruptProbe.RecordVBlankIn(accepted, master.Registers.ProgramCounter);
+            if (accepted)
+            {
+                scu.AcknowledgeVBlankIn();
+            }
         }
         else if (scu.HasPendingVBlankOut)
         {
-            _ = master.RequestInterrupt(14, 0x41);
+            var accepted = master.RequestInterrupt(14, 0x41);
+            interruptProbe.RecordVBlankOut(accepted, master.Registers.ProgramCounter);
+            if (accepted)
+            {
+                scu.AcknowledgeVBlankOut();
+            }
         }
         else if (scu.HasPendingSmpc)
         {
-            _ = master.RequestInterrupt(8, 0x47);
+            interruptProbe.RecordSmpc(master.RequestInterrupt(8, 0x47), master.Registers.ProgramCounter);
         }
 
         var masterPc = master.Registers.ProgramCounter;
@@ -198,7 +209,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Slave flag watch", slaveFlagWatch);
     }
 
-    PrintScuInterruptState(scu);
+    PrintScuInterruptState(scu, interruptProbe);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
@@ -272,21 +283,21 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
     {
         Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}]=0x{bus.ReadLong(watchedAddress):X8}");
         PrintWordWindow(bus, watchedAddress - 0x10, 12, "  flag window");
-        PrintWordWindow(bus, 0x0602_8300, 16, "  code window");
+        PrintInstructionWindow(bus, 0x0602_8300, 16, "  code window");
         PrintWordWindow(bus, 0x0602_8350, 32, "  loop literals 0x06028350");
-        PrintWordWindow(bus, 0x0600_0830, 32, "  handler window 0x06000830");
-        PrintWordWindow(bus, 0x0600_08E0, 40, "  handler window 0x060008E0");
-        PrintWordWindow(bus, 0x0600_0930, 64, "  handler window 0x06000930");
+        PrintInstructionWindow(bus, 0x0600_0830, 32, "  handler window 0x06000830");
+        PrintInstructionWindow(bus, 0x0600_08E0, 40, "  handler window 0x060008E0");
+        PrintInstructionWindow(bus, 0x0600_0930, 64, "  handler window 0x06000930");
         PrintWordWindow(bus, 0x0600_0340, 16, "  handler data 0x06000340");
-        PrintWordWindow(bus, 0x0600_0980, 32, "  handler target 0x06000980");
+        PrintInstructionWindow(bus, 0x0600_0980, 32, "  handler target 0x06000980");
         PrintWordWindow(bus, 0x0600_0A00, 32, "  handler target 0x06000A00");
         PrintWordWindow(bus, 0x0602_0720, 32, "  flag callback area 0x06020720");
-        PrintWordWindow(bus, 0x0602_81C0, 48, "  flag writer routine 0x060281C0");
-        PrintWordWindow(bus, 0x0602_9EA0, 48, "  state init writer routine 0x06029EA0");
-        PrintWordWindow(bus, 0x0602_8920, 48, "  vblank helper target 0x06028920");
-        PrintWordWindow(bus, 0x0602_8C40, 80, "  wait setup target 0x06028C40");
-        PrintWordWindow(bus, 0x0602_8D60, 48, "  vblank callback 0x06028D60");
-        PrintWordWindow(bus, 0x0602_8D98, 48, "  vblank callback 0x06028D98");
+        PrintInstructionWindow(bus, 0x0602_81C0, 48, "  flag writer routine 0x060281C0");
+        PrintInstructionWindow(bus, 0x0602_9EA0, 48, "  state init writer routine 0x06029EA0");
+        PrintInstructionWindow(bus, 0x0602_8920, 48, "  vblank helper target 0x06028920");
+        PrintInstructionWindow(bus, 0x0602_8C40, 80, "  wait setup target 0x06028C40");
+        PrintInstructionWindow(bus, 0x0602_8D60, 48, "  vblank callback 0x06028D60");
+        PrintInstructionWindow(bus, 0x0602_8D98, 48, "  vblank callback 0x06028D98");
     }
     catch (BusFaultException exception)
     {
@@ -294,7 +305,7 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
     }
 }
 
-static void PrintScuInterruptState(ScuRegisterBusDevice scu)
+static void PrintScuInterruptState(ScuRegisterBusDevice scu, ScuInterruptProbe probe)
 {
     if (scu.ReadCount == 0 && scu.WriteCount == 0 && scu.InterruptStatus == 0)
     {
@@ -305,6 +316,7 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
     Console.WriteLine(
         $"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn} vblank-out-pending={scu.HasPendingVBlankOut} smpc-pending={scu.HasPendingSmpc}");
     Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
+    probe.Print();
 }
 
 static void PrintWatchWindow(string label, WatchedBus watch)
@@ -371,6 +383,219 @@ static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, st
     {
         var address = startAddress + (uint)(index * 2);
         Console.WriteLine($"    0x{address:X8}: 0x{bus.ReadWord(address):X4}");
+    }
+}
+
+static void PrintInstructionWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
+{
+    Console.WriteLine($"{label}:");
+    for (var index = 0; index < wordCount; index++)
+    {
+        var address = startAddress + (uint)(index * 2);
+        var opcode = bus.ReadWord(address);
+        Console.WriteLine($"    0x{address:X8}: 0x{opcode:X4}  {DecodeSh2Instruction(bus, address, opcode)}");
+    }
+}
+
+static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
+{
+    if (opcode == 0x0009)
+    {
+        return "NOP";
+    }
+
+    if (opcode == 0x000B)
+    {
+        return "RTS";
+    }
+
+    if (opcode == 0x002B)
+    {
+        return "RTE";
+    }
+
+    if ((opcode & 0xF000) == 0xA000)
+    {
+        return $"BRA 0x{BranchTarget(address, opcode & 0x0FFF):X8}";
+    }
+
+    if ((opcode & 0xF000) == 0xB000)
+    {
+        return $"BSR 0x{BranchTarget(address, opcode & 0x0FFF):X8}";
+    }
+
+    if ((opcode & 0xF000) == 0xD000)
+    {
+        var register = (opcode >> 8) & 0xF;
+        var displacement = opcode & 0xFF;
+        var literalAddress = ((address + 4) & 0xFFFF_FFFCu) + (uint)(displacement * 4);
+        return $"MOV.L @(0x{displacement:X2},PC),R{register} ; [0x{literalAddress:X8}]=0x{ReadLongOrFault(bus, literalAddress)}";
+    }
+
+    if ((opcode & 0xF000) == 0xE000)
+    {
+        var register = (opcode >> 8) & 0xF;
+        return $"MOV #0x{opcode & 0xFF:X2},R{register}";
+    }
+
+    if ((opcode & 0xF000) == 0x9000)
+    {
+        var register = (opcode >> 8) & 0xF;
+        var displacement = opcode & 0xFF;
+        var literalAddress = ((address + 4) & 0xFFFF_FFFCu) + (uint)(displacement * 2);
+        return $"MOV.W @(0x{displacement:X2},PC),R{register} ; [0x{literalAddress:X8}]=0x{ReadWordOrFault(bus, literalAddress)}";
+    }
+
+    if ((opcode & 0xFF00) is 0x8800 or 0x8900 or 0x8B00 or 0x8D00 or 0x8F00)
+    {
+        var displacement = (sbyte)(opcode & 0xFF) * 2;
+        var target = (uint)(address + 4 + displacement);
+        return (opcode & 0xFF00) switch
+        {
+            0x8800 => $"CMP/EQ #0x{opcode & 0xFF:X2},R0",
+            0x8900 => $"BT 0x{target:X8}",
+            0x8B00 => $"BF 0x{target:X8}",
+            0x8D00 => $"BT/S 0x{target:X8}",
+            _ => $"BF/S 0x{target:X8}",
+        };
+    }
+
+    if ((opcode & 0xFF00) is 0xC000 or 0xC100 or 0xC200 or 0xC400 or 0xC500 or 0xC600
+        or 0xCC00 or 0xCD00 or 0xCE00 or 0xCF00)
+    {
+        return DecodeGbrInstruction(opcode);
+    }
+
+    if ((opcode & 0xF000) == 0x6000)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        return (opcode & 0xF) switch
+        {
+            0x0 => $"MOV.B @R{source},R{destination}",
+            0x1 => $"MOV.W @R{source},R{destination}",
+            0x2 => $"MOV.L @R{source},R{destination}",
+            0x3 => $"MOV R{source},R{destination}",
+            0x4 => $"MOV.B @R{source}+,R{destination}",
+            0x5 => $"MOV.W @R{source}+,R{destination}",
+            0x6 => $"MOV.L @R{source}+,R{destination}",
+            0xC => $"EXTU.B R{source},R{destination}",
+            0xD => $"EXTU.W R{source},R{destination}",
+            0xE => $"EXTS.B R{source},R{destination}",
+            0xF => $"EXTS.W R{source},R{destination}",
+            _ => $"6xxx op R{source},R{destination}",
+        };
+    }
+
+    if ((opcode & 0xF000) == 0x2000)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        return (opcode & 0xF) switch
+        {
+            0x0 => $"MOV.B R{source},@R{destination}",
+            0x1 => $"MOV.W R{source},@R{destination}",
+            0x2 => $"MOV.L R{source},@R{destination}",
+            0x4 => $"MOV.B R{source},@-R{destination}",
+            0x5 => $"MOV.W R{source},@-R{destination}",
+            0x6 => $"MOV.L R{source},@-R{destination}",
+            0x8 => $"TST R{source},R{destination}",
+            0x9 => $"AND R{source},R{destination}",
+            0xA => $"XOR R{source},R{destination}",
+            0xB => $"OR R{source},R{destination}",
+            _ => $"2xxx op R{source},R{destination}",
+        };
+    }
+
+    if ((opcode & 0xF000) == 0x3000)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        return (opcode & 0xF) switch
+        {
+            0x0 => $"CMP/EQ R{source},R{destination}",
+            0x2 => $"CMP/HS R{source},R{destination}",
+            0x3 => $"CMP/GE R{source},R{destination}",
+            0x4 => $"DIV1 R{source},R{destination}",
+            0x5 => $"DMULU.L R{source},R{destination}",
+            0x6 => $"CMP/HI R{source},R{destination}",
+            0x7 => $"CMP/GT R{source},R{destination}",
+            0x8 => $"SUB R{source},R{destination}",
+            0xC => $"ADD R{source},R{destination}",
+            _ => $"3xxx op R{source},R{destination}",
+        };
+    }
+
+    if ((opcode & 0xF000) == 0x7000)
+    {
+        var register = (opcode >> 8) & 0xF;
+        return $"ADD #0x{opcode & 0xFF:X2},R{register}";
+    }
+
+    if ((opcode & 0xF00F) == 0x400B)
+    {
+        return $"JSR @R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF00F) == 0x402B)
+    {
+        return $"JMP @R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) == 0x400E)
+    {
+        return $"LDC R{(opcode >> 8) & 0xF},SR";
+    }
+
+    return "unknown";
+}
+
+static string DecodeGbrInstruction(ushort opcode)
+{
+    var displacement = opcode & 0xFF;
+    return (opcode & 0xFF00) switch
+    {
+        0xC000 => $"MOV.B R0,@(0x{displacement:X2},GBR)",
+        0xC100 => $"MOV.W R0,@(0x{displacement:X2},GBR)",
+        0xC200 => $"MOV.L R0,@(0x{displacement:X2},GBR)",
+        0xC400 => $"MOV.B @(0x{displacement:X2},GBR),R0",
+        0xC500 => $"MOV.W @(0x{displacement:X2},GBR),R0",
+        0xC600 => $"MOV.L @(0x{displacement:X2},GBR),R0",
+        0xCC00 => $"TST.B #0x{displacement:X2},@(R0,GBR)",
+        0xCD00 => $"AND.B #0x{displacement:X2},@(R0,GBR)",
+        0xCE00 => $"XOR.B #0x{displacement:X2},@(R0,GBR)",
+        _ => $"OR.B #0x{displacement:X2},@(R0,GBR)",
+    };
+}
+
+static uint BranchTarget(uint address, int displacement12)
+{
+    var signed = displacement12 << 20;
+    signed >>= 19;
+    return (uint)(address + 4 + signed);
+}
+
+static string ReadWordOrFault(ISaturnBus bus, uint address)
+{
+    try
+    {
+        return bus.ReadWord(address).ToString("X4");
+    }
+    catch (BusFaultException)
+    {
+        return "<fault>";
+    }
+}
+
+static string ReadLongOrFault(ISaturnBus bus, uint address)
+{
+    try
+    {
+        return bus.ReadLong(address).ToString("X8");
+    }
+    catch (BusFaultException)
+    {
+        return "<fault>";
     }
 }
 
@@ -550,4 +775,54 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+}
+
+sealed class ScuInterruptProbe
+{
+    private readonly InterruptProbeLine _vblankIn = new("VBlank-IN", 15, 0x40);
+    private readonly InterruptProbeLine _vblankOut = new("VBlank-OUT", 14, 0x41);
+    private readonly InterruptProbeLine _smpc = new("SMPC", 8, 0x47);
+
+    public void RecordVBlankIn(bool accepted, uint pc) => _vblankIn.Record(accepted, pc);
+
+    public void RecordVBlankOut(bool accepted, uint pc) => _vblankOut.Record(accepted, pc);
+
+    public void RecordSmpc(bool accepted, uint pc) => _smpc.Record(accepted, pc);
+
+    public void Print()
+    {
+        Console.WriteLine("  delivery:");
+        _vblankIn.Print();
+        _vblankOut.Print();
+        _smpc.Print();
+    }
+
+    private sealed class InterruptProbeLine(string label, int level, byte vector)
+    {
+        private readonly string _label = label;
+        private readonly int _level = level;
+        private readonly byte _vector = vector;
+        private long _attempts;
+        private long _accepted;
+        private uint? _lastAcceptedPc;
+
+        public void Record(bool accepted, uint pc)
+        {
+            _attempts++;
+            if (!accepted)
+            {
+                return;
+            }
+
+            _accepted++;
+            _lastAcceptedPc = pc;
+        }
+
+        public void Print()
+        {
+            var lastAccepted = _lastAcceptedPc is { } pc ? $"0x{pc:X8}" : "<none>";
+            Console.WriteLine(
+                $"    {_label} level={_level} vector=0x{_vector:X2} attempts={_attempts:N0} accepted={_accepted:N0} last-accepted-pc={lastAccepted}");
+        }
+    }
 }

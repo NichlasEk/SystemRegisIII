@@ -79,6 +79,8 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
 
     public void AcknowledgeVBlankIn() => InterruptStatus &= ~VBlankInBit;
 
+    public void AcknowledgeVBlankOut() => InterruptStatus &= ~VBlankOutBit;
+
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>
         GetHotOffsets(_readOffsets, count);
 

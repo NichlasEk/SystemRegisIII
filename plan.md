@@ -114,38 +114,43 @@ Work in small pushable slices:
 - Current slice: Added PC-attributed RAM watch writes for the flag and callback-state windows. The latest meaningful flag writes are `0x0602024C = 0x06020728` from `0x060281F0` and `0x06020248 = 0x22` from `0x06028200`; callback-state zero/FE initialization is from `0x06029EDA`. No later writer changes `0x06020240`, so the next slice should disassemble/probe those writer routines and their callers rather than add more blind device status.
 - Current slice: Added BIOS code windows for the writer routines. `0x060281F0` is `MOV.L R0,@(0x93,GBR)` and writes `0x0602024C`; `0x06028200` is `MOV.L R0,@(0x92,GBR)` and writes `0x06020248`. The wait loop reads `MOV.L @(0x90,GBR),R0`, so the missing transition is specifically a later `GBR+0x90` write or callback-state activation, not these setup stores.
 - Current slice: Extended RAM watches to include read attribution and register context. In the 40M dual-SH2 run, `0x06020240` is read `21,333` times from `0x06028314` with `PR=0x06028310`, `GBR=0x06020000`, and `R0=0`; callback-state window `0x06020720..0x0602075F` has `reads=0`. The BIOS is therefore stuck before it ever scans the callback-state entries; the next probe should focus on the call path ending at `0x06028310/0x06028314` and the hardware condition expected to write `GBR+0x90`.
+- Current slice: Added a focused SH-2 instruction decoder to the CLI code windows plus SCU interrupt delivery counters. The BIOS setup registers vector `0x40` to callback `0x06028D64` and vector `0x41` to callback `0x06028D9E`; the latter increments `GBR+0x90` at `0x06028DB0`. The first counter run proved `VBlank-IN` remained pending and starved `VBlank-OUT` completely (`0x41` attempts `0`). Treating deterministic CLI V-Blank ticks as accepted pulses fixes the starvation: `0x41` is now accepted, `0x06020240` increments, and the 40M run advances from the old wait loop to `0x0602BD48`.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN interrupts, and still returns to the Work RAM wait around `0x06028314..0x06028318`.
+In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN and V-Blank-OUT interrupts, and has now passed the old Work RAM wait around `0x06028314..0x06028318`.
 
-The loop is now identified as a Work RAM change wait:
+The old loop was a Work RAM change wait:
 
 - `GBR=0x06020000`
 - `MOV.L @(0x90,GBR),R0` reads `0x06020240`
-- `R4` is initialized from the same address and remains `0x00000000`
+- `R4` is initialized from the same address
 - BIOS loops while `[0x06020240] == R4`
 
-SMPC command history before the loop is `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06`, ending in `SNDON`. There is no `SSHON` yet, so the previous slave-ready theory is weaker: BIOS appears to be waiting for an interrupt/tick or sound-init completion flag before enabling the slave SH-2.
+The wait is broken by the V-Blank-OUT callback:
 
-With V-Blank-IN and V-Blank-OUT enabled, SCU state is `mask=0xFFFFFE7C` and the last status write is `0xFFFFFE7C`, which clears the modeled V-Blank bits before the next deterministic ticks raise them again. The BIOS interrupt handler repeatedly writes the CD Block command registers with command `0x00`; the current no-media response is now `CR1=0x0700`, `CR2=CR3=CR4=0`.
+- `0x06028C78` registers vector `0x40` callback `0x06028D64`
+- `0x06028C82` registers vector `0x41` callback `0x06028D9E`
+- `0x06028DAC` reads `GBR+0x90`
+- `0x06028DAE` increments it
+- `0x06028DB0` writes it back
+
+The CLI was previously modeling generated V-Blank sources as permanently pending level bits. That let `VBlank-IN` win the priority check forever and starved `VBlank-OUT`. Generated V-Blank ticks are now acknowledged after the SH-2 accepts the interrupt, so the pending pulse does not remain latched indefinitely.
+
+The current 40M result after that fix:
+
+- Master PC advances to `0x0602BD48`
+- `GBR+0x90` / `0x06020240` increments through the V-Blank-OUT callback; latest observed value is `0x0000000B`
+- SCU delivery counters: VBlank-IN `attempts=137 accepted=11`, VBlank-OUT `attempts=171 accepted=11`, SMPC `attempts=1,887,413 accepted=75,493`
+- final SCU state: `mask=0xFFFFFFFC status=0x00000080`, so SMPC bit `7` remains the visible pending/status source at the new blocker
+- SMPC command history reaches another `INTBACK` (`0x10`) after the old loop: `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06, 0x10`
+- slave SH-2 is still not enabled by SMPC
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The current diagnostic slice identifies the relevant Work RAM and handler paths:
+The next slice should identify the new `0x0602BD48` blocker and why SMPC interrupt/status remains hot:
 
-- `0x06020240` is the wait flag and is still `0x00000000` at the loop.
-- the flag watch records only three writes to `0x06020240`, all zero.
-- `0x06020248` ends as `0x00000022`; `0x0602024C` ends as `0x06020728`.
-- `0x06020720..0x06020727` are initialized to `0xFE`, while `0x06020728` and the surrounding callback/state entries remain zero at the final snapshot.
-- the V-Blank callback table at `0x06000A00` contains `0x06028D64`, `0x06028D9E`, then default return stubs.
-- callback PC heat proves execution reaches `0x06028D64`, scans the callback/state table around `0x06028D7E..0x06028D8E`, and reaches helper code at `0x06028934`.
-- setup PC heat around `0x06028C52..0x06028C6A` has only eight hits, matching the one-time `0xFE` initialization of `0x06020720..0x06020727`.
-
-The next slice should identify which remaining hardware status path is expected to activate the callback/state entry:
-
-- inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
-- inspect writer routines around `0x060281F0`, `0x06028200`, and `0x06029EDA` to find what activates `0x06020240` or the callback-state entries;
-- inspect the caller/callee path around `PR=0x06028310` and the loop body at `0x06028314`, because callback-state reads are currently zero;
-- decide whether callback activation depends on CD periodic status, SCSP DSP/status, SMPC `INTBACK` result data, or PAD interrupt behavior from the active `0x0183` interrupt mask;
+- add a focused code/data window around `0x0602BD20..0x0602BD80`
+- attribute hot SMPC OREG reads by PC, especially offsets `0x21,0x31,0x33,0x35,0x37,0x39`
+- decide whether the current SMPC `INTBACK` result bytes are incomplete/wrong or whether SCU SMPC status should be acknowledged differently after vector `0x47`
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.
