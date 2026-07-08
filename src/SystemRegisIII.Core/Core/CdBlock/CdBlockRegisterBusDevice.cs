@@ -12,8 +12,6 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
-    private const byte CdStatusNoDisc = 0x07;
-    private const byte CdStatusStandby = 0x02;
     private const byte CdStatusPeriodic = 0x20;
     private const byte CdRomStatusBit = 0x80;
     private const byte DataTrackControlAdr = 0x41;
@@ -35,10 +33,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _cr3 = 0x4C4F;
     private ushort _cr4 = 0x434B;
 
-    public CdBlockRegisterBusDevice(IDiscImage? discImage = null)
+    public CdBlockRegisterBusDevice(
+        IDiscImage? discImage = null,
+        CdBlockDriveStatus? mountedDiscInitialStatus = null)
     {
         _discImage = discImage;
-        _status = discImage is null ? CdStatusNoDisc : CdStatusStandby;
+        _status = (byte)(discImage is null
+            ? CdBlockDriveStatus.NoDisc
+            : mountedDiscInitialStatus ?? CdBlockDriveStatus.Standby);
     }
 
     public string Name => "CD Block Register Mirror";

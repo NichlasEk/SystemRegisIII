@@ -35,6 +35,7 @@ static int RunBios(string[] args)
     }
 
     var discPath = GetOption(args, "--disc");
+    var cdStatus = GetCdStatusOption(args);
     var instructionCount = GetIntOption(args, "--instructions", defaultValue: 64);
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
@@ -45,7 +46,12 @@ static int RunBios(string[] args)
     var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
     var systemMap = SaturnSystemMap.CreateBringup(
         bios,
-        new SaturnBringupOptions { SimulateSlaveReady = simulateSlaveReady, DiscImage = discImage });
+        new SaturnBringupOptions
+        {
+            SimulateSlaveReady = simulateSlaveReady,
+            DiscImage = discImage,
+            MountedDiscInitialStatus = cdStatus,
+        });
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
@@ -841,6 +847,25 @@ static int GetIntOption(string[] args, string name, int defaultValue)
     return value is not null && int.TryParse(value, out var parsed) ? parsed : defaultValue;
 }
 
+static CdBlockDriveStatus? GetCdStatusOption(string[] args)
+{
+    var value = GetOption(args, "--cd-status");
+    if (value is null)
+    {
+        return null;
+    }
+
+    return value.ToLowerInvariant() switch
+    {
+        "busy" => CdBlockDriveStatus.Busy,
+        "pause" => CdBlockDriveStatus.Pause,
+        "standby" => CdBlockDriveStatus.Standby,
+        "play" => CdBlockDriveStatus.Play,
+        "wait" => CdBlockDriveStatus.Wait,
+        _ => throw new ArgumentException($"Unknown --cd-status '{value}'. Expected busy, pause, standby, play, or wait."),
+    };
+}
+
 static bool Has(string[] args, string name) => args.Any(candidate => candidate == name);
 
 static int Fail(string message)
@@ -856,7 +881,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
 }
 
 sealed class ScuInterruptProbe

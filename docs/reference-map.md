@@ -93,7 +93,8 @@ Current bringup position:
 - SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
 - CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
 - `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`, but still stops at `0x00004C58` with last CD command `0x00`.
+- The CLI `--cd-status` probe confirms that `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with command `0x00`; `wait` stops earlier at `0x00003C24`.
 
 Next likely reference target:
 
-- CD block drive-phase/status behavior, then TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
+- The BIOS ROM routine around `0x00004C50..0x00004C6A` and its status-copy buffers at `0x0601FF64/0x0601FF7C`, then CD block drive-phase/status behavior, TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.

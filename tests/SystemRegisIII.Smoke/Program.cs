@@ -193,6 +193,19 @@ static void VerifySaturnSystemMap()
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block mounted-disc track status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block mounted-disc index/FAD status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block mounted-disc FAD status failed.");
+
+        var pauseDiscMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions
+            {
+                DiscImage = discImage,
+                MountedDiscInitialStatus = CdBlockDriveStatus.Pause,
+            });
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block mounted-disc status override failed.");
     }
     finally
     {

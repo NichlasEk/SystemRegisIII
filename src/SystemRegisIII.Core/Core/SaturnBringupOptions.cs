@@ -6,4 +6,5 @@ public sealed class SaturnBringupOptions
 {
     public bool SimulateSlaveReady { get; init; }
     public IDiscImage? DiscImage { get; init; }
+    public CdBlockDriveStatus? MountedDiscInitialStatus { get; init; }
 }

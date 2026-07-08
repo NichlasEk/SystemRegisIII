@@ -118,6 +118,7 @@ Work in small pushable slices:
 - Current slice: Added PC-attributed SMPC register watches and a focused code window for the `0x0602BD48` blocker. BIOS was copying INTBACK OREG bytes in `0x0602BD20..0x0602BD6E`, but the real issue was repeated acceptance of the same generated SMPC interrupt. Acknowledging the SMPC pulse after vector `0x47` is accepted reduces SMPC delivery to `attempts=1 accepted=1`, clears SCU status, and advances the 40M run to BIOS ROM PC `0x00004C58`.
 - Current slice: Added the first host-side disc abstraction (`IDiscImage`, `RawDiscImage`) and CLI `--disc <path>`. Mounted media now changes CD current-status from no-disc `CR1=0x0700` to media-present `CR1=0x0200`, and CLI output reports mounted disc name/sector count. A dummy 256-sector raw image confirms the status path but still stops at BIOS ROM `0x00004C58`, so the next blocker is richer CD Block behavior rather than simple media presence.
 - Current slice: Corrected the mounted-media current-status response shape using Mednafen only as a GPL behavioral oracle: mounted dummy media now reports `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096` (`STANDBY`, CD-ROM/data bit, track 1, index 1, FAD 150). The 40M dummy-disc run still stops at `0x00004C58` and the last CD command remains `0x00`, so the next blocker is likely CD drive phase/status semantics before BIOS asks for TOC or sector data.
+- Current slice: Added a reproducible mounted-CD status probe via `--cd-status busy|pause|standby|play|wait`. In 40M dummy-disc runs, `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with last command `0x00`; `wait` stops earlier at `0x00003C24`. The blocker is therefore not solved by a single mounted status code. The next productive move is to decode/probe the BIOS copy/parse routine around `0x00004C50..0x00004C6A` and the buffer at `0x0601FF64/0x0601FF7C`.
 
 ## Current Next Blocker
 
@@ -157,6 +158,7 @@ That SMPC blocker is now resolved for this bringup model. The focused probe show
 - CD Block current-status response is still no-media without `--disc`: `CR1=0x0700`, `CR2=CR3=CR4=0`
 - CD Block CR reads are now the hot activity again: `2,573,816` reads in the 40M run
 - With `--disc /tmp/systemregis_dummy.iso`, CD Block current-status reports `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096` and `256` mounted sectors, but the BIOS still remains at `0x00004C58` in a 40M run.
+- Mounted status variants are now reproducible with `--cd-status`. `busy`, `pause`, `standby`, and `play` do not advance past `0x00004C58`; `wait` stops earlier at `0x00003C24`.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
@@ -164,5 +166,5 @@ The next slice should identify the new BIOS ROM `0x00004C58` blocker and the nex
 
 - keep the focused BIOS ROM code/data window around `0x00004C20..0x00004CA0`
 - keep PC-attributed CD Block CR reads around `0x000042EE/42F4/42FA/42FE`
-- add a small diagnostic/probe path for mounted CD status phase variants (`PAUSE`, `STANDBY`, maybe startup `BUSY/WAIT`) and watch whether BIOS advances from command `0x00` to TOC/sector commands
+- improve the diagnostic SH-2 decoder for the implemented opcodes in the `0x00004C50..0x00004C6A` ROM routine and add a tiny buffer watch around `0x0601FF64/0x0601FF7C`
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.
