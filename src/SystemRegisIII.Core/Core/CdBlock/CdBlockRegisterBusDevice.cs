@@ -33,6 +33,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly Dictionary<uint, ushort> _writtenWords = [];
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
+    private IReadOnlyList<CdFileInfo> _fileInfos = [];
+    private bool _fileInfosValid;
 
     private ushort _hirq;
     private ushort _hirqMask;
@@ -204,6 +206,21 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x62:
                 DeleteSectorData();
                 break;
+            case 0x70:
+                ChangeDirectory();
+                break;
+            case 0x71:
+                ReadDirectory();
+                break;
+            case 0x72:
+                GetFileSystemScope();
+                break;
+            case 0x73:
+                GetFileInfo();
+                break;
+            case 0x74:
+                ReadFile();
+                break;
             case 0x75:
                 AbortFile();
                 break;
@@ -236,6 +253,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         else if (_discImage is not null && LastCommandCode == 0x62)
         {
             _hirq |= HirqEndHostIo;
+        }
+        else if (_discImage is not null && LastCommandCode is 0x70 or 0x71 or 0x74)
+        {
+            _hirq |= HirqEndFileSystem;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x73)
+        {
+            _hirq |= HirqDataReady;
         }
         else if (_discImage is not null && LastCommandCode == 0x75)
         {
@@ -358,6 +383,106 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
+    private void ChangeDirectory()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        EnsureFileInfosLoaded();
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+    }
+
+    private void ReadDirectory()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        EnsureFileInfosLoaded();
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+    }
+
+    private void GetFileSystemScope()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        EnsureFileInfosLoaded();
+        if (!_fileInfosValid)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        _statusMode = true;
+        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr2 = (ushort)Math.Min(_fileInfos.Count, ushort.MaxValue);
+        _cr3 = 0x0100;
+        _cr4 = 0x0002;
+    }
+
+    private void GetFileInfo()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        EnsureFileInfosLoaded();
+        if (!_fileInfosValid)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        var fileId = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        var words = fileId == 0xFF_FFFF
+            ? BuildFileInfoTransfer(_fileInfos)
+            : BuildFileInfoTransfer(GetFileInfoById(fileId) is { } fileInfo ? [fileInfo] : []);
+        if (words.Length == 0)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        StartDataTransfer(words);
+    }
+
+    private void ReadFile()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        EnsureFileInfosLoaded();
+        var partition = LastCommandCr3 >> 8;
+        var fileId = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        var sectorOffset = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
+        var fileInfo = GetFileInfoById(fileId);
+        if (partition >= PartitionCount || fileInfo is null)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        var totalSectors = (fileInfo.SizeBytes + 2047) >> 11;
+        var sectorCount = sectorOffset >= totalSectors ? 0 : totalSectors - sectorOffset;
+        _partitionFads[partition] = fileInfo.Fad + sectorOffset;
+        _partitionSectorCounts[partition] = sectorCount;
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+    }
+
     private void EndDataTransfer()
     {
         _statusMode = true;
@@ -467,6 +592,43 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     }
 
     private static long FadToLogicalBlockAddress(uint fad) => fad <= FirstTrackFad ? 0 : fad - FirstTrackFad;
+
+    private void EnsureFileInfosLoaded()
+    {
+        if (_fileInfosValid || _discImage is null)
+        {
+            return;
+        }
+
+        _fileInfos = Iso9660DirectoryReader.ReadRootDirectory(_discImage);
+        _fileInfosValid = _fileInfos.Count > 0;
+    }
+
+    private CdFileInfo? GetFileInfoById(uint fileId)
+    {
+        if (fileId < 2)
+        {
+            return _fileInfos.FirstOrDefault(static fileInfo => (fileInfo.Attributes & 0x02) != 0);
+        }
+
+        var index = checked((int)(fileId - 2));
+        return index >= 0 && index < _fileInfos.Count ? _fileInfos[index] : null;
+    }
+
+    private static ushort[] BuildFileInfoTransfer(IReadOnlyList<CdFileInfo> fileInfos)
+    {
+        var words = new ushort[fileInfos.Count * 6];
+        var wordIndex = 0;
+        foreach (var fileInfo in fileInfos)
+        {
+            foreach (var word in fileInfo.ToWords())
+            {
+                words[wordIndex++] = word;
+            }
+        }
+
+        return words;
+    }
 
     private static void WriteTocEntry(ushort[] words, int entryIndex, byte controlAdr, uint fad)
     {

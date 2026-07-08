@@ -125,6 +125,7 @@ Work in small pushable slices:
 - Current slice: Added a probe-only CLI `--vblank-interval N` option, leaving the default at `1,000,000` instructions, so frame pacing can be accelerated without changing standard bringup behavior. Added clean-room CD Block register coverage for `0x02` (`Get TOC`), `0x03` (`Get Session Info`), and `0x06` (`End Data Transfer`) with `DRDY`/`EHST` HIRQ behavior and smoke coverage. The dummy-disc BIOS path still remains in the Work RAM High frame loop and does not yet issue TOC/session commands, so the new CD coverage is preparation for a real bootable disc image.
 - Current slice: Added the CD Block host data port at `0x25890000` for active TOC transfers. `Get TOC` now builds a deterministic `0x00CC`-word single-data-track TOC buffer, word reads pop FIFO data through a byte latch, and `End Data Transfer` reports the number of words actually read. Smoke now validates first-track, empty-track, A0/A1, leadout, FIFO exhaustion, and end-transfer counts.
 - Current slice: Added a deterministic raw-disc sector path for CD Block `Set Filter Range` (`0x40`) and `Get Sector Data`/`Get+Delete Sector Data` (`0x61`/`0x63`). Partition FAD/range state is stored per selector, sector reads map FAD `150` to raw LBA `0`, and data is exposed through the existing host FIFO at `0x25890000` with `DRDY`/`ESEL` HIRQ behavior. This is intentionally simpler than full selector/filter hardware but gives the next bootable-disc probe a real sector source.
+- Current slice: Added a tiny clean-room ISO9660 root-directory reader and CD Block filesystem commands `Change Directory` (`0x70`), `Read Directory` (`0x71`), `Get File System Scope` (`0x72`), `Get File Info` (`0x73`), and `Read File` (`0x74`). `Get File Info` streams 12-byte file-info records through the host FIFO, and `Read File` maps a file id to the existing selector/sector-transfer path. Smoke now builds a minimal ISO image in memory and verifies `BOOT.BIN;1` through file info and sector reads.
 
 ## Current Next Blocker
 
@@ -168,6 +169,7 @@ The older SMPC/CD blockers are now resolved for this bringup model. The focused 
 - The latest 80M run ends at `0x06040226` with hot PCs `0x06040226/0x06040228/0x0604022A`. That loop reads `0x06020240`; V-Blank-OUT callback writes have advanced it to `0x0000002E`, and SCU delivery counters show VBlank-IN `attempts=53 accepted=51`, VBlank-OUT `attempts=51 accepted=51`, SMPC `attempts=237 accepted=49`.
 - `--vblank-interval 100000` confirms the same path is frame pacing rather than a dead interrupt: the flag advances faster, but the dummy disc still keeps the code cycling through the same frame wait because no bootable disc contents are available.
 - CD Block now has register-level responses for `Get TOC`, `Get Session Info`, and `End Data Transfer`, plus a minimal host data/FIFO path at `0x25890000`. TOC currently represents a single data track starting at FAD `150`, empty tracks as `0xFFFF`, A0/A1 points, and leadout at `150 + mountedSectorCount`. `Set Filter Range` and `Get Sector Data` can now expose raw disc sectors from a selector partition.
+- CD Block filesystem coverage can parse an ISO9660 primary volume descriptor, enumerate the root directory, return file-info records from file id `2+`, and map `Read File` to a selector partition. This is enough to probe simple bootable ISO paths before implementing full selector/filter buffering.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
@@ -175,6 +177,7 @@ The next slice should distinguish normal frame pacing from a missing device even
 
 - keep the focused Work RAM High code windows around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and the callback/status routines around `0x060422A0..0x060425D0`
 - keep PC-attributed CD Block CR/HIRQ reads and the `0x0601FF60..0x0601FF8F` status-buffer watch
-- wire higher-level CD filesystem commands (`Read Directory`, `Get File Info`, `Read File`) once a real bootable disc image is available, or add enough ISO9660 parsing to translate file IDs into FAD/range
+- test the new ISO9660 file-info path against a real bootable Saturn image or a small homebrew ISO, then add multi-directory and path-table behavior only when the BIOS/game code asks for it
+- add CUE/BIN 2352-sector handling before expecting many real Saturn dumps to mount cleanly
 - probe whether the repeated mounted response needs richer TOC/session/sector semantics, selector/filter responses, or a more complete periodic status transition once BIOS/game code issues those commands
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

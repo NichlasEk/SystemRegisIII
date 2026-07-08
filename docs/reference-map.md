@@ -103,7 +103,10 @@ Current bringup position:
 - `--vblank-interval 100000` is available as a probe-only accelerator. It confirms the same dummy-disc path remains frame-paced at `0x06040226/0x06040228`, with faster V-Blank flag increments but no new CD command sequence.
 - `Get TOC` now exposes a deterministic `0x00CC`-word single-data-track TOC through the host data port, including first-track, empty-track, A0/A1, and leadout entries.
 - `Set Filter Range` plus `Get Sector Data` now exposes raw mounted-disc sectors through the same host data port. This is a deterministic selector shortcut, not yet full CD Block buffering/filter hardware.
+- CD filesystem commands now have clean-room bringup coverage for `Change Directory`, `Read Directory`, `Get File System Scope`, `Get File Info`, and `Read File`.
+- The current ISO9660 reader handles a primary volume descriptor and root-directory records, maps raw ISO LBA to Saturn FAD with the `150` sector bias, and exposes file id `2+` through CD Block file-info records.
 
 Next likely reference target:
 
-- CD Block filesystem commands (`Read Directory`, `Get File Info`, `Read File`), ISO9660 mapping to FAD/range, and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
+- Real-disc mounting gaps: CUE/BIN 2352-sector handling, multi-directory ISO9660 behavior, and any selector/filter semantics proven by a bootable Saturn image.
+- BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

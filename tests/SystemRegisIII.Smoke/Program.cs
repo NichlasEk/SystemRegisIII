@@ -289,6 +289,144 @@ static void VerifySaturnSystemMap()
     {
         File.Delete(discPath);
     }
+
+    var isoPath = Path.GetTempFileName();
+    try
+    {
+        CreateTinyIsoImage(isoPath);
+        using var isoImage = new RawDiscImage(isoPath);
+        var isoMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = isoImage });
+        var isoCdRegisters = isoMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7100);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoCdRegisters.LastCommandCode == 0x71, "CD Block read-directory command latch failed.");
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block read-directory EFLS HIRQ failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7200);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoCdRegisters.LastCommandCode == 0x72, "CD Block filesystem-scope command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0280, "CD Block filesystem-scope status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0001, "CD Block filesystem-scope file count failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block filesystem-scope directory scope failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0002, "CD Block filesystem-scope file offset failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7300);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0002);
+        Require(isoCdRegisters.LastCommandCode == 0x73, "CD Block get-file-info command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block get-file-info DTREQ status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0006, "CD Block get-file-info transfer length failed.");
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block get-file-info DRDY HIRQ failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block file-info FAD high failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x00B4, "CD Block file-info FAD low failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block file-info size high failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x0800, "CD Block file-info size low failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block file-info unit/gap failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block file-info number/attribute failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7400);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0002);
+        Require(isoCdRegisters.LastCommandCode == 0x74, "CD Block read-file command latch failed.");
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block read-file EFLS HIRQ failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x6100);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0001);
+        Require(isoCdRegisters.LastCommandCode == 0x61, "CD Block read-file get-sector command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block read-file get-sector DTREQ status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block read-file sector transfer length failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0xCAFE, "CD Block read-file first data word failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0000) == 0xBABE, "CD Block read-file second data word failed.");
+    }
+    finally
+    {
+        File.Delete(isoPath);
+    }
+}
+
+static void CreateTinyIsoImage(string path)
+{
+    const int rootDirectoryLba = 20;
+    const int bootFileLba = 30;
+    var image = new byte[RawDiscImage.DefaultSectorSize * 40];
+    var primaryVolumeDescriptor = image.AsSpan(RawDiscImage.DefaultSectorSize * 16, RawDiscImage.DefaultSectorSize);
+    primaryVolumeDescriptor[0] = 1;
+    WriteAscii(primaryVolumeDescriptor[1..6], "CD001");
+    primaryVolumeDescriptor[6] = 1;
+    WriteDirectoryRecord(primaryVolumeDescriptor, 156, rootDirectoryLba, RawDiscImage.DefaultSectorSize, 0x02, [0]);
+
+    var rootDirectory = image.AsSpan(RawDiscImage.DefaultSectorSize * rootDirectoryLba, RawDiscImage.DefaultSectorSize);
+    var offset = 0;
+    offset += WriteDirectoryRecord(rootDirectory, offset, rootDirectoryLba, RawDiscImage.DefaultSectorSize, 0x02, [0]);
+    offset += WriteDirectoryRecord(rootDirectory, offset, rootDirectoryLba, RawDiscImage.DefaultSectorSize, 0x02, [1]);
+    WriteDirectoryRecord(rootDirectory, offset, bootFileLba, RawDiscImage.DefaultSectorSize, 0x00, "BOOT.BIN;1"u8);
+
+    var bootFile = image.AsSpan(RawDiscImage.DefaultSectorSize * bootFileLba, RawDiscImage.DefaultSectorSize);
+    bootFile[0] = 0xCA;
+    bootFile[1] = 0xFE;
+    bootFile[2] = 0xBA;
+    bootFile[3] = 0xBE;
+
+    File.WriteAllBytes(path, image);
+}
+
+static int WriteDirectoryRecord(
+    Span<byte> sector,
+    int offset,
+    uint extentLba,
+    uint dataLength,
+    byte flags,
+    ReadOnlySpan<byte> name)
+{
+    var length = 33 + name.Length + (name.Length % 2 == 0 ? 1 : 0);
+    var record = sector.Slice(offset, length);
+    record.Clear();
+    record[0] = (byte)length;
+    WriteUInt32LittleEndian(record[2..6], extentLba);
+    WriteUInt32BigEndian(record[6..10], extentLba);
+    WriteUInt32LittleEndian(record[10..14], dataLength);
+    WriteUInt32BigEndian(record[14..18], dataLength);
+    record[25] = flags;
+    record[28] = 1;
+    record[31] = 1;
+    record[32] = (byte)name.Length;
+    name.CopyTo(record[33..]);
+    return length;
+}
+
+static void WriteUInt32LittleEndian(Span<byte> destination, uint value)
+{
+    destination[0] = (byte)value;
+    destination[1] = (byte)(value >> 8);
+    destination[2] = (byte)(value >> 16);
+    destination[3] = (byte)(value >> 24);
+}
+
+static void WriteUInt32BigEndian(Span<byte> destination, uint value)
+{
+    destination[0] = (byte)(value >> 24);
+    destination[1] = (byte)(value >> 16);
+    destination[2] = (byte)(value >> 8);
+    destination[3] = (byte)value;
+}
+
+static void WriteAscii(Span<byte> destination, string value)
+{
+    for (var index = 0; index < value.Length; index++)
+    {
+        destination[index] = (byte)value[index];
+    }
 }
 
 static void VerifySh2InternalRegisterBus()
