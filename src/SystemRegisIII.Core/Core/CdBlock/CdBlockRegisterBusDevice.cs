@@ -13,8 +13,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private const ushort HirqCmok = 0x0001;
     private const byte CdStatusNoDisc = 0x07;
-    private const byte CdStatusPaused = 0x02;
+    private const byte CdStatusStandby = 0x02;
     private const byte CdStatusPeriodic = 0x20;
+    private const byte CdRomStatusBit = 0x80;
+    private const byte DataTrackControlAdr = 0x41;
+    private const byte FirstTrackNumber = 0x01;
+    private const byte FirstTrackIndex = 0x01;
+    private const uint FirstTrackFad = 150;
 
     private readonly IDiscImage? _discImage;
     private readonly Dictionary<uint, long> _readOffsets = [];
@@ -33,7 +38,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public CdBlockRegisterBusDevice(IDiscImage? discImage = null)
     {
         _discImage = discImage;
-        _status = discImage is null ? CdStatusNoDisc : CdStatusPaused;
+        _status = discImage is null ? CdStatusNoDisc : CdStatusStandby;
     }
 
     public string Name => "CD Block Register Mirror";
@@ -184,10 +189,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void WriteStatusResponse()
     {
-        _cr1 = (ushort)(_status << 8);
-        _cr2 = 0;
-        _cr3 = 0;
-        _cr4 = 0;
+        if (_discImage is null)
+        {
+            _cr1 = (ushort)(_status << 8);
+            _cr2 = 0;
+            _cr3 = 0;
+            _cr4 = 0;
+            return;
+        }
+
+        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+        _cr4 = (ushort)FirstTrackFad;
     }
 
     private static void RecordOffset(Dictionary<uint, long> offsets, uint offset)

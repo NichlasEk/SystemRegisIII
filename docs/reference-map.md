@@ -74,6 +74,7 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - `CDC_GetCurStat` issues a CD block command and returns current status/report.
   - `CDC_GetPeriStat` reads periodic response without issuing a CD block command.
   - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
+  - Mounted dummy media currently reports a simple data-track current-status response: `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
 
 ## Current BIOS Bringup Evidence
 
@@ -91,8 +92,8 @@ Current bringup position:
 - `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
 - SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
 - CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
-- `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x0200` and reports the mounted sector count, but still stops at `0x00004C58`.
+- `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`, but still stops at `0x00004C58` with last CD command `0x00`.
 
 Next likely reference target:
 
-- CD block command/status, TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
+- CD block drive-phase/status behavior, then TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.

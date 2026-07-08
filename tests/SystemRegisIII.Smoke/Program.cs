@@ -189,7 +189,10 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block mounted-disc current status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0280, "CD Block mounted-disc current status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block mounted-disc track status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block mounted-disc index/FAD status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block mounted-disc FAD status failed.");
     }
     finally
     {
