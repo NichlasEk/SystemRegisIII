@@ -119,9 +119,9 @@ static void VerifySaturnSystemMap()
     systemMap.Bus.WriteWord(0x2589_0024, 0x0000);
     Require(systemMap.Bus.ReadWord(0x2589_0008) == 0x0001, "CD Block command completion HIRQ failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0700, "CD Block hardware info status failed.");
-    Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0201, "CD Block hardware info flags failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x0002, "CD Block hardware info flags failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block MPEG version failed.");
-    Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x0400, "CD Block drive info failed.");
+    Require(systemMap.Bus.ReadWord(0x2589_0024) == 0x0600, "CD Block drive info failed.");
     var cdRegisters = systemMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
     Require(cdRegisters.LastCommandCr1 == 0x0100, "CD Block CR1 command latch failed.");
     Require(cdRegisters.LastCommandCode == 0x01, "CD Block command code latch failed.");
@@ -300,6 +300,16 @@ static void VerifySaturnSystemMap()
             new SaturnBringupOptions { DiscImage = isoImage });
         var isoCdRegisters = isoMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
 
+        isoMap.Bus.WriteWord(0x2589_0018, 0xE100);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoCdRegisters.LastCommandCode == 0xE1, "CD Block get-auth command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block get-auth status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0004, "CD Block get-auth Saturn type failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-auth reserved word 1 failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block get-auth reserved word 2 failed.");
+
         isoMap.Bus.WriteWord(0x2589_0018, 0x7100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -396,6 +406,7 @@ static void CreateTinyIsoImage(string path)
     const int bootFileLba = 30;
     var image = new byte[RawDiscImage.DefaultSectorSize * 40];
     var primaryVolumeDescriptor = image.AsSpan(RawDiscImage.DefaultSectorSize * 16, RawDiscImage.DefaultSectorSize);
+    WriteAscii(image.AsSpan(0, 16), "SEGA SEGASATURN ");
     primaryVolumeDescriptor[0] = 1;
     WriteAscii(primaryVolumeDescriptor[1..6], "CD001");
     primaryVolumeDescriptor[6] = 1;

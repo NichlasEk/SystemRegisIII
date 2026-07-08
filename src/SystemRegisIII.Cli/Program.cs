@@ -973,8 +973,10 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine(
                 $"    mounted disc: {(cdRegisters.HasDisc ? $"{cdRegisters.DiscName} ({cdRegisters.DiscSectorCount:N0} sectors)" : "<none>")}");
+            Console.WriteLine($"    auth type: 0x{cdRegisters.AuthenticationType:X2}");
             Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
+            Console.WriteLine($"    recent commands: {string.Join(", ", cdRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
             Console.WriteLine(
                 $"    response CR: 0x{cdRegisters.ResponseCr1:X4} 0x{cdRegisters.ResponseCr2:X4} 0x{cdRegisters.ResponseCr3:X4} 0x{cdRegisters.ResponseCr4:X4}");
         }

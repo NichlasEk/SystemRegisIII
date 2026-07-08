@@ -26,6 +26,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const byte FirstTrackIndex = 0x01;
     private const int PartitionCount = 0x18;
     private const uint FirstTrackFad = 150;
+    private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
 
     private readonly IDiscImage? _discImage;
     private readonly Dictionary<uint, long> _readOffsets = [];
@@ -33,6 +34,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly Dictionary<uint, ushort> _writtenWords = [];
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
+    private readonly Queue<byte> _recentCommands = new();
     private IReadOnlyList<CdFileInfo> _fileInfos = [];
     private bool _fileInfosValid;
 
@@ -48,6 +50,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort[] _dataTransferWords = [];
     private bool _dataTransferLowByteLatched;
     private byte _dataTransferLowByte;
+    private byte _authDiscType;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -61,6 +64,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _status = (byte)(discImage is null
             ? CdBlockDriveStatus.NoDisc
             : mountedDiscInitialStatus ?? CdBlockDriveStatus.Standby);
+        _authDiscType = DetectAuthenticationType(discImage);
     }
 
     public string Name => "CD Block Register Mirror";
@@ -78,6 +82,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public bool HasDisc => _discImage is not null;
     public string? DiscName => _discImage?.Name;
     public long DiscSectorCount => _discImage?.SectorCount ?? 0;
+    public byte AuthenticationType => _authDiscType;
+    public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
@@ -179,6 +185,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _hasExecutedCommand = true;
         _endHostIoCompleted = false;
+        RecordRecentCommand(LastCommandCode);
         switch (LastCommandCode)
         {
             case 0x00:
@@ -224,6 +231,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x75:
                 AbortFile();
                 break;
+            case 0xE0:
+                AuthenticateDevice();
+                break;
+            case 0xE1:
+                GetAuthenticationStatus();
+                break;
             default:
                 EnterStatusMode();
                 break;
@@ -266,6 +279,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqEndFileSystem;
         }
+        else if (_discImage is not null && LastCommandCode == 0xE0)
+        {
+            _hirq |= HirqEndFileSystem;
+        }
     }
 
     private void GetCurrentStatus()
@@ -280,9 +297,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _statusMode = true;
         _status &= unchecked((byte)~CdStatusPeriodic);
         _cr1 = (ushort)(_status << 8);
-        _cr2 = 0x0201;
+        _cr2 = 0x0002;
         _cr3 = 0x0000;
-        _cr4 = 0x0400;
+        _cr4 = 0x0600;
     }
 
     private void GetTableOfContents()
@@ -511,6 +528,39 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
+    private void AuthenticateDevice()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+    }
+
+    private void GetAuthenticationStatus()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        _statusMode = true;
+        _cr1 = (ushort)(_status << 8);
+        _cr2 = _authDiscType;
+        _cr3 = 0;
+        _cr4 = 0;
+    }
+
     private byte ReadDataTransferByte(bool lowByte)
     {
         if (lowByte && _dataTransferLowByteLatched)
@@ -687,6 +737,32 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         offsets.TryGetValue(offset, out var count);
         offsets[offset] = count + 1;
+    }
+
+    private void RecordRecentCommand(byte command)
+    {
+        if (_recentCommands.Count == 16)
+        {
+            _recentCommands.Dequeue();
+        }
+
+        _recentCommands.Enqueue(command);
+    }
+
+    private static byte DetectAuthenticationType(IDiscImage? discImage)
+    {
+        if (discImage is null || discImage.SectorCount == 0)
+        {
+            return 0x00;
+        }
+
+        Span<byte> sector = stackalloc byte[2048];
+        if (discImage.ReadSector(0, sector) < SaturnSecurityHeader.Length)
+        {
+            return 0x00;
+        }
+
+        return sector[..SaturnSecurityHeader.Length].SequenceEqual(SaturnSecurityHeader) ? (byte)0x04 : (byte)0x02;
     }
 
     private static IReadOnlyList<(uint Offset, long Count)> GetHotOffsets(Dictionary<uint, long> offsets, int count) =>
