@@ -109,8 +109,10 @@ Current bringup position:
 - Nights Into Dreams (Japan) at `/home/nichlas/roms/Saturn/NightsIntoDreams/` mounts through this path. The current 80M probe still reaches the same Work RAM High frame-wait loop as dummy media, so the next blocker is CD Block boot/status behavior before the BIOS asks for TOC or files.
 - CD Block `Get Hardware Info` now matches the Mednafen-observed response shape used as a GPL behavioral oracle: `CR2=0x0002`, `CR4=0x0600`.
 - Minimal auth status support detects `SEGA SEGASATURN ` in sector 0 as auth type `0x04` and exposes it through command `0xE1`. Nights Into Dreams reports `auth type: 0x04`, but the BIOS still polls current status only (`0x00`) in the 80M probe.
+- `Get Current Status` command responses now omit the periodic bit (`0x0280` mounted standby), while periodic reads still report `0x2280`. This distinction moves Nights into CD setup commands before the next frame-loop blocker.
+- Current setup-command coverage includes `Init` (`0x04`), `Reset Selector` (`0x48`), `Set Sector Length` (`0x60`), and `Get Copy Error` (`0x67`), implemented as register-level clean-room behavior from Mednafen-observed command semantics.
 
 Next likely reference target:
 
-- Real-disc boot gaps: autonomous mounted-disc startup/auth phase behavior, richer status transitions while BIOS polls current status, multi-directory ISO9660 behavior, and any selector/filter semantics proven by a bootable Saturn image.
+- Real-disc boot gaps: selector/filter/buffer side effects after CD init, richer status transitions while BIOS polls current status, multi-directory ISO9660 behavior, and any transfer semantics proven by a bootable Saturn image.
 - BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

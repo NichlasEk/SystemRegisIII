@@ -25,6 +25,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const byte FirstTrackNumber = 0x01;
     private const byte FirstTrackIndex = 0x01;
     private const int PartitionCount = 0x18;
+    private const int AuthStartupPollCount = 8;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
 
@@ -35,6 +36,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
     private readonly Queue<byte> _recentCommands = new();
+    private byte _getSectorLength;
+    private byte _putSectorLength;
     private IReadOnlyList<CdFileInfo> _fileInfos = [];
     private bool _fileInfosValid;
 
@@ -51,6 +54,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _dataTransferLowByteLatched;
     private byte _dataTransferLowByte;
     private byte _authDiscType;
+    private int _authStartupPollsRemaining;
+    private bool _authStartupCompleted;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -65,6 +70,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             ? CdBlockDriveStatus.NoDisc
             : mountedDiscInitialStatus ?? CdBlockDriveStatus.Standby);
         _authDiscType = DetectAuthenticationType(discImage);
+        _authStartupPollsRemaining = mountedDiscInitialStatus is null && _authDiscType == 0x04 ? AuthStartupPollCount : 0;
+        _authStartupCompleted = _authStartupPollsRemaining == 0;
     }
 
     public string Name => "CD Block Register Mirror";
@@ -83,6 +90,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public string? DiscName => _discImage?.Name;
     public long DiscSectorCount => _discImage?.SectorCount ?? 0;
     public byte AuthenticationType => _authDiscType;
+    public bool AuthStartupCompleted => _authStartupCompleted;
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
@@ -200,11 +208,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x03:
                 GetSessionInfo();
                 break;
+            case 0x04:
+                InitializeCdBlock();
+                break;
             case 0x06:
                 EndDataTransfer();
                 break;
             case 0x40:
                 SetFilterRange();
+                break;
+            case 0x48:
+                ResetSelector();
+                break;
+            case 0x60:
+                SetSectorLength();
                 break;
             case 0x61:
             case 0x63:
@@ -231,6 +248,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x75:
                 AbortFile();
                 break;
+            case 0x67:
+                GetCopyError();
+                break;
             case 0xE0:
                 AuthenticateDevice();
                 break;
@@ -256,6 +276,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _hirq |= HirqEndHostIo;
         }
         else if (_discImage is not null && LastCommandCode == 0x40)
+        {
+            _hirq |= HirqEndSelector;
+        }
+        else if (_discImage is not null && LastCommandCode is 0x48 or 0x60)
         {
             _hirq |= HirqEndSelector;
         }
@@ -289,7 +313,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _statusMode = true;
         _status &= unchecked((byte)~CdStatusPeriodic);
-        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+        if (_discImage is not null && _authStartupPollsRemaining > 0)
+        {
+            _authStartupPollsRemaining--;
+            if (_authStartupPollsRemaining == 0)
+            {
+                _authStartupCompleted = true;
+            }
+
+            WriteAuthenticationStartupResponse();
+            return;
+        }
+
+        WriteStatusResponse(_status);
     }
 
     private void GetHardwareInfo()
@@ -360,6 +396,65 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         _partitionFads[partition] = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
         _partitionSectorCounts[partition] = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void InitializeCdBlock()
+    {
+        _dataTransferActive = false;
+        _dataTransferWordCount = 0;
+        _dataTransferWordsRead = 0;
+        _dataTransferWords = [];
+        _dataTransferLowByteLatched = false;
+        _getSectorLength = 0;
+        _putSectorLength = 0;
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void ResetSelector()
+    {
+        var flags = LastCommandCr1 & 0x00FF;
+        if (flags == 0)
+        {
+            var partition = LastCommandCr3 >> 8;
+            if (partition >= PartitionCount)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+                return;
+            }
+
+            _partitionFads[partition] = 0;
+            _partitionSectorCounts[partition] = 0;
+        }
+        else if ((flags & 0x04) != 0)
+        {
+            Array.Clear(_partitionFads);
+            Array.Clear(_partitionSectorCounts);
+        }
+
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void SetSectorLength()
+    {
+        var getSectorLength = LastCommandCr1 & 0x00FF;
+        var putSectorLength = LastCommandCr2 >> 8;
+        if ((getSectorLength != 0xFF && getSectorLength > 3) || (putSectorLength != 0xFF && putSectorLength > 3))
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        if (getSectorLength != 0xFF)
+        {
+            _getSectorLength = (byte)getSectorLength;
+        }
+
+        if (putSectorLength != 0xFF)
+        {
+            _putSectorLength = (byte)putSectorLength;
+        }
+
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
@@ -526,6 +621,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWords = [];
         _dataTransferLowByteLatched = false;
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void GetCopyError()
+    {
+        _statusMode = true;
+        _cr1 = (ushort)(_status << 8);
+        _cr2 = 0;
+        _cr3 = 0;
+        _cr4 = 0;
     }
 
     private void AuthenticateDevice()
@@ -731,6 +835,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
         _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
         _cr4 = (ushort)FirstTrackFad;
+    }
+
+    private void WriteAuthenticationStartupResponse()
+    {
+        _cr1 = (ushort)((CdStatusPeriodic << 8) | 0x00FF);
+        _cr2 = 0xFFFF;
+        _cr3 = 0xFFFF;
+        _cr4 = 0xFFFF;
     }
 
     private static void RecordOffset(Dictionary<uint, long> offsets, uint offset)

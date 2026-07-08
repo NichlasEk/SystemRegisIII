@@ -128,6 +128,7 @@ Work in small pushable slices:
 - Current slice: Added a tiny clean-room ISO9660 root-directory reader and CD Block filesystem commands `Change Directory` (`0x70`), `Read Directory` (`0x71`), `Get File System Scope` (`0x72`), `Get File Info` (`0x73`), and `Read File` (`0x74`). `Get File Info` streams 12-byte file-info records through the host FIFO, and `Read File` maps a file id to the existing selector/sector-transfer path. Smoke now builds a minimal ISO image in memory and verifies `BOOT.BIN;1` through file info and sector reads.
 - Current slice: Added minimal CUE/BIN mounting for 2352-byte raw data tracks. The CLI now opens `.cue` images through `CueDiscImage`, maps `MODE1/2352` user data from byte `16`, and smoke verifies CUE sector extraction plus CD Block file-info reads. Nights Into Dreams (Japan) now mounts from its multi-track CUE image, but the 80M BIOS probe still follows the same mounted-media frame-wait path as dummy media.
 - Current slice: Tightened CD Block `Get Hardware Info` to the Mednafen-observed response shape, added CD command history diagnostics, and added a minimal authentication status surface. The core now detects the Saturn sector-0 header `SEGA SEGASATURN ` as auth type `0x04`, exposes it through command `0xE1`, and reports it in CLI stub diagnostics. Nights Into Dreams is detected as auth type `0x04`, but the 80M BIOS probe still sends only repeated `0x00` current-status commands, so the missing piece is likely autonomous CD Block startup/auth phase behavior rather than a missing BIOS-issued auth command.
+- Current slice: Corrected `Get Current Status` command responses to omit the periodic bit while keeping periodic reads periodic. This moves Nights past the old pure `0x00` polling path into CD init/setup commands. Added a tiny auth-startup phase for Saturn-header discs, plus register-level coverage for `Init` (`0x04`), `Reset Selector` (`0x48`), `Set Sector Length` (`0x60`), and `Get Copy Error` (`0x67`). Nights now reaches those commands and then returns to the Work RAM frame loop with command-status `CR1=0x0280`.
 
 ## Current Next Blocker
 
@@ -174,6 +175,7 @@ The older SMPC/CD blockers are now resolved for this bringup model. The focused 
 - CD Block filesystem coverage can parse an ISO9660 primary volume descriptor, enumerate the root directory, return file-info records from file id `2+`, and map `Read File` to a selector partition. This is enough to probe simple bootable ISO paths before implementing full selector/filter buffering.
 - CUE/BIN coverage can mount the first supported 2352-byte data track from a `.cue`. Nights Into Dreams (Japan) Track 01 mounts this way and reports the same 80M BIOS position as the dummy-disc path: `PC=0x06040226`, response `CR=0x2280 0x4101 0x0100 0x0096`, and no filtered unimplemented/bus-fault output.
 - CD Block auth diagnostics can now identify a Saturn sector-0 header and report auth type `0x04`. The latest Nights 80M run reports `auth type: 0x04` and CD recent commands are still only `0x00`, confirming that BIOS has not reached explicit auth, TOC, or filesystem commands in this model.
+- `Get Current Status` now returns normal command status (`0x0280` for mounted standby) and the old `0x2280` only for periodic reads. This lets Nights issue CD init/setup commands including `0x04`, `0x48`, `0x60`, and `0x67` before returning to the Work RAM frame loop.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
@@ -181,7 +183,7 @@ The next slice should distinguish normal frame pacing from a missing device even
 
 - keep the focused Work RAM High code windows around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and the callback/status routines around `0x060422A0..0x060425D0`
 - keep PC-attributed CD Block CR/HIRQ reads and the `0x0601FF60..0x0601FF8F` status-buffer watch
-- model a small autonomous mounted-disc startup/auth phase: initial busy/auth periodic report, Saturn-header check, then standby/status-ready transition. This should be driven by the observed BIOS `0x00` polling loop before adding broader CD commands.
+- model the side effects of selector/buffer setup after CD init: reset selector should clear partition/filter state accurately, sector-length should influence transfer sizing, and the current-status loop after those commands likely waits for a buffer/selector/CD event rather than CPU/VBlank timing.
 - extend CUE/BIN support beyond the first data track only when a trace proves audio/session/second-data-track behavior is consulted
 - probe whether the repeated mounted response needs richer TOC/session/sector semantics, selector/filter responses, or a more complete periodic status transition once BIOS/game code issues those commands
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

@@ -197,7 +197,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block mounted-disc current status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0280, "CD Block mounted-disc current status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block mounted-disc track status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block mounted-disc index/FAD status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block mounted-disc FAD status failed.");
@@ -242,6 +242,31 @@ static void VerifySaturnSystemMap()
         Require(mountedCdRegisters.LastCommandCode == 0x03, "CD Block session-info command latch failed.");
         Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block session-info session count failed.");
         Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0098, "CD Block session-info leadout FAD failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x0400);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(mountedCdRegisters.LastCommandCode == 0x04, "CD Block init command latch failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block init status failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x6000);
+        discMap.Bus.WriteWord(0x2589_001C, 0xFF00);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(mountedCdRegisters.LastCommandCode == 0x60, "CD Block set-sector-length command latch failed.");
+        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0041, "CD Block set-sector-length ESEL HIRQ failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x4804);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(mountedCdRegisters.LastCommandCode == 0x48, "CD Block reset-selector command latch failed.");
+        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0041, "CD Block reset-selector ESEL HIRQ failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x6700);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(mountedCdRegisters.LastCommandCode == 0x67, "CD Block get-copy-error command latch failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block get-copy-error status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block get-copy-error CR2 failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x4000);
         discMap.Bus.WriteWord(0x2589_001C, 0x0096);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -283,7 +308,7 @@ static void VerifySaturnSystemMap()
         pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
         pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
         pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
-        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block mounted-disc status override failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block mounted-disc status override failed.");
     }
     finally
     {
