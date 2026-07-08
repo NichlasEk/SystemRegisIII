@@ -352,6 +352,37 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
             precedingStart: 0x0602_BC80,
             precedingWords: 64);
     }
+    else if (pc is >= 0x060F_0A00 and <= 0x060F_0A40)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x060F_09E0,
+            codeWords: 80,
+            dataStart: 0x060F_0A80,
+            dataWords: 32,
+            precedingStart: 0x060F_3480,
+            precedingWords: 96);
+        PrintInstructionWindow(bus, 0x060F_2200, 96, "  Work RAM caller 0x060F2200");
+        PrintWordWindow(bus, 0x0600_0350, 16, "  Work RAM table root 0x06000350");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD/status stack 0x0601FF60");
+    }
+    else if (pc is >= 0x0000_32D0 and <= 0x0000_3310)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0000_32D0,
+            codeWords: 64,
+            dataStart: 0x0000_3310,
+            dataWords: 32,
+            precedingStart: 0x0000_40C0,
+            precedingWords: 64);
+        PrintInstructionWindow(bus, 0x0000_3FF0, 96, "  CD command helper 0x00003FF0");
+        PrintInstructionWindow(bus, 0x0000_40D0, 64, "  CD HIRQ wait helper 0x000040D0");
+        PrintWordWindow(bus, 0x0600_03A0, 8, "  CD HIRQ accumulator 0x060003A0");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
+    }
     else if (pc is >= 0x0000_4B70 and <= 0x0000_4C10)
     {
         PrintMasterPcProbeWindow(
@@ -546,6 +577,13 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"MOV.L R{source},@(0x{displacement:X1},R{destination})";
     }
 
+    if ((opcode & 0xF00F) == 0x0007)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        return $"MUL.L R{source},R{destination}";
+    }
+
     if ((opcode & 0xF000) == 0x5000)
     {
         var destination = (opcode >> 8) & 0xF;
@@ -656,10 +694,13 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x4 => $"MOV.B R{source},@-R{destination}",
             0x5 => $"MOV.W R{source},@-R{destination}",
             0x6 => $"MOV.L R{source},@-R{destination}",
+            0x7 => $"DIV0S R{source},R{destination}",
             0x8 => $"TST R{source},R{destination}",
             0x9 => $"AND R{source},R{destination}",
             0xA => $"XOR R{source},R{destination}",
             0xB => $"OR R{source},R{destination}",
+            0xE => $"MULU.W R{source},R{destination}",
+            0xF => $"MULS.W R{source},R{destination}",
             _ => $"2xxx op R{source},R{destination}",
         };
     }
@@ -678,7 +719,9 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x6 => $"CMP/HI R{source},R{destination}",
             0x7 => $"CMP/GT R{source},R{destination}",
             0x8 => $"SUB R{source},R{destination}",
+            0xA => $"SUBC R{source},R{destination}",
             0xC => $"ADD R{source},R{destination}",
+            0xE => $"ADDC R{source},R{destination}",
             _ => $"3xxx op R{source},R{destination}",
         };
     }
@@ -716,9 +759,19 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"STS.L PR,@-R{(opcode >> 8) & 0xF}";
     }
 
+    if ((opcode & 0xF0FF) == 0x4012)
+    {
+        return $"STS.L MACL,@-R{(opcode >> 8) & 0xF}";
+    }
+
     if ((opcode & 0xF0FF) == 0x4026)
     {
         return $"LDS.L @R{(opcode >> 8) & 0xF}+,PR";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4016)
+    {
+        return $"LDS.L @R{(opcode >> 8) & 0xF}+,MACL";
     }
 
     if ((opcode & 0xF0FF) == 0x400E)

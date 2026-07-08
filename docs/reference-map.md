@@ -75,6 +75,7 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - `CDC_GetPeriStat` reads periodic response without issuing a CD block command.
   - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
   - Mounted dummy media currently reports a simple periodic data-track status response: `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
+  - BIOS-observed command `0x75` is modeled as Abort File for bringup, returning mounted periodic status and raising `EFLS` (`0x0200`) with `CMOK`.
 
 ## Current BIOS Bringup Evidence
 
@@ -87,14 +88,15 @@ dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --b
 
 Current bringup position:
 
-- Master PC reaches BIOS ROM `0x000032EE` with mounted dummy media in the latest 40M dual-SH2 run.
+- Master PC reaches Work RAM High `0x06040C0C` with mounted dummy media in the latest 40M dual-SH2 run.
 - The old Work RAM wait at `0x06028314..0x06028318` is passed after generated V-Blank-IN, V-Blank-OUT, and SMPC interrupt sources are modeled as accepted pulses.
 - `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
-- SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
-- CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
+- SCU status ends at `0x00000000`; generated V-Blank and SMPC interrupt pulses are accepted and drained.
 - `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
-- BIOS-observed mounted status-ready HIRQ mask `0x4658` lets the CD helper pass the old `0x00004C58/0x00004C04` blocker. The new blocker is BIOS ROM `0x000032EE`, with CD command latch `CR1=0x7500` and HIRQ hot reads returning `0x0041` from `0x000040DA`.
+- BIOS-observed mounted status-ready HIRQ mask `0x4658` lets the CD helper pass the old `0x00004C58/0x00004C04` blocker. Command `0x75` now raises `EFLS` and passes the old `0x000032EE` blocker.
+- The current run reports no unimplemented opcodes or bus faults in 40M instructions.
+- Memory-map additions needed by the latest BIOS path: internal Backup RAM at `0x00180000..0x001FFFFF` with cache-through write-back, and Work RAM High mirror at `0x0C000000..0x0C0FFFFF`.
 
 Next likely reference target:
 
-- CD Block command `0x75` semantics and the BIOS routines around `0x000032E0..0x00003310` and `0x000040D0..0x000040F8`, then TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
+- CD Block TOC/read-sector/filter/selector behavior and the BIOS Work RAM High routines around `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

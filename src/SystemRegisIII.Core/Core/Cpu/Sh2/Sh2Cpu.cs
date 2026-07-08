@@ -343,6 +343,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: MOV.L @(R0,R{source}),R{destination}");
                     return;
                 }
+            case 0x0007:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.MacLow = Registers.General[destination] * Registers.General[source];
+                    Trace($"0x{pc:X8}: MUL.L R{source},R{destination} -> MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
             case 0x3000:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -366,6 +374,39 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var source = (opcode >> 4) & 0xF;
                     Registers.T = (int)Registers.General[destination] >= (int)Registers.General[source];
                     Trace($"0x{pc:X8}: CMP/GE R{source},R{destination} T={Registers.T}");
+                    return;
+                }
+            case 0x3004:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var divisor = Registers.General[source];
+                    var dividend = Registers.General[destination];
+                    var oldQ = Registers.Q;
+                    Registers.Q = (dividend & 0x8000_0000) != 0;
+                    dividend <<= 1;
+                    if (Registers.T)
+                    {
+                        dividend |= 1;
+                    }
+
+                    if (oldQ == Registers.M)
+                    {
+                        var previous = dividend;
+                        dividend -= divisor;
+                        Registers.T = dividend > previous;
+                    }
+                    else
+                    {
+                        var previous = dividend;
+                        dividend += divisor;
+                        Registers.T = dividend < previous;
+                    }
+
+                    Registers.Q = Registers.Q ^ Registers.M ^ Registers.T;
+                    Registers.T = Registers.Q == Registers.M;
+                    Registers.General[destination] = dividend;
+                    Trace($"0x{pc:X8}: DIV1 R{source},R{destination} -> 0x{dividend:X8} M={Registers.M} Q={Registers.Q} T={Registers.T}");
                     return;
                 }
             case 0x3006:
@@ -566,6 +607,16 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: MOV.L R{source},@-R{destination}");
                     return;
                 }
+            case 0x2007:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.Q = (Registers.General[destination] & 0x8000_0000) != 0;
+                    Registers.M = (Registers.General[source] & 0x8000_0000) != 0;
+                    Registers.T = Registers.M != Registers.Q;
+                    Trace($"0x{pc:X8}: DIV0S R{source},R{destination} M={Registers.M} Q={Registers.Q} T={Registers.T}");
+                    return;
+                }
             case 0x2008:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -598,6 +649,22 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: OR R{source},R{destination}");
                     return;
                 }
+            case 0x200E:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.MacLow = (Registers.General[source] & 0xFFFF) * (Registers.General[destination] & 0xFFFF);
+                    Trace($"0x{pc:X8}: MULU.W R{source},R{destination} -> MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
+            case 0x200F:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.MacLow = (uint)((short)Registers.General[source] * (short)Registers.General[destination]);
+                    Trace($"0x{pc:X8}: MULS.W R{source},R{destination} -> MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
             case 0x300C:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -606,12 +673,34 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: ADD R{source},R{destination}");
                     return;
                 }
+            case 0x300E:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var carry = Registers.T ? 1u : 0u;
+                    var result = (ulong)Registers.General[destination] + Registers.General[source] + carry;
+                    Registers.General[destination] = (uint)result;
+                    Registers.T = result > 0xFFFF_FFFF;
+                    Trace($"0x{pc:X8}: ADDC R{source},R{destination} -> 0x{Registers.General[destination]:X8} T={Registers.T}");
+                    return;
+                }
             case 0x3008:
                 {
                     var destination = (opcode >> 8) & 0xF;
                     var source = (opcode >> 4) & 0xF;
                     Registers.General[destination] -= Registers.General[source];
                     Trace($"0x{pc:X8}: SUB R{source},R{destination}");
+                    return;
+                }
+            case 0x300A:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var borrow = Registers.T ? 1u : 0u;
+                    var result = (ulong)Registers.General[destination] - Registers.General[source] - borrow;
+                    Registers.T = (ulong)Registers.General[destination] < (ulong)Registers.General[source] + borrow;
+                    Registers.General[destination] = (uint)result;
+                    Trace($"0x{pc:X8}: SUBC R{source},R{destination} -> 0x{Registers.General[destination]:X8} T={Registers.T}");
                     return;
                 }
         }
@@ -855,6 +944,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: STS.L PR,@-R{register}");
                     return;
                 }
+            case 0x4012:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] -= 4;
+                    _bus.WriteLong(Registers.General[register], Registers.MacLow);
+                    Trace($"0x{pc:X8}: STS.L MACL,@-R{register}");
+                    return;
+                }
             case 0x4003:
                 {
                     var register = (opcode >> 8) & 0xF;
@@ -885,6 +982,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Registers.ProcedureRegister = _bus.ReadLong(Registers.General[register]);
                     Registers.General[register] += 4;
                     Trace($"0x{pc:X8}: LDS.L @R{register}+,PR <- 0x{Registers.ProcedureRegister:X8}");
+                    return;
+                }
+            case 0x4016:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.MacLow = _bus.ReadLong(Registers.General[register]);
+                    Registers.General[register] += 4;
+                    Trace($"0x{pc:X8}: LDS.L @R{register}+,MACL <- 0x{Registers.MacLow:X8}");
                     return;
                 }
         }

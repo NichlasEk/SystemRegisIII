@@ -9,7 +9,7 @@ Build a permissively licensed, modular Sega Saturn core first. Keep the core hea
 - BIOS zip files live under `bios/` and are ignored by git.
 - The core has a page-mapped Saturn bus, BIOS ROM mapping, Work RAM Low/High, named stubs, and optional tracing.
 - The CLI can run BIOS in single-master mode or experimental `--dual-sh2` mode.
-- The BIOS currently clears both Work RAM regions and reaches a stable delay loop at `0x00001D3E` with no unimplemented opcodes in the verified 5M-instruction run.
+- The BIOS currently clears both Work RAM regions, passes the early CD/SMPC/V-Blank waits in experimental dual-SH2 mode, and reaches Work RAM High code at `0x06040C0C` with mounted dummy media in the verified 40M-instruction run.
 
 ## Phase 1: Make Dual SH-2 Real Enough
 
@@ -120,10 +120,11 @@ Work in small pushable slices:
 - Current slice: Corrected the mounted-media current-status response shape using Mednafen only as a GPL behavioral oracle: mounted dummy media now reports `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096` (`STANDBY`, CD-ROM/data bit, track 1, index 1, FAD 150). The 40M dummy-disc run still stops at `0x00004C58` and the last CD command remains `0x00`, so the next blocker is likely CD drive phase/status semantics before BIOS asks for TOC or sector data.
 - Current slice: Added a reproducible mounted-CD status probe via `--cd-status busy|pause|standby|play|wait`. In 40M dummy-disc runs, `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with last command `0x00`; `wait` stops earlier at `0x00003C24`. The blocker is therefore not solved by a single mounted status code. The next productive move is to decode/probe the BIOS copy/parse routine around `0x00004C50..0x00004C6A` and the buffer at `0x0601FF64/0x0601FF7C`.
 - Current slice: Modeled mounted-media current status as periodic (`CR1=0x2280`) and latched the BIOS-observed mounted status-ready HIRQ mask `0x4658` for command `0x00`. Focused probes around `0x000041E4..0x000042BE` showed BIOS waiting first on accumulated HIRQ masks `0x4618` and then `0x0040`; satisfying those moves the 40M dummy-disc run from `0x00004C58/0x00004C04` to BIOS ROM `0x000032EE`. The next CD blocker is command `0x75` with HIRQ reads returning `0x0041`.
+- Current slice: Implemented the BIOS-observed CD Block command `0x75` as Abort File status plus `EFLS` HIRQ, using Mednafen only as a GPL behavioral oracle for command/HIRQ naming. Added SH-2 coverage for `DIV0S`, `DIV1`, `SUBC`, `ADDC`, `MUL.L`, `MULU.W`, `MULS.W`, `STS.L MACL,@-Rn`, and `LDS.L @Rn+,MACL`, plus smoke coverage for the flag/MACL cases. Added internal Backup RAM mapping at `0x00180000..0x001FFFFF`, write-back for its cache-through aliases, and the BIOS-used Work RAM High mirror at `0x0C000000..0x0C0FFFFF`. The 40M mounted dummy-disc run now reaches `0x06040C0C` with no reported unimplemented opcodes or bus faults.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the early BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN, V-Blank-OUT, and SMPC interrupts as generated pulses, then returns to BIOS ROM at `0x00004C58`.
+In real dual mode with mounted dummy media, the verified `40M`-instruction run has no reported unimplemented opcodes and no bus faults. Master leaves the early BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, reads internal Backup RAM through cache-through aliases, touches the BIOS-used `0x0C` Work RAM High mirror, and reaches `0x06040C0C`.
 
 The old loop was a Work RAM change wait:
 
@@ -151,21 +152,21 @@ The 40M result after the V-Blank pulse fix:
 - SMPC command history reaches another `INTBACK` (`0x10`) after the old loop: `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06, 0x10`
 - slave SH-2 is still not enabled by SMPC
 
-That SMPC blocker is now resolved for this bringup model. The focused probe showed BIOS copying INTBACK OREG bytes at `0x0602BD20..0x0602BD6E`; acknowledging the generated SMPC interrupt after SH-2 accepts vector `0x47` prevents repeated handler re-entry. The latest 40M result:
+The older SMPC/CD blockers are now resolved for this bringup model. The focused probe showed BIOS copying INTBACK OREG bytes at `0x0602BD20..0x0602BD6E`; acknowledging the generated SMPC interrupt after SH-2 accepts vector `0x47` prevents repeated handler re-entry. The mounted CD flow then required periodic status/HIRQ handling and Abort File completion.
 
-- Master PC advances to `0x000032EE` with mounted dummy media after the CD HIRQ/status-ready update.
-- SCU delivery counters: VBlank-IN `attempts=89 accepted=11`, VBlank-OUT `attempts=87 accepted=11`, SMPC `attempts=1 accepted=1`
+- Master PC advances to `0x06040C0C` with mounted dummy media after the CD Abort File and memory-map updates.
+- SCU delivery counters: VBlank-IN `attempts=13 accepted=11`, VBlank-OUT `attempts=11 accepted=11`, SMPC `attempts=37 accepted=9`
 - final SCU state: `mask=0xFFFFFE7C status=0x00000000`
-- CD Block current-status response is still no-media without `--disc`: `CR1=0x0700`, `CR2=CR3=CR4=0`
-- CD Block CR reads are now the hot activity again: `2,573,816` reads in the 40M run
 - With `--disc /tmp/systemregis_dummy.iso`, CD Block current-status now reports periodic mounted media as `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`, and `256` mounted sectors.
-- The BIOS CD helper around `0x000041E4..0x000042BE` now passes the mounted status-ready waits. The final HIRQ hot read at the new blocker is `0x0041` from `0x000040DA`, and the last command latch is `CR1=0x7500`.
+- The BIOS CD helper around `0x000041E4..0x000042BE` now passes the mounted status-ready waits, and command `0x75` (`Abort File`) raises `EFLS` (`0x0200`) alongside `CMOK`.
+- CD Block CR reads remain hot, with the latest response `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
+- The latest run ends in Work RAM High around `0x06040C0C`; hot PCs include `0x00001D3C/0x00001D3E`, `0x06032D02/0x06032D04`, and CD/status-buffer activity around `0x06040B7E..0x06040C08`.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify the new BIOS ROM `0x000032EE` blocker and the CD Block behavior expected by command `0x75`:
+The next slice should identify what the BIOS is waiting for in the new Work RAM High/status path:
 
-- keep the focused BIOS ROM code/data window around `0x000032E0..0x00003310` plus the CD helper around `0x000040D0..0x000040F8`
-- keep PC-attributed CD Block HIRQ/CR reads around `0x000040DA` and command writes around `0x000040F4`
-- decode command `0x75` from clean-room docs or behavioral probes before inventing response data
+- keep the focused Work RAM High code windows around `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and the callback/status routines around `0x060422A0..0x060425D0`
+- keep PC-attributed CD Block CR/HIRQ reads and the `0x0601FF60..0x0601FF8F` status-buffer watch
+- probe whether the repeated mounted response needs TOC/read-sector semantics, selector/filter responses, or a more complete periodic status transition
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

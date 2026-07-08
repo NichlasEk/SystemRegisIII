@@ -12,6 +12,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
+    private const ushort HirqEndFileSystem = 0x0200;
     private const ushort HirqMountedStatusReady = 0x4658;
     private const byte CdStatusPeriodic = 0x20;
     private const byte CdRomStatusBit = 0x80;
@@ -161,6 +162,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x01:
                 GetHardwareInfo();
                 break;
+            case 0x75:
+                AbortFile();
+                break;
             default:
                 EnterStatusMode();
                 break;
@@ -170,6 +174,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (_discImage is not null && LastCommandCode == 0x00)
         {
             _hirq |= HirqMountedStatusReady;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x75)
+        {
+            _hirq |= HirqEndFileSystem;
         }
     }
 
@@ -188,6 +196,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = 0x0201;
         _cr3 = 0x0000;
         _cr4 = 0x0400;
+    }
+
+    private void AbortFile()
+    {
+        _statusMode = true;
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
     private void EnterStatusMode()

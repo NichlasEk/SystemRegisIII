@@ -85,10 +85,16 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadLong(0x0000_0000) == 0x2000_0200, "Bringup BIOS mapping failed.");
     systemMap.Bus.WriteLong(0x6000_0000, 0xDEAD_BEEF);
     Require(systemMap.Bus.ReadLong(0x0600_0000) == 0xDEAD_BEEF, "High RAM alias mapping failed.");
+    systemMap.Bus.WriteLong(0x0C00_0000, 0xFEED_FACE);
+    Require(systemMap.Bus.ReadLong(0x0600_0000) == 0xFEED_FACE, "High RAM 0x0C mirror mapping failed.");
     Require(
         systemMap.Bus.TryResolve(0x0010_0000, out var region, out _) &&
         region.Device.Name == "SMPC Registers",
         "SMPC stub mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x2018_0000, out region, out _) &&
+        region.Device.Name == "Backup RAM / Cartridge Area",
+        "Backup RAM cache-through mapping failed.");
     Require(
         systemMap.Bus.TryResolve(0x2589_0018, out region, out _) &&
         region.Device.Name == "CD Block Register Mirror",
@@ -127,6 +133,8 @@ static void VerifySaturnSystemMap()
     Require(cdRegisters.LastCommandCode == 0x00, "CD Block current status command latch failed.");
     systemMap.Bus.WriteLong(0x25A0_0000, 0x0000_A000);
     Require(systemMap.Bus.ReadLong(0x25A0_0000) == 0x0000_A000, "SCSP register write-back failed.");
+    systemMap.Bus.WriteWord(0x2018_0000, 0xBEEF);
+    Require(systemMap.Bus.ReadWord(0x0018_0000) == 0xBEEF, "Backup RAM cache-through write-back failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
     systemMap.Bus.WriteByte(0x0010_001F, 0x02);
@@ -196,6 +204,13 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0008, 0xFFFE);
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block mounted-disc periodic status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0008) == 0x4658, "CD Block mounted-disc HIRQ status-ready failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x7500);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(mountedCdRegisters.LastCommandCode == 0x75, "CD Block abort-file command latch failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block abort-file status failed.");
+        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block abort-file EFLS HIRQ failed.");
 
         var pauseDiscMap = SaturnSystemMap.CreateBringup(
             bios,
@@ -342,6 +357,22 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STS.L PR,@-Rn did not predecrement.");
     Require(ReadLong(data, 4) == 0xCAFE_BABE, "SH-2 STS.L PR,@-Rn failed.");
 
+    WriteWord(code, 0x08, 0x4112);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0008;
+    cpu.Registers.MacLow = 0x1234_5678;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STS.L MACL,@-Rn did not predecrement.");
+    Require(ReadLong(data, 4) == 0x1234_5678, "SH-2 STS.L MACL,@-Rn failed.");
+
+    WriteWord(code, 0x08, 0x4116);
+    WriteLong(data, 8, 0x89AB_CDEF);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0008;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x0600_000C, "SH-2 LDS.L @Rn+,MACL did not postincrement.");
+    Require(cpu.Registers.MacLow == 0x89AB_CDEF, "SH-2 LDS.L @Rn+,MACL failed.");
+
     WriteWord(code, 0x08, 0x4113);
     cpu.Reset();
     cpu.Registers.General[1] = 0x0600_0008;
@@ -377,6 +408,102 @@ static void VerifySh2BiosBringupInstructions()
     cpu.Registers.General[2] = 0xFFFF_FFFE;
     cpu.StepInstruction();
     Require(cpu.Registers.T, "SH-2 CMP/GE Rm,Rn failed signed comparison.");
+
+    WriteWord(code, 0x08, 0x312E);
+    cpu.Reset();
+    cpu.Registers.General[1] = 1;
+    cpu.Registers.General[2] = 2;
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 4, "SH-2 ADDC Rm,Rn failed carry-in result.");
+    Require(!cpu.Registers.T, "SH-2 ADDC Rm,Rn failed carry-in T flag.");
+
+    WriteWord(code, 0x08, 0x312E);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0xFFFF_FFFF;
+    cpu.Registers.General[2] = 0;
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0, "SH-2 ADDC Rm,Rn failed overflow result.");
+    Require(cpu.Registers.T, "SH-2 ADDC Rm,Rn failed overflow T flag.");
+
+    WriteWord(code, 0x08, 0x0127);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0001_0000;
+    cpu.Registers.General[2] = 0x0000_0010;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacLow == 0x0010_0000, "SH-2 MUL.L Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x212E);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0000_FFFF;
+    cpu.Registers.General[2] = 2;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacLow == 0x0001_FFFE, "SH-2 MULU.W Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x212F);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0000_FFFF;
+    cpu.Registers.General[2] = 2;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacLow == 0xFFFF_FFFE, "SH-2 MULS.W Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x312A);
+    cpu.Reset();
+    cpu.Registers.General[1] = 5;
+    cpu.Registers.General[2] = 3;
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 1, "SH-2 SUBC Rm,Rn failed no-borrow result.");
+    Require(!cpu.Registers.T, "SH-2 SUBC Rm,Rn failed no-borrow T flag.");
+
+    WriteWord(code, 0x08, 0x312A);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0;
+    cpu.Registers.General[2] = 1;
+    cpu.Registers.T = false;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0xFFFF_FFFF, "SH-2 SUBC Rm,Rn failed borrow result.");
+    Require(cpu.Registers.T, "SH-2 SUBC Rm,Rn failed borrow T flag.");
+
+    WriteWord(code, 0x08, 0x2127);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0000_0001;
+    cpu.Registers.General[2] = 0x8000_0000;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.Q, "SH-2 DIV0S failed Q flag.");
+    Require(cpu.Registers.M, "SH-2 DIV0S failed M flag.");
+    Require(cpu.Registers.T, "SH-2 DIV0S failed mixed-sign T flag.");
+
+    WriteWord(code, 0x08, 0x2127);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x8000_0000;
+    cpu.Registers.General[2] = 0x8000_0000;
+    cpu.StepInstruction();
+    Require(cpu.Registers.Q, "SH-2 DIV0S failed negative Q flag.");
+    Require(cpu.Registers.M, "SH-2 DIV0S failed negative M flag.");
+    Require(!cpu.Registers.T, "SH-2 DIV0S failed same-sign T flag.");
+
+    WriteWord(code, 0x08, 0x3124);
+    cpu.Reset();
+    cpu.Registers.General[1] = 4;
+    cpu.Registers.General[2] = 1;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 7, "SH-2 DIV1 failed subtract path result.");
+    Require(!cpu.Registers.Q, "SH-2 DIV1 failed subtract path Q flag.");
+    Require(!cpu.Registers.M, "SH-2 DIV1 failed subtract path M flag.");
+    Require(cpu.Registers.T, "SH-2 DIV1 failed subtract path T flag.");
+
+    WriteWord(code, 0x08, 0x3124);
+    cpu.Reset();
+    cpu.Registers.StatusRegister = 0x0000_0200;
+    cpu.Registers.General[1] = 0x8000_0000;
+    cpu.Registers.General[2] = 1;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 1, "SH-2 DIV1 failed add path result.");
+    Require(!cpu.Registers.Q, "SH-2 DIV1 failed add path Q flag.");
+    Require(cpu.Registers.M, "SH-2 DIV1 failed add path M flag.");
+    Require(!cpu.Registers.T, "SH-2 DIV1 failed add path T flag.");
 
     WriteWord(code, 0x08, 0x4119);
     cpu.Reset();

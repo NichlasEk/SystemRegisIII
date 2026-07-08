@@ -41,7 +41,7 @@ public sealed class SaturnSystemMap
         IInspectableBusDevice[] stubs =
         [
             smpcRegisters,
-            new StubBusDevice("Backup RAM / Cartridge Area"),
+            new StubBusDevice("Backup RAM / Cartridge Area").EnableWriteBack(),
             new StubBusDevice("Cartridge / Expansion Area"),
             new StubBusDevice("CD Block Area"),
             new StubBusDevice("A-Bus Probe Area"),
@@ -57,6 +57,7 @@ public sealed class SaturnSystemMap
         var builder = new SaturnAddressMapBuilder()
             .Map(0x0000_0000, (uint)(biosRom.SizeBytes - 1), biosRom)
             .Map(0x0010_0000, 0x0010_007F, stubs[0])
+            .Map(0x0018_0000, 0x001F_FFFF, stubs[1])
             .Map(0x0020_0000, 0x002F_FFFF, workRamLow)
             .Map(0x0100_0000, 0x010F_FFFF, stubs[1])
             .Map(0x0180_0000, 0x01FF_FFFF, stubs[2])
@@ -69,6 +70,7 @@ public sealed class SaturnSystemMap
             .Map(0x05E0_0000, 0x05EF_FFFF, stubs[9])
             .Map(0x05F0_0000, 0x05FF_FFFF, stubs[10])
             .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
+            .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
             .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
             .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[11]);
 
