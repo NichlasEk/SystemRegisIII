@@ -59,6 +59,11 @@ static int RunBios(string[] args)
         0x0602_0720,
         0x0602_075F,
         () => GetWatchContext(master));
+    var masterSmpcWatch = new WatchedBus(
+        masterCallbackWatch,
+        0x0010_0000,
+        0x0010_007F,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -66,7 +71,7 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCallbackWatch, trace) : masterCallbackWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterSmpcWatch, trace) : masterSmpcWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
@@ -122,7 +127,12 @@ static int RunBios(string[] args)
         }
         else if (scu.HasPendingSmpc)
         {
-            interruptProbe.RecordSmpc(master.RequestInterrupt(8, 0x47), master.Registers.ProgramCounter);
+            var accepted = master.RequestInterrupt(8, 0x47);
+            interruptProbe.RecordSmpc(accepted, master.Registers.ProgramCounter);
+            if (accepted)
+            {
+                scu.AcknowledgeSmpc();
+            }
         }
 
         var masterPc = master.Registers.ProgramCounter;
@@ -202,8 +212,10 @@ static int RunBios(string[] args)
     }
 
     PrintMasterGbrLoopProbe(master, addressMap);
+    PrintMasterPcProbe(master, addressMap);
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
+    PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
     if (slaveFlagWatch is not null)
     {
         PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -302,6 +314,34 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
     catch (BusFaultException exception)
     {
         Console.WriteLine($"  [GBR+0x240]=[0x{watchedAddress:X8}] faulted at 0x{exception.Address:X8}");
+    }
+}
+
+static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
+{
+    var pc = master.Registers.ProgramCounter;
+    if (pc is < 0x0602_BD20 or > 0x0602_BD80)
+    {
+        return;
+    }
+
+    Console.WriteLine("Master SH-2 PC probe:");
+    Console.WriteLine(
+        $"  PC=0x{pc:X8} PR=0x{master.Registers.ProcedureRegister:X8} SR=0x{master.Registers.StatusRegister:X8} GBR=0x{master.Registers.GlobalBaseRegister:X8}");
+    Console.WriteLine(
+        $"  R0=0x{master.Registers.General[0]:X8} R1=0x{master.Registers.General[1]:X8} R2=0x{master.Registers.General[2]:X8} R3=0x{master.Registers.General[3]:X8}");
+    Console.WriteLine(
+        $"  R4=0x{master.Registers.General[4]:X8} R5=0x{master.Registers.General[5]:X8} R6=0x{master.Registers.General[6]:X8} R7=0x{master.Registers.General[7]:X8}");
+
+    try
+    {
+        PrintInstructionWindow(bus, 0x0602_BD20, 48, "  code window 0x0602BD20");
+        PrintWordWindow(bus, 0x0602_BD80, 32, "  data/literals 0x0602BD80");
+        PrintInstructionWindow(bus, 0x0602_BC80, 64, "  preceding code 0x0602BC80");
+    }
+    catch (BusFaultException exception)
+    {
+        Console.WriteLine($"  probe faulted at 0x{exception.Address:X8}");
     }
 }
 

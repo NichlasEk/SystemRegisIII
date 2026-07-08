@@ -115,10 +115,11 @@ Work in small pushable slices:
 - Current slice: Added BIOS code windows for the writer routines. `0x060281F0` is `MOV.L R0,@(0x93,GBR)` and writes `0x0602024C`; `0x06028200` is `MOV.L R0,@(0x92,GBR)` and writes `0x06020248`. The wait loop reads `MOV.L @(0x90,GBR),R0`, so the missing transition is specifically a later `GBR+0x90` write or callback-state activation, not these setup stores.
 - Current slice: Extended RAM watches to include read attribution and register context. In the 40M dual-SH2 run, `0x06020240` is read `21,333` times from `0x06028314` with `PR=0x06028310`, `GBR=0x06020000`, and `R0=0`; callback-state window `0x06020720..0x0602075F` has `reads=0`. The BIOS is therefore stuck before it ever scans the callback-state entries; the next probe should focus on the call path ending at `0x06028310/0x06028314` and the hardware condition expected to write `GBR+0x90`.
 - Current slice: Added a focused SH-2 instruction decoder to the CLI code windows plus SCU interrupt delivery counters. The BIOS setup registers vector `0x40` to callback `0x06028D64` and vector `0x41` to callback `0x06028D9E`; the latter increments `GBR+0x90` at `0x06028DB0`. The first counter run proved `VBlank-IN` remained pending and starved `VBlank-OUT` completely (`0x41` attempts `0`). Treating deterministic CLI V-Blank ticks as accepted pulses fixes the starvation: `0x41` is now accepted, `0x06020240` increments, and the 40M run advances from the old wait loop to `0x0602BD48`.
+- Current slice: Added PC-attributed SMPC register watches and a focused code window for the `0x0602BD48` blocker. BIOS was copying INTBACK OREG bytes in `0x0602BD20..0x0602BD6E`, but the real issue was repeated acceptance of the same generated SMPC interrupt. Acknowledging the SMPC pulse after vector `0x47` is accepted reduces SMPC delivery to `attempts=1 accepted=1`, clears SCU status, and advances the 40M run to BIOS ROM PC `0x00004C58`.
 
 ## Current Next Blocker
 
-In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN and V-Blank-OUT interrupts, and has now passed the old Work RAM wait around `0x06028314..0x06028318`.
+In real dual mode, the verified `40M`-instruction run has no unimplemented opcodes and no bus faults. Master leaves the early BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, services SCU V-Blank-IN, V-Blank-OUT, and SMPC interrupts as generated pulses, then returns to BIOS ROM at `0x00004C58`.
 
 The old loop was a Work RAM change wait:
 
@@ -137,20 +138,28 @@ The wait is broken by the V-Blank-OUT callback:
 
 The CLI was previously modeling generated V-Blank sources as permanently pending level bits. That let `VBlank-IN` win the priority check forever and starved `VBlank-OUT`. Generated V-Blank ticks are now acknowledged after the SH-2 accepts the interrupt, so the pending pulse does not remain latched indefinitely.
 
-The current 40M result after that fix:
+The 40M result after the V-Blank pulse fix:
 
 - Master PC advances to `0x0602BD48`
 - `GBR+0x90` / `0x06020240` increments through the V-Blank-OUT callback; latest observed value is `0x0000000B`
 - SCU delivery counters: VBlank-IN `attempts=137 accepted=11`, VBlank-OUT `attempts=171 accepted=11`, SMPC `attempts=1,887,413 accepted=75,493`
-- final SCU state: `mask=0xFFFFFFFC status=0x00000080`, so SMPC bit `7` remains the visible pending/status source at the new blocker
+- final SCU state: `mask=0xFFFFFFFC status=0x00000080`, so SMPC bit `7` remained the visible pending/status source at the next blocker
 - SMPC command history reaches another `INTBACK` (`0x10`) after the old loop: `0x1A, 0x10, 0x10, 0x19, 0x07, 0x06, 0x10`
 - slave SH-2 is still not enabled by SMPC
 
+That SMPC blocker is now resolved for this bringup model. The focused probe showed BIOS copying INTBACK OREG bytes at `0x0602BD20..0x0602BD6E`; acknowledging the generated SMPC interrupt after SH-2 accepts vector `0x47` prevents repeated handler re-entry. The latest 40M result:
+
+- Master PC advances to `0x00004C58`
+- SCU delivery counters: VBlank-IN `attempts=89 accepted=11`, VBlank-OUT `attempts=87 accepted=11`, SMPC `attempts=1 accepted=1`
+- final SCU state: `mask=0xFFFFFE7C status=0x00000000`
+- CD Block current-status response is still no-media: `CR1=0x0700`, `CR2=CR3=CR4=0`
+- CD Block CR reads are now the hot activity again: `2,573,816` reads in the 40M run
+
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify the new `0x0602BD48` blocker and why SMPC interrupt/status remains hot:
+The next slice should identify the new BIOS ROM `0x00004C58` blocker and whether the no-disc CD status path is now too inert:
 
-- add a focused code/data window around `0x0602BD20..0x0602BD80`
-- attribute hot SMPC OREG reads by PC, especially offsets `0x21,0x31,0x33,0x35,0x37,0x39`
-- decide whether the current SMPC `INTBACK` result bytes are incomplete/wrong or whether SCU SMPC status should be acknowledged differently after vector `0x47`
+- add a focused BIOS ROM code/data window around `0x00004C20..0x00004CA0`
+- attribute hot CD Block CR reads by PC and track whether BIOS is calling current-status or periodic-status paths
+- decide whether no-media `CR1=0x0700` is sufficient or whether BIOS expects a HIRQ/periodic status transition before proceeding
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

@@ -83,14 +83,14 @@ Verified with:
 dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --instructions 40000000 --dual-sh2
 ```
 
-Current hot loop:
+Current bringup position:
 
-- Master PC loops at `0x06028314..0x06028318`.
-- `GBR=0x06020000`.
-- `MOV.L @(0x90,GBR),R0` reads `0x06020240`.
-- BIOS loops while `[0x06020240] == R4`.
-- Last observed value is `0x00000000`.
+- Master PC reaches BIOS ROM `0x00004C58` in the latest 40M dual-SH2 run.
+- The old Work RAM wait at `0x06028314..0x06028318` is passed after generated V-Blank-IN, V-Blank-OUT, and SMPC interrupt sources are modeled as accepted pulses.
+- `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
+- SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
+- CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
 
 Next likely reference target:
 
-- CD block command/status details from a source with clear redistribution terms before vendoring.
+- CD block command/status and periodic status details from a source with clear redistribution terms before vendoring.
