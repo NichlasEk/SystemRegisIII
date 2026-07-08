@@ -13,8 +13,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private const ushort HirqCmok = 0x0001;
     private const byte CdStatusNoDisc = 0x07;
+    private const byte CdStatusPaused = 0x02;
     private const byte CdStatusPeriodic = 0x20;
 
+    private readonly IDiscImage? _discImage;
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private readonly Dictionary<uint, ushort> _writtenWords = [];
@@ -22,11 +24,17 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _hirq;
     private ushort _hirqMask;
     private bool _statusMode;
-    private byte _status = CdStatusNoDisc;
+    private byte _status;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
     private ushort _cr4 = 0x434B;
+
+    public CdBlockRegisterBusDevice(IDiscImage? discImage = null)
+    {
+        _discImage = discImage;
+        _status = discImage is null ? CdStatusNoDisc : CdStatusPaused;
+    }
 
     public string Name => "CD Block Register Mirror";
     public long ReadCount { get; private set; }
@@ -40,6 +48,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort LastCommandCr3 { get; private set; }
     public ushort LastCommandCr4 { get; private set; }
     public byte LastCommandCode { get; private set; }
+    public bool HasDisc => _discImage is not null;
+    public string? DiscName => _discImage?.Name;
+    public long DiscSectorCount => _discImage?.SectorCount ?? 0;
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;

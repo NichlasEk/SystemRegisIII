@@ -169,6 +169,32 @@ static void VerifySaturnSystemMap()
         new SaturnBringupOptions { SimulateSlaveReady = true });
     simulatedMap.Bus.WriteLong(0x4600_0240, 0);
     Require(simulatedMap.Bus.ReadLong(0x0600_0240) == 0x3252_4459, "Slave-ready bringup overlay failed.");
+
+    var discPath = Path.GetTempFileName();
+    try
+    {
+        File.WriteAllBytes(discPath, Enumerable.Range(0, RawDiscImage.DefaultSectorSize * 2).Select(static value => (byte)value).ToArray());
+        using var discImage = new RawDiscImage(discPath);
+        Require(discImage.SectorCount == 2, "Raw disc sector count failed.");
+        Span<byte> sector = stackalloc byte[RawDiscImage.DefaultSectorSize];
+        Require(discImage.ReadSector(1, sector) == RawDiscImage.DefaultSectorSize, "Raw disc sector read length failed.");
+        Require(sector[0] == 0 && sector[1] == 1 && sector[255] == 0xFF, "Raw disc sector data failed.");
+
+        var discMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = discImage });
+        var mountedCdRegisters = discMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+        Require(mountedCdRegisters.HasDisc, "CD Block mounted-disc flag failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x0000);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block mounted-disc current status failed.");
+    }
+    finally
+    {
+        File.Delete(discPath);
+    }
 }
 
 static void VerifySh2InternalRegisterBus()

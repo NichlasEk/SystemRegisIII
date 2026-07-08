@@ -34,16 +34,18 @@ static int RunBios(string[] args)
         return Fail("Missing required option: --bios <path>");
     }
 
+    var discPath = GetOption(args, "--disc");
     var instructionCount = GetIntOption(args, "--instructions", defaultValue: 64);
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var dualSh2 = Has(args, "--dual-sh2");
 
     var bios = BiosImageLoader.Load(biosPath);
+    using var discImage = discPath is null ? null : new RawDiscImage(discPath);
     var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
     var systemMap = SaturnSystemMap.CreateBringup(
         bios,
-        new SaturnBringupOptions { SimulateSlaveReady = simulateSlaveReady });
+        new SaturnBringupOptions { SimulateSlaveReady = simulateSlaveReady, DiscImage = discImage });
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
@@ -64,6 +66,11 @@ static int RunBios(string[] args)
         0x0010_0000,
         0x0010_007F,
         () => GetWatchContext(master));
+    var masterCdBlockWatch = new WatchedBus(
+        masterSmpcWatch,
+        0x0589_0000,
+        0x0589_002F,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -71,7 +78,7 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterSmpcWatch, trace) : masterSmpcWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCdBlockWatch, trace) : masterCdBlockWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
@@ -216,6 +223,7 @@ static int RunBios(string[] args)
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
     PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
+    PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
     if (slaveFlagWatch is not null)
     {
         PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -320,11 +328,43 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
 {
     var pc = master.Registers.ProgramCounter;
-    if (pc is < 0x0602_BD20 or > 0x0602_BD80)
+    if (pc is >= 0x0602_BD20 and <= 0x0602_BD80)
     {
-        return;
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0602_BD20,
+            codeWords: 48,
+            dataStart: 0x0602_BD80,
+            dataWords: 32,
+            precedingStart: 0x0602_BC80,
+            precedingWords: 64);
     }
+    else if (pc is >= 0x0000_4C20 and <= 0x0000_4CA0)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0000_4C20,
+            codeWords: 64,
+            dataStart: 0x0000_4CA0,
+            dataWords: 32,
+            precedingStart: 0x0000_4B80,
+            precedingWords: 64);
+    }
+}
 
+static void PrintMasterPcProbeWindow(
+    Sh2Cpu master,
+    ISaturnBus bus,
+    uint codeStart,
+    int codeWords,
+    uint dataStart,
+    int dataWords,
+    uint precedingStart,
+    int precedingWords)
+{
+    var pc = master.Registers.ProgramCounter;
     Console.WriteLine("Master SH-2 PC probe:");
     Console.WriteLine(
         $"  PC=0x{pc:X8} PR=0x{master.Registers.ProcedureRegister:X8} SR=0x{master.Registers.StatusRegister:X8} GBR=0x{master.Registers.GlobalBaseRegister:X8}");
@@ -335,9 +375,9 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
 
     try
     {
-        PrintInstructionWindow(bus, 0x0602_BD20, 48, "  code window 0x0602BD20");
-        PrintWordWindow(bus, 0x0602_BD80, 32, "  data/literals 0x0602BD80");
-        PrintInstructionWindow(bus, 0x0602_BC80, 64, "  preceding code 0x0602BC80");
+        PrintInstructionWindow(bus, codeStart, codeWords, $"  code window 0x{codeStart:X8}");
+        PrintWordWindow(bus, dataStart, dataWords, $"  data/literals 0x{dataStart:X8}");
+        PrintInstructionWindow(bus, precedingStart, precedingWords, $"  preceding code 0x{precedingStart:X8}");
     }
     catch (BusFaultException exception)
     {
@@ -730,6 +770,8 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         if (stub is CdBlockRegisterBusDevice cdRegisters)
         {
             Console.WriteLine(
+                $"    mounted disc: {(cdRegisters.HasDisc ? $"{cdRegisters.DiscName} ({cdRegisters.DiscSectorCount:N0} sectors)" : "<none>")}");
+            Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
             Console.WriteLine(
                 $"    response CR: 0x{cdRegisters.ResponseCr1:X4} 0x{cdRegisters.ResponseCr2:X4} 0x{cdRegisters.ResponseCr3:X4} 0x{cdRegisters.ResponseCr4:X4}");
@@ -814,7 +856,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--instructions N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
 }
 
 sealed class ScuInterruptProbe

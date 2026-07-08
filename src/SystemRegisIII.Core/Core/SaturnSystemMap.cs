@@ -33,7 +33,7 @@ public sealed class SaturnSystemMap
         IMainMemory workRamHigh = CreateHighWorkRam(options);
         var workRamHighDevice = (IBusDevice)workRamHigh;
         var smpcRegisters = new SmpcRegisterBusDevice();
-        var cdBlockRegisterMirror = new CdBlockRegisterBusDevice();
+        var cdBlockRegisterMirror = new CdBlockRegisterBusDevice(options.DiscImage);
         var scuRegisters = new ScuRegisterBusDevice();
 
         IInspectableBusDevice[] stubs =

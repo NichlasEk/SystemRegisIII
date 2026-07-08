@@ -81,6 +81,7 @@ Verified with:
 
 ```text
 dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --instructions 40000000 --dual-sh2
+dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc /tmp/systemregis_dummy.iso --instructions 40000000 --dual-sh2
 ```
 
 Current bringup position:
@@ -90,7 +91,8 @@ Current bringup position:
 - `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
 - SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
 - CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
+- `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x0200` and reports the mounted sector count, but still stops at `0x00004C58`.
 
 Next likely reference target:
 
-- CD block command/status and periodic status details from a source with clear redistribution terms before vendoring.
+- CD block command/status, TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
