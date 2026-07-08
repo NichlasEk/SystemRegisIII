@@ -78,6 +78,7 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - Mounted dummy media currently reports a simple periodic data-track status response: `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
   - BIOS-observed command `0x75` is modeled as Abort File for bringup, returning mounted periodic status and raising `EFLS` (`0x0200`) with `CMOK`.
   - Current clean-room CD coverage includes register-level `Get TOC`, `Get Session Info`, and `End Data Transfer`, plus a minimal TOC host data FIFO at `0x25890000`.
+  - Current clean-room sector coverage includes `Set Filter Range` and `Get Sector Data` for raw disc images, with FAD `150` mapped to raw LBA `0`.
 
 ## Current BIOS Bringup Evidence
 
@@ -101,7 +102,8 @@ Current bringup position:
 - The hot frame-wait loop at `0x06040226..0x0604022A` reads `GBR+0x90` / `0x06020240`; V-Blank callbacks are still accepted and increment that flag to `0x2E` in the 80M run.
 - `--vblank-interval 100000` is available as a probe-only accelerator. It confirms the same dummy-disc path remains frame-paced at `0x06040226/0x06040228`, with faster V-Blank flag increments but no new CD command sequence.
 - `Get TOC` now exposes a deterministic `0x00CC`-word single-data-track TOC through the host data port, including first-track, empty-track, A0/A1, and leadout entries.
+- `Set Filter Range` plus `Get Sector Data` now exposes raw mounted-disc sectors through the same host data port. This is a deterministic selector shortcut, not yet full CD Block buffering/filter hardware.
 
 Next likely reference target:
 
-- CD Block read-sector/filter/selector behavior and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
+- CD Block filesystem commands (`Read Directory`, `Get File Info`, `Read File`), ISO9660 mapping to FAD/range, and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

@@ -14,6 +14,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private const ushort HirqCmok = 0x0001;
     private const ushort HirqDataReady = 0x0002;
+    private const ushort HirqEndSelector = 0x0040;
     private const ushort HirqEndHostIo = 0x0080;
     private const ushort HirqEndFileSystem = 0x0200;
     private const ushort HirqMountedStatusReady = 0x4658;
@@ -23,12 +24,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const byte DataTrackControlAdr = 0x41;
     private const byte FirstTrackNumber = 0x01;
     private const byte FirstTrackIndex = 0x01;
+    private const int PartitionCount = 0x18;
     private const uint FirstTrackFad = 150;
 
     private readonly IDiscImage? _discImage;
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private readonly Dictionary<uint, ushort> _writtenWords = [];
+    private readonly uint[] _partitionFads = new uint[PartitionCount];
+    private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
 
     private ushort _hirq;
     private ushort _hirqMask;
@@ -190,6 +194,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x06:
                 EndDataTransfer();
                 break;
+            case 0x40:
+                SetFilterRange();
+                break;
+            case 0x61:
+            case 0x63:
+                GetSectorData();
+                break;
+            case 0x62:
+                DeleteSectorData();
+                break;
             case 0x75:
                 AbortFile();
                 break;
@@ -208,6 +222,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _hirq |= HirqDataReady;
         }
         else if (_discImage is not null && LastCommandCode == 0x06 && _endHostIoCompleted)
+        {
+            _hirq |= HirqEndHostIo;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x40)
+        {
+            _hirq |= HirqEndSelector;
+        }
+        else if (_discImage is not null && LastCommandCode is 0x61 or 0x63)
+        {
+            _hirq |= HirqDataReady;
+        }
+        else if (_discImage is not null && LastCommandCode == 0x62)
         {
             _hirq |= HirqEndHostIo;
         }
@@ -243,15 +269,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _statusMode = true;
-        _dataTransferActive = true;
-        _dataTransferWords = BuildTableOfContents();
-        _dataTransferWordCount = (ushort)_dataTransferWords.Length;
-        _dataTransferWordsRead = 0;
-        _dataTransferLowByteLatched = false;
-        _cr1 = (ushort)(CdStatusDataTransferRequest << 8 | CdRomStatusBit);
-        _cr2 = _dataTransferWordCount;
-        _cr3 = 0;
-        _cr4 = 0;
+        StartDataTransfer(BuildTableOfContents());
     }
 
     private void GetSessionInfo()
@@ -287,6 +305,57 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var sessionWord = ((uint)resultStatus << 8) | ((fad >> 16) & 0xFF);
         _cr3 = (ushort)sessionWord;
         _cr4 = (ushort)fad;
+    }
+
+    private void SetFilterRange()
+    {
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        _partitionFads[partition] = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
+        _partitionSectorCounts[partition] = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void GetSectorData()
+    {
+        if (_discImage is null)
+        {
+            GetCurrentStatus();
+            return;
+        }
+
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        var partitionSectorCount = _partitionSectorCounts[partition];
+        var sectorOffset = LastCommandCr2 == 0xFFFF
+            ? partitionSectorCount == 0 ? 0 : partitionSectorCount - 1
+            : (uint)LastCommandCr2;
+        var sectorCount = LastCommandCr4 == 0xFFFF
+            ? partitionSectorCount > sectorOffset ? partitionSectorCount - sectorOffset : 0
+            : (uint)LastCommandCr4;
+        if (sectorCount == 0 || sectorOffset >= partitionSectorCount)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        sectorCount = Math.Min(sectorCount, partitionSectorCount - sectorOffset);
+        StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
+    }
+
+    private void DeleteSectorData()
+    {
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
     private void EndDataTransfer()
@@ -341,6 +410,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         return _dataTransferWords[_dataTransferWordsRead++];
     }
 
+    private void StartDataTransfer(ushort[] words)
+    {
+        _statusMode = true;
+        _dataTransferActive = true;
+        _dataTransferWords = words;
+        _dataTransferWordCount = (ushort)Math.Min(words.Length, ushort.MaxValue);
+        _dataTransferWordsRead = 0;
+        _dataTransferLowByteLatched = false;
+        _cr1 = (ushort)(CdStatusDataTransferRequest << 8 | CdRomStatusBit);
+        _cr2 = _dataTransferWordCount;
+        _cr3 = 0;
+        _cr4 = 0;
+    }
+
     private ushort[] BuildTableOfContents()
     {
         var words = new ushort[0x00CC];
@@ -357,6 +440,33 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         return words;
     }
+
+    private ushort[] BuildSectorTransfer(uint startFad, uint sectorCount)
+    {
+        if (_discImage is null || sectorCount == 0)
+        {
+            return [];
+        }
+
+        var wordsPerSector = _discImage.SectorSize / 2;
+        var words = new ushort[Math.Min((long)sectorCount * wordsPerSector, ushort.MaxValue)];
+        var sectorBytes = new byte[_discImage.SectorSize];
+        var wordIndex = 0;
+        for (var sector = 0u; sector < sectorCount && wordIndex < words.Length; sector++)
+        {
+            Array.Clear(sectorBytes);
+            var lba = FadToLogicalBlockAddress(startFad + sector);
+            var bytesRead = _discImage.ReadSector(lba, sectorBytes);
+            for (var byteIndex = 0; byteIndex + 1 < bytesRead && wordIndex < words.Length; byteIndex += 2)
+            {
+                words[wordIndex++] = (ushort)((sectorBytes[byteIndex] << 8) | sectorBytes[byteIndex + 1]);
+            }
+        }
+
+        return wordIndex == words.Length ? words : words[..wordIndex];
+    }
+
+    private static long FadToLogicalBlockAddress(uint fad) => fad <= FirstTrackFad ? 0 : fad - FirstTrackFad;
 
     private static void WriteTocEntry(ushort[] words, int entryIndex, byte controlAdr, uint fad)
     {

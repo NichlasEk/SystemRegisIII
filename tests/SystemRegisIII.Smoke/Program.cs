@@ -242,6 +242,28 @@ static void VerifySaturnSystemMap()
         Require(mountedCdRegisters.LastCommandCode == 0x03, "CD Block session-info command latch failed.");
         Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block session-info session count failed.");
         Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0098, "CD Block session-info leadout FAD failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x4000);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0096);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0002);
+        Require(mountedCdRegisters.LastCommandCode == 0x40, "CD Block filter-range command latch failed.");
+        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0041, "CD Block filter-range ESEL HIRQ failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x6100);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0001);
+        Require(mountedCdRegisters.LastCommandCode == 0x61, "CD Block get-sector command latch failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block get-sector DTREQ status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block get-sector transfer length failed.");
+        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block get-sector DRDY HIRQ failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0001, "CD Block get-sector first word failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0203, "CD Block get-sector second word failed.");
+        for (var index = 0; index < 1022; index++)
+        {
+            discMap.Bus.ReadWord(0x2589_0000);
+        }
+
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block get-sector FIFO exhausted failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x7500);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
