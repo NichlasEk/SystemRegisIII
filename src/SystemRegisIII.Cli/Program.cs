@@ -57,8 +57,13 @@ static int RunBios(string[] args)
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
     Sh2Cpu? master = null;
     Sh2Cpu? slave = null;
-    var masterFlagWatch = new WatchedBus(
+    var masterCdStatusBufferWatch = new WatchedBus(
         masterInternalBus,
+        0x0601_FF60,
+        0x0601_FF8F,
+        () => GetWatchContext(master));
+    var masterFlagWatch = new WatchedBus(
+        masterCdStatusBufferWatch,
         0x0602_0230,
         0x0602_024F,
         () => GetWatchContext(master));
@@ -226,6 +231,7 @@ static int RunBios(string[] args)
 
     PrintMasterGbrLoopProbe(master, addressMap);
     PrintMasterPcProbe(master, addressMap);
+    PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
     PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
@@ -510,6 +516,22 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"BSR 0x{BranchTarget(address, opcode & 0x0FFF):X8}";
     }
 
+    if ((opcode & 0xF000) == 0x1000)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        var displacement = opcode & 0xF;
+        return $"MOV.L R{source},@(0x{displacement:X1},R{destination})";
+    }
+
+    if ((opcode & 0xF000) == 0x5000)
+    {
+        var destination = (opcode >> 8) & 0xF;
+        var source = (opcode >> 4) & 0xF;
+        var displacement = opcode & 0xF;
+        return $"MOV.L @(0x{displacement:X1},R{source}),R{destination}";
+    }
+
     if ((opcode & 0xF000) == 0xD000)
     {
         var register = (opcode >> 8) & 0xF;
@@ -543,6 +565,30 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x8B00 => $"BF 0x{target:X8}",
             0x8D00 => $"BT/S 0x{target:X8}",
             _ => $"BF/S 0x{target:X8}",
+        };
+    }
+
+    if ((opcode & 0xFF00) is 0x8000 or 0x8100 or 0x8400 or 0x8500)
+    {
+        var register = (opcode >> 4) & 0xF;
+        var displacement = opcode & 0xF;
+        return (opcode & 0xFF00) switch
+        {
+            0x8000 => $"MOV.B R0,@(0x{displacement:X1},R{register})",
+            0x8100 => $"MOV.W R0,@(0x{displacement:X1},R{register})",
+            0x8400 => $"MOV.B @(0x{displacement:X1},R{register}),R0",
+            _ => $"MOV.W @(0x{displacement:X1},R{register}),R0",
+        };
+    }
+
+    if ((opcode & 0xFF00) is 0xC800 or 0xC900 or 0xCA00 or 0xCB00)
+    {
+        return (opcode & 0xFF00) switch
+        {
+            0xC800 => $"TST #0x{opcode & 0xFF:X2},R0",
+            0xC900 => $"AND #0x{opcode & 0xFF:X2},R0",
+            0xCA00 => $"XOR #0x{opcode & 0xFF:X2},R0",
+            _ => $"OR #0x{opcode & 0xFF:X2},R0",
         };
     }
 
@@ -628,9 +674,33 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"JMP @R{(opcode >> 8) & 0xF}";
     }
 
+    if ((opcode & 0xF0FF) == 0x4022)
+    {
+        return $"STS.L PR,@-R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4026)
+    {
+        return $"LDS.L @R{(opcode >> 8) & 0xF}+,PR";
+    }
+
     if ((opcode & 0xF0FF) == 0x400E)
     {
         return $"LDC R{(opcode >> 8) & 0xF},SR";
+    }
+
+    if ((opcode & 0xF0FF) is 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4028 or 0x4029)
+    {
+        var register = (opcode >> 8) & 0xF;
+        return (opcode & 0xF0FF) switch
+        {
+            0x4008 => $"SHLL2 R{register}",
+            0x4009 => $"SHLR2 R{register}",
+            0x4018 => $"SHLL8 R{register}",
+            0x4019 => $"SHLR8 R{register}",
+            0x4028 => $"SHLL16 R{register}",
+            _ => $"SHLR16 R{register}",
+        };
     }
 
     return "unknown";
