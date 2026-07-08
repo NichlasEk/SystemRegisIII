@@ -272,6 +272,8 @@ static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
         PrintWordWindow(bus, 0x0600_0980, 32, "  handler target 0x06000980");
         PrintWordWindow(bus, 0x0600_0A00, 32, "  handler target 0x06000A00");
         PrintWordWindow(bus, 0x0602_0720, 32, "  flag callback area 0x06020720");
+        PrintWordWindow(bus, 0x0602_81C0, 48, "  flag writer routine 0x060281C0");
+        PrintWordWindow(bus, 0x0602_9EA0, 48, "  state init writer routine 0x06029EA0");
         PrintWordWindow(bus, 0x0602_8920, 48, "  vblank helper target 0x06028920");
         PrintWordWindow(bus, 0x0602_8C40, 80, "  wait setup target 0x06028C40");
         PrintWordWindow(bus, 0x0602_8D60, 48, "  vblank callback 0x06028D60");

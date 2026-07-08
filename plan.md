@@ -112,6 +112,7 @@ Work in small pushable slices:
 - Current slice result: the 40M BIOS run still stops at `0x06028318` with SMPC pending interrupts drained and `smpc-pending=False`. The next suspect is SMPC `INTBACK` output/status data or PAD interrupt behavior, not basic SCU SMPC interrupt delivery.
 - Current slice: Added byte-mapped SMPC IREG/OREG/SR bringup behavior and minimal INTBACK result buffers for system status plus no-peripheral port status. The BIOS now observes `IREG=01,02,F0`, `SR=0x40`, `OREG0=0x40`, area `0x01`, and system status `0x34`, but still stops at `0x06028318`; this weakens the INTBACK-output theory and points the next probe toward CD periodic status or SCSP/sound-init completion.
 - Current slice: Added PC-attributed RAM watch writes for the flag and callback-state windows. The latest meaningful flag writes are `0x0602024C = 0x06020728` from `0x060281F0` and `0x06020248 = 0x22` from `0x06028200`; callback-state zero/FE initialization is from `0x06029EDA`. No later writer changes `0x06020240`, so the next slice should disassemble/probe those writer routines and their callers rather than add more blind device status.
+- Current slice: Added BIOS code windows for the writer routines. `0x060281F0` is `MOV.L R0,@(0x93,GBR)` and writes `0x0602024C`; `0x06028200` is `MOV.L R0,@(0x92,GBR)` and writes `0x06020248`. The wait loop reads `MOV.L @(0x90,GBR),R0`, so the missing transition is specifically a later `GBR+0x90` write or callback-state activation, not these setup stores.
 
 ## Current Next Blocker
 
