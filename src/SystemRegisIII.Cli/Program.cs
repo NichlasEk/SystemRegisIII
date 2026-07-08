@@ -405,6 +405,9 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
         {
             Console.WriteLine($"    last command: 0x{smpcRegisters.LastCommand:X2}");
             Console.WriteLine($"    recent commands: {string.Join(", ", smpcRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
+            Console.WriteLine($"    SR: 0x{smpcRegisters.StatusRegisterValue:X2}");
+            Console.WriteLine($"    IREG: {string.Join(", ", smpcRegisters.InputRegisters.Select(static value => $"0x{value:X2}"))}");
+            Console.WriteLine($"    OREG: {string.Join(", ", smpcRegisters.OutputRegisters.Take(12).Select(static value => $"0x{value:X2}"))}");
             Console.WriteLine($"    pending interrupts: {smpcRegisters.PendingInterrupts}");
             Console.WriteLine($"    slave SH-2 enabled: {smpcRegisters.SlaveSh2Enabled}");
         }

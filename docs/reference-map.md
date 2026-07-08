@@ -46,6 +46,9 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
 - License status: marked SEGA Confidential; do not vendor.
 - Useful clean-room facts:
   - SMPC status flag indicates command busy/completed.
+  - Input registers are byte-spaced at odd offsets from `0x01`; output registers are byte-spaced at odd offsets from `0x21`.
+  - Status register `SR` is at offset `0x61`; status flag register `SF` is at offset `0x63`.
+  - INTBACK can return SMPC system status, peripheral data, or both depending on IREG command parameters.
   - `SSHON` command code is `0x02`.
   - `SSHOFF` command code is `0x03`.
   - `SNDON` command code is `0x06`.

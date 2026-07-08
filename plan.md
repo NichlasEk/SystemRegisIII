@@ -110,6 +110,7 @@ Work in small pushable slices:
 - Current slice: Added SCU V-Blank-OUT pending/status support and deterministic CLI raising between V-Blank-IN ticks. The 40M BIOS run still stops at `0x06028318`; the wait flag and callback-state table remain unchanged, so V-Blank-OUT alone is not the missing activation source.
 - Current slice: Used Mednafen's local Saturn source only as a GPL black-box/behavioral oracle and corrected the active SCU interrupt-mask interpretation: bits `7/8` are SMPC/PAD, not timers. Built a Saturn-only Mednafen oracle binary in `/tmp/systemregis_mednafen_probe/mednafen/src/mednafen`, and added a narrow SMPC `INTBACK` completion interrupt path through SCU bit `7`, vector `0x47`, level `8`.
 - Current slice result: the 40M BIOS run still stops at `0x06028318` with SMPC pending interrupts drained and `smpc-pending=False`. The next suspect is SMPC `INTBACK` output/status data or PAD interrupt behavior, not basic SCU SMPC interrupt delivery.
+- Current slice: Added byte-mapped SMPC IREG/OREG/SR bringup behavior and minimal INTBACK result buffers for system status plus no-peripheral port status. The BIOS now observes `IREG=01,02,F0`, `SR=0x40`, `OREG0=0x40`, area `0x01`, and system status `0x34`, but still stops at `0x06028318`; this weakens the INTBACK-output theory and points the next probe toward CD periodic status or SCSP/sound-init completion.
 
 ## Current Next Blocker
 
