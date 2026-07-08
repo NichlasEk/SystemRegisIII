@@ -113,6 +113,7 @@ Work in small pushable slices:
 - Current slice: Added byte-mapped SMPC IREG/OREG/SR bringup behavior and minimal INTBACK result buffers for system status plus no-peripheral port status. The BIOS now observes `IREG=01,02,F0`, `SR=0x40`, `OREG0=0x40`, area `0x01`, and system status `0x34`, but still stops at `0x06028318`; this weakens the INTBACK-output theory and points the next probe toward CD periodic status or SCSP/sound-init completion.
 - Current slice: Added PC-attributed RAM watch writes for the flag and callback-state windows. The latest meaningful flag writes are `0x0602024C = 0x06020728` from `0x060281F0` and `0x06020248 = 0x22` from `0x06028200`; callback-state zero/FE initialization is from `0x06029EDA`. No later writer changes `0x06020240`, so the next slice should disassemble/probe those writer routines and their callers rather than add more blind device status.
 - Current slice: Added BIOS code windows for the writer routines. `0x060281F0` is `MOV.L R0,@(0x93,GBR)` and writes `0x0602024C`; `0x06028200` is `MOV.L R0,@(0x92,GBR)` and writes `0x06020248`. The wait loop reads `MOV.L @(0x90,GBR),R0`, so the missing transition is specifically a later `GBR+0x90` write or callback-state activation, not these setup stores.
+- Current slice: Extended RAM watches to include read attribution and register context. In the 40M dual-SH2 run, `0x06020240` is read `21,333` times from `0x06028314` with `PR=0x06028310`, `GBR=0x06020000`, and `R0=0`; callback-state window `0x06020720..0x0602075F` has `reads=0`. The BIOS is therefore stuck before it ever scans the callback-state entries; the next probe should focus on the call path ending at `0x06028310/0x06028314` and the hardware condition expected to write `GBR+0x90`.
 
 ## Current Next Blocker
 
@@ -145,5 +146,6 @@ The next slice should identify which remaining hardware status path is expected 
 
 - inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
 - inspect writer routines around `0x060281F0`, `0x06028200`, and `0x06029EDA` to find what activates `0x06020240` or the callback-state entries;
+- inspect the caller/callee path around `PR=0x06028310` and the loop body at `0x06028314`, because callback-state reads are currently zero;
 - decide whether callback activation depends on CD periodic status, SCSP DSP/status, SMPC `INTBACK` result data, or PAD interrupt behavior from the active `0x0183` interrupt mask;
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

@@ -53,19 +53,19 @@ static int RunBios(string[] args)
         masterInternalBus,
         0x0602_0230,
         0x0602_024F,
-        () => master?.CurrentInstructionProgramCounter);
+        () => GetWatchContext(master));
     var masterCallbackWatch = new WatchedBus(
         masterFlagWatch,
         0x0602_0720,
         0x0602_075F,
-        () => master?.CurrentInstructionProgramCounter);
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
             slaveInternalBus,
             0x0602_0230,
             0x0602_024F,
-            () => slave?.CurrentInstructionProgramCounter);
+            () => GetWatchContext(slave));
     ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCallbackWatch, trace) : masterCallbackWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
@@ -247,6 +247,15 @@ static bool IsDetailedHotPcReport(string name) =>
     || name.Contains("callback", StringComparison.Ordinal)
     || name.Contains("setup", StringComparison.Ordinal);
 
+static WatchedAccessContext? GetWatchContext(Sh2Cpu? cpu) =>
+    cpu is null
+        ? null
+        : new WatchedAccessContext(
+            cpu.CurrentInstructionProgramCounter,
+            cpu.Registers.ProcedureRegister,
+            cpu.Registers.GlobalBaseRegister,
+            cpu.Registers.General[0]);
+
 static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 {
     var pc = master.Registers.ProgramCounter;
@@ -300,26 +309,59 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu)
 
 static void PrintWatchWindow(string label, WatchedBus watch)
 {
-    Console.WriteLine($"{label}: writes={watch.WriteCount:N0}");
-    if (watch.WriteCount == 0)
+    Console.WriteLine($"{label}: reads={watch.ReadCount:N0} writes={watch.WriteCount:N0}");
+    if (watch.ReadCount == 0 && watch.WriteCount == 0)
     {
         return;
     }
 
-    Console.WriteLine(
-        $"  first=0x{watch.FirstWriteAddress!.Value:X8} last=0x{watch.LastWriteAddress!.Value:X8} value=0x{watch.LastWriteValue!.Value:X8}");
-    foreach (var (address, count, value, pc) in watch.GetHotWrites(12))
+    if (watch.ReadCount > 0)
     {
-        var lastPc = pc is { } pcValue ? $"0x{pcValue:X8}" : "<unknown>";
-        Console.WriteLine($"  0x{address:X8}: {count:N0} last=0x{value:X8} last-pc={lastPc}");
+        Console.WriteLine(
+            $"  read first=0x{watch.FirstReadAddress!.Value:X8} last=0x{watch.LastReadAddress!.Value:X8} value=0x{watch.LastReadValue!.Value:X8}");
+        Console.WriteLine("  hot reads:");
+        foreach (var (address, count, value, context) in watch.GetHotReads(8))
+        {
+            Console.WriteLine($"    0x{address:X8}: {count:N0} last=0x{value:X8} {FormatWatchContext(context)}");
+        }
     }
 
-    Console.WriteLine("  recent writes:");
-    foreach (var write in watch.RecentWrites.TakeLast(12))
+    if (watch.WriteCount > 0)
     {
-        var pc = write.ProgramCounter is { } value ? $"0x{value:X8}" : "<unknown>";
-        Console.WriteLine($"    pc={pc} address=0x{write.Address:X8} value=0x{write.Value:X8}");
+        Console.WriteLine(
+            $"  write first=0x{watch.FirstWriteAddress!.Value:X8} last=0x{watch.LastWriteAddress!.Value:X8} value=0x{watch.LastWriteValue!.Value:X8}");
+        Console.WriteLine("  hot writes:");
+        foreach (var (address, count, value, context) in watch.GetHotWrites(12))
+        {
+            Console.WriteLine($"    0x{address:X8}: {count:N0} last=0x{value:X8} {FormatWatchContext(context)}");
+        }
+
+        Console.WriteLine("  recent writes:");
+        foreach (var write in watch.RecentWrites.TakeLast(12))
+        {
+            Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
+        }
     }
+
+    if (watch.ReadCount > 0)
+    {
+        Console.WriteLine("  recent reads:");
+        foreach (var read in watch.RecentReads.TakeLast(12))
+        {
+            Console.WriteLine($"    {FormatWatchContext(read.Context)} address=0x{read.Address:X8} value=0x{read.Value:X8}");
+        }
+    }
+}
+
+static string FormatWatchContext(WatchedAccessContext? context)
+{
+    if (context is not { } value)
+    {
+        return "pc=<unknown>";
+    }
+
+    var pc = value.ProgramCounter is { } programCounter ? $"0x{programCounter:X8}" : "<unknown>";
+    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8}";
 }
 
 static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
