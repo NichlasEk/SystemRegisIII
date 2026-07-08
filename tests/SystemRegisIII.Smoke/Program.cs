@@ -212,6 +212,22 @@ static void VerifySaturnSystemMap()
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block TOC DTREQ status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x00CC, "CD Block TOC transfer length failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block TOC DRDY HIRQ failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x4100, "CD Block TOC first track control/FAD high failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0096, "CD Block TOC first track FAD low failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0xFFFF, "CD Block TOC empty track marker failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0xFFFF, "CD Block TOC empty track marker low failed.");
+        for (var index = 0; index < 194; index++)
+        {
+            discMap.Bus.ReadWord(0x2589_0000);
+        }
+
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x4101, "CD Block TOC A0 point failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block TOC A0 payload failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x4101, "CD Block TOC A1 point failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block TOC A1 payload failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x4100, "CD Block TOC leadout control/FAD high failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0098, "CD Block TOC leadout FAD low failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CD Block TOC FIFO exhausted failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x0600);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);

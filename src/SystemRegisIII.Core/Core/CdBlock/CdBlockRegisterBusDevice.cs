@@ -4,6 +4,7 @@ namespace SystemRegisIII.Core.Core.CdBlock;
 
 public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 {
+    private const uint DataTransferOffset = 0x090000;
     private const uint HirqOffset = 0x090008;
     private const uint HirqMaskOffset = 0x09000C;
     private const uint Cr1Offset = 0x090018;
@@ -37,6 +38,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _dataTransferActive;
     private bool _endHostIoCompleted;
     private ushort _dataTransferWordCount;
+    private ushort _dataTransferWordsRead;
+    private ushort[] _dataTransferWords = [];
+    private bool _dataTransferLowByteLatched;
+    private byte _dataTransferLowByte;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -79,7 +84,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         LastReadOffset = offset;
         RecordOffset(_readOffsets, offset);
 
-        var word = ReadWordRegister(offset & ~1u);
+        var wordOffset = offset & ~1u;
+        if (wordOffset == DataTransferOffset)
+        {
+            return ReadDataTransferByte((offset & 1) != 0);
+        }
+
+        var word = ReadWordRegister(wordOffset);
         return (offset & 1) == 0 ? (byte)(word >> 8) : (byte)word;
     }
 
@@ -112,6 +123,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort ReadWordRegister(uint offset) =>
         offset switch
         {
+            DataTransferOffset => ReadDataTransferWord(),
             HirqOffset => _hirq,
             HirqMaskOffset => _hirqMask,
             Cr1Offset => _cr1,
@@ -232,7 +244,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         _statusMode = true;
         _dataTransferActive = true;
-        _dataTransferWordCount = 0x00CC;
+        _dataTransferWords = BuildTableOfContents();
+        _dataTransferWordCount = (ushort)_dataTransferWords.Length;
+        _dataTransferWordsRead = 0;
+        _dataTransferLowByteLatched = false;
         _cr1 = (ushort)(CdStatusDataTransferRequest << 8 | CdRomStatusBit);
         _cr2 = _dataTransferWordCount;
         _cr3 = 0;
@@ -277,10 +292,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void EndDataTransfer()
     {
         _statusMode = true;
-        var transferredWords = _dataTransferActive ? _dataTransferWordCount : (ushort)0;
+        var transferredWords = _dataTransferActive ? _dataTransferWordsRead : (ushort)0;
         _dataTransferActive = false;
         _endHostIoCompleted = transferredWords > 0;
         _dataTransferWordCount = 0;
+        _dataTransferWordsRead = 0;
+        _dataTransferWords = [];
+        _dataTransferLowByteLatched = false;
         _cr1 = (ushort)(((_discImage is null ? _status : (byte)(_status | CdStatusPeriodic)) << 8)
             | ((transferredWords >> 16) & 0xFF));
         _cr2 = transferredWords;
@@ -293,7 +311,65 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _statusMode = true;
         _dataTransferActive = false;
         _dataTransferWordCount = 0;
+        _dataTransferWordsRead = 0;
+        _dataTransferWords = [];
+        _dataTransferLowByteLatched = false;
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private byte ReadDataTransferByte(bool lowByte)
+    {
+        if (lowByte && _dataTransferLowByteLatched)
+        {
+            _dataTransferLowByteLatched = false;
+            return _dataTransferLowByte;
+        }
+
+        var word = ReadDataTransferWord();
+        _dataTransferLowByte = (byte)word;
+        _dataTransferLowByteLatched = !lowByte;
+        return lowByte ? (byte)word : (byte)(word >> 8);
+    }
+
+    private ushort ReadDataTransferWord()
+    {
+        if (!_dataTransferActive || _dataTransferWordsRead >= _dataTransferWordCount)
+        {
+            return 0;
+        }
+
+        return _dataTransferWords[_dataTransferWordsRead++];
+    }
+
+    private ushort[] BuildTableOfContents()
+    {
+        var words = new ushort[0x00CC];
+        Array.Fill(words, (ushort)0xFFFF);
+
+        WriteTocEntry(words, entryIndex: 0, DataTrackControlAdr, FirstTrackFad);
+        WriteTocPoint(words, entryIndex: 99, DataTrackControlAdr, FirstTrackNumber, 0x00, 0x00);
+        WriteTocPoint(words, entryIndex: 100, DataTrackControlAdr, FirstTrackNumber, 0x00, 0x00);
+        WriteTocEntry(
+            words,
+            entryIndex: 101,
+            DataTrackControlAdr,
+            FirstTrackFad + (uint)Math.Min(_discImage?.SectorCount ?? 0, 0x7F_FFFF));
+
+        return words;
+    }
+
+    private static void WriteTocEntry(ushort[] words, int entryIndex, byte controlAdr, uint fad)
+    {
+        var wordIndex = entryIndex * 2;
+        words[wordIndex] = (ushort)(((uint)controlAdr << 8) | ((fad >> 16) & 0xFF));
+        words[wordIndex + 1] = (ushort)fad;
+    }
+
+    private static void WriteTocPoint(ushort[] words, int entryIndex, byte controlAdr, byte point, byte parameter1, byte parameter2)
+    {
+        var wordIndex = entryIndex * 2;
+        words[wordIndex] = (ushort)((controlAdr << 8) | point);
+        words[wordIndex + 1] = (ushort)(((uint)parameter1 << 8) | parameter2);
     }
 
     private void EnterStatusMode()
