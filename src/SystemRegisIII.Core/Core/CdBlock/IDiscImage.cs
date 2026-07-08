@@ -1,6 +1,6 @@
 namespace SystemRegisIII.Core.Core.CdBlock;
 
-public interface IDiscImage
+public interface IDiscImage : IDisposable
 {
     string Name { get; }
     long LengthBytes { get; }

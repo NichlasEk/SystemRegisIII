@@ -44,7 +44,7 @@ static int RunBios(string[] args)
     var dualSh2 = Has(args, "--dual-sh2");
 
     var bios = BiosImageLoader.Load(biosPath);
-    using var discImage = discPath is null ? null : new RawDiscImage(discPath);
+    using var discImage = discPath is null ? null : OpenDiscImage(discPath);
     var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
     var systemMap = SaturnSystemMap.CreateBringup(
         bios,
@@ -1061,6 +1061,11 @@ static CdBlockDriveStatus? GetCdStatusOption(string[] args)
         _ => throw new ArgumentException($"Unknown --cd-status '{value}'. Expected busy, pause, standby, play, or wait."),
     };
 }
+
+static IDiscImage OpenDiscImage(string path) =>
+    Path.GetExtension(path).Equals(".cue", StringComparison.OrdinalIgnoreCase)
+        ? new CueDiscImage(path)
+        : new RawDiscImage(path);
 
 static bool Has(string[] args, string name) => args.Any(candidate => candidate == name);
 

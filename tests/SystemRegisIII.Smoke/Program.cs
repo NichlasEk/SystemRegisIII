@@ -353,6 +353,41 @@ static void VerifySaturnSystemMap()
     {
         File.Delete(isoPath);
     }
+
+    var cueDirectory = Path.Combine(Path.GetTempPath(), $"systemregis-cue-{Guid.NewGuid():N}");
+    try
+    {
+        Directory.CreateDirectory(cueDirectory);
+        var cuePath = CreateTinyCueImage(cueDirectory);
+        using var cueImage = new CueDiscImage(cuePath);
+        Require(cueImage.SectorSize == RawDiscImage.DefaultSectorSize, "CUE disc logical sector size failed.");
+        Require(cueImage.SectorCount == 40, "CUE disc sector count failed.");
+        Span<byte> cueSector = stackalloc byte[RawDiscImage.DefaultSectorSize];
+        Require(cueImage.ReadSector(30, cueSector) == RawDiscImage.DefaultSectorSize, "CUE disc sector read length failed.");
+        Require(cueSector[0] == 0xCA && cueSector[1] == 0xFE && cueSector[2] == 0xBA && cueSector[3] == 0xBE, "CUE disc user-data offset failed.");
+
+        var cueMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = cueImage });
+        cueMap.Bus.WriteWord(0x2589_0018, 0x7100);
+        cueMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        cueMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        cueMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        cueMap.Bus.WriteWord(0x2589_0018, 0x7300);
+        cueMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        cueMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        cueMap.Bus.WriteWord(0x2589_0024, 0x0002);
+        Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CUE CD Block get-file-info DTREQ status failed.");
+        Require(cueMap.Bus.ReadWord(0x2589_0000) == 0x0000, "CUE CD Block file-info FAD high failed.");
+        Require(cueMap.Bus.ReadWord(0x2589_0000) == 0x00B4, "CUE CD Block file-info FAD low failed.");
+    }
+    finally
+    {
+        if (Directory.Exists(cueDirectory))
+        {
+            Directory.Delete(cueDirectory, recursive: true);
+        }
+    }
 }
 
 static void CreateTinyIsoImage(string path)
@@ -379,6 +414,36 @@ static void CreateTinyIsoImage(string path)
     bootFile[3] = 0xBE;
 
     File.WriteAllBytes(path, image);
+}
+
+static string CreateTinyCueImage(string directory)
+{
+    var cuePath = Path.Combine(directory, "tiny.cue");
+    var binPath = Path.Combine(directory, "tiny.bin");
+    var isoPath = Path.Combine(directory, "tiny.iso");
+    CreateTinyIsoImage(isoPath);
+    var isoBytes = File.ReadAllBytes(isoPath);
+    var rawBytes = new byte[40 * 2352];
+    for (var sector = 0; sector < 40; sector++)
+    {
+        var rawOffset = sector * 2352;
+        rawBytes[rawOffset] = 0x00;
+        rawBytes.AsSpan(rawOffset + 1, 10).Fill(0xFF);
+        rawBytes[rawOffset + 11] = 0x00;
+        isoBytes.AsSpan(sector * RawDiscImage.DefaultSectorSize, RawDiscImage.DefaultSectorSize)
+            .CopyTo(rawBytes.AsSpan(rawOffset + 16, RawDiscImage.DefaultSectorSize));
+    }
+
+    File.WriteAllBytes(binPath, rawBytes);
+    File.WriteAllText(
+        cuePath,
+        """
+        FILE "tiny.bin" BINARY
+          TRACK 01 MODE1/2352
+            INDEX 01 00:00:00
+
+        """);
+    return cuePath;
 }
 
 static int WriteDirectoryRecord(

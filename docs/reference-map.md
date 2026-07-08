@@ -105,8 +105,10 @@ Current bringup position:
 - `Set Filter Range` plus `Get Sector Data` now exposes raw mounted-disc sectors through the same host data port. This is a deterministic selector shortcut, not yet full CD Block buffering/filter hardware.
 - CD filesystem commands now have clean-room bringup coverage for `Change Directory`, `Read Directory`, `Get File System Scope`, `Get File Info`, and `Read File`.
 - The current ISO9660 reader handles a primary volume descriptor and root-directory records, maps raw ISO LBA to Saturn FAD with the `150` sector bias, and exposes file id `2+` through CD Block file-info records.
+- `.cue` images now mount through a minimal first-data-track CUE/BIN reader for 2352-byte raw sectors. `MODE1/2352` user data is read from byte offset `16` in each raw sector.
+- Nights Into Dreams (Japan) at `/home/nichlas/roms/Saturn/NightsIntoDreams/` mounts through this path. The current 80M probe still reaches the same Work RAM High frame-wait loop as dummy media, so the next blocker is CD Block boot/status behavior before the BIOS asks for TOC or files.
 
 Next likely reference target:
 
-- Real-disc mounting gaps: CUE/BIN 2352-sector handling, multi-directory ISO9660 behavior, and any selector/filter semantics proven by a bootable Saturn image.
+- Real-disc boot gaps: richer mounted CD status/phase transitions, boot/security-ring response behavior, multi-directory ISO9660 behavior, and any selector/filter semantics proven by a bootable Saturn image.
 - BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
