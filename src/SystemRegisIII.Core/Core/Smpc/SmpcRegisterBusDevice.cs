@@ -1,4 +1,5 @@
 using SystemRegisIII.Core.Core.Bus;
+using SystemRegisIII.Core.Host.Input;
 
 namespace SystemRegisIII.Core.Core.Smpc;
 
@@ -11,18 +12,48 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private const uint OutputRegisterBase = 0x21;
     private const uint RegisterStride = 2;
     private const byte IntbackCommand = 0x10;
+    private const byte SetTimeCommand = 0x16;
+    private const byte SetSystemMemoryCommand = 0x17;
+    private const byte ResetEnableCommand = 0x19;
+    private const byte ResetDisableCommand = 0x1A;
     private const byte SmpcStatusValid = 0x40;
+    private const byte RtcValidStatus = 0x80;
     private const byte SystemStatus0ResetDisabled = 0x40;
     private const byte JapanAreaCode = 0x01;
     private const byte SystemStatus1Default = 0x34;
     private const byte SystemStatus2Default = 0x00;
     private const byte NoPeripheralPortStatus = 0xF0;
-    private static readonly byte[] IdleDigitalPadPortData = [0xF1, 0x02, 0xFF, 0xFF];
+    private static readonly byte[] DefaultRtc =
+    [
+        0x19, // Century, BCD.
+        0x96, // Year, BCD.
+        0x11, // Weekday/month: Monday, January.
+        0x01, // Day.
+        0x12, // Hour.
+        0x00, // Minute.
+        0x00, // Second.
+    ];
+
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private readonly Queue<byte> _recentCommands = new();
     private readonly byte[] _inputRegisters = new byte[7];
     private readonly byte[] _outputRegisters = new byte[32];
+    private readonly byte[] _digitalPadPortData;
+    private readonly byte[] _rtc = new byte[7];
+    private readonly byte[] _systemMemory = new byte[4];
+    private bool _rtcValid = true;
+    private bool _resetNmiEnabled;
+
+    public SmpcRegisterBusDevice(
+        SaturnInputState digitalPadState = SaturnInputState.None,
+        IReadOnlyList<byte>? digitalPadPeripheralData = null)
+    {
+        _digitalPadPortData = digitalPadPeripheralData is null
+            ? BuildDigitalPadPortData(digitalPadState)
+            : CopyDigitalPadPeripheralData(digitalPadPeripheralData);
+        DefaultRtc.CopyTo(_rtc, 0);
+    }
 
     public string Name => "SMPC Registers";
     public long ReadCount { get; private set; }
@@ -107,6 +138,19 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             case 0x03:
                 SlaveSh2Enabled = false;
                 break;
+            case SetTimeCommand:
+                Array.Copy(_inputRegisters, _rtc, _rtc.Length);
+                _rtcValid = true;
+                break;
+            case SetSystemMemoryCommand:
+                Array.Copy(_inputRegisters, _systemMemory, _systemMemory.Length);
+                break;
+            case ResetEnableCommand:
+                _resetNmiEnabled = true;
+                break;
+            case ResetDisableCommand:
+                _resetNmiEnabled = false;
+                break;
         }
     }
 
@@ -148,8 +192,8 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             var outputIndex = 0;
             if (port1Mode != 0x03)
             {
-                IdleDigitalPadPortData.CopyTo(_outputRegisters, outputIndex);
-                outputIndex += IdleDigitalPadPortData.Length;
+                _digitalPadPortData.CopyTo(_outputRegisters, outputIndex);
+                outputIndex += _digitalPadPortData.Length;
             }
 
             if (port2Mode != 0x03 && outputIndex < _outputRegisters.Length)
@@ -167,10 +211,12 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        _outputRegisters[0] = SystemStatus0ResetDisabled;
+        _outputRegisters[0] = (byte)((_rtcValid ? RtcValidStatus : 0) | (!_resetNmiEnabled ? SystemStatus0ResetDisabled : 0));
+        Array.Copy(_rtc, 0, _outputRegisters, 1, _rtc.Length);
         _outputRegisters[9] = JapanAreaCode;
         _outputRegisters[10] = SystemStatus1Default;
         _outputRegisters[11] = SystemStatus2Default;
+        Array.Copy(_systemMemory, 0, _outputRegisters, 12, _systemMemory.Length);
     }
 
     private static bool TryGetRegisterIndex(uint offset, uint start, int count, out int index)
@@ -199,4 +245,34 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             .Take(count)
             .Select(static pair => (pair.Key, pair.Value))
             .ToArray();
+
+    private static byte[] BuildDigitalPadPortData(SaturnInputState state)
+    {
+        var bits = (ushort)state;
+        return
+        [
+            0xF1,
+            0x02,
+            (byte)(0xFF & ~(bits & 0x00FF)),
+            (byte)(0xFF & ~((bits >> 8) & 0x00FF)),
+        ];
+    }
+
+    private static byte[] CopyDigitalPadPeripheralData(IReadOnlyList<byte> peripheralData)
+    {
+        if (peripheralData.Count != 4)
+        {
+            throw new ArgumentException(
+                "Digital pad peripheral data must contain exactly four bytes: ID, size, data1, data2.",
+                nameof(peripheralData));
+        }
+
+        var copy = new byte[4];
+        for (var i = 0; i < copy.Length; i++)
+        {
+            copy[i] = peripheralData[i];
+        }
+
+        return copy;
+    }
 }

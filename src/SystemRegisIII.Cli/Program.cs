@@ -6,6 +6,7 @@ using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
+using SystemRegisIII.Core.Host.Input;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
 return Run(args);
@@ -42,6 +43,8 @@ static int RunBios(string[] args)
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var dualSh2 = Has(args, "--dual-sh2");
+    var digitalPadState = GetPadOption(args);
+    var digitalPadPeripheralData = GetPadRawOption(args);
 
     var bios = BiosImageLoader.Load(biosPath);
     using var discImage = discPath is null ? null : OpenDiscImage(discPath);
@@ -53,6 +56,8 @@ static int RunBios(string[] args)
             SimulateSlaveReady = simulateSlaveReady,
             DiscImage = discImage,
             MountedDiscInitialStatus = cdStatus,
+            DigitalPadState = digitalPadState,
+            DigitalPadPeripheralData = digitalPadPeripheralData,
         });
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
@@ -74,8 +79,13 @@ static int RunBios(string[] args)
         0x0602_0720,
         0x0602_075F,
         () => GetWatchContext(master));
-    var masterSmpcWatch = new WatchedBus(
+    var masterMenuStateWatch = new WatchedBus(
         masterCallbackWatch,
+        0x060B_3060,
+        0x060B_307F,
+        () => GetWatchContext(master));
+    var masterSmpcWatch = new WatchedBus(
+        masterMenuStateWatch,
         0x0010_0000,
         0x0010_007F,
         () => GetWatchContext(master));
@@ -237,6 +247,7 @@ static int RunBios(string[] args)
     PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
+    PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
     PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
     PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
     if (slaveFlagWatch is not null)
@@ -368,8 +379,27 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
             precedingWords: 64);
         PrintInstructionWindow(bus, 0x0604_01B0, 96, "  frame wait loop 0x060401B0");
         PrintInstructionWindow(bus, 0x0604_14A0, 64, "  caller/status sequence 0x060414A0");
+        PrintInstructionWindow(bus, 0x0604_0340, 128, "  menu-state reader/writer 0x06040340");
+        PrintInstructionWindow(bus, 0x0604_3A80, 128, "  menu-state consumer 0x06043A80");
+        PrintInstructionWindow(bus, 0x0604_3E80, 80, "  menu-state consumer 0x06043E80");
         PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
         PrintWordWindow(bus, 0x060B_3060, 16, "  BIOS menu state 0x060B3060");
+    }
+    else if (pc is >= 0x0601_3300 and <= 0x0601_3700)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0601_3300,
+            codeWords: 448,
+            dataStart: 0x0601_FF60,
+            dataWords: 24,
+            precedingStart: 0x0601_1200,
+            precedingWords: 96);
+        PrintInstructionWindow(bus, 0x0000_3B80, 128, "  CD status caller 0x00003B80");
+        PrintInstructionWindow(bus, 0x0000_42B0, 96, "  CD response loop 0x000042B0");
+        PrintWordWindow(bus, 0x0600_03A0, 8, "  CD HIRQ accumulator 0x060003A0");
+        PrintWordWindow(bus, 0x0602_0230, 16, "  BIOS flags 0x06020230");
     }
     else if (pc is >= 0x0604_0B70 and <= 0x0604_0C20)
     {
@@ -901,7 +931,10 @@ static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace, List<string> busFaults)
     }
     catch (BusFaultException exception)
     {
-        var message = $"{cpu.Name} fault at 0x{exception.Address:X8}";
+        var pc = cpu.CurrentInstructionProgramCounter;
+        var message = pc is null
+            ? $"{cpu.Name} fault at 0x{exception.Address:X8}"
+            : $"{cpu.Name} fault at 0x{exception.Address:X8} while executing 0x{pc.Value:X8}";
         busFaults.Add(message);
         trace.Write(new TraceEvent("Bus", 0, message));
         return false;
@@ -1068,6 +1101,52 @@ static CdBlockDriveStatus? GetCdStatusOption(string[] args)
     };
 }
 
+static SaturnInputState GetPadOption(string[] args)
+{
+    var value = GetOption(args, "--pad");
+    if (value is null)
+    {
+        return SaturnInputState.None;
+    }
+
+    var state = SaturnInputState.None;
+    foreach (var token in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        if (!Enum.TryParse<SaturnInputState>(token, ignoreCase: true, out var button) || button == SaturnInputState.None)
+        {
+            throw new ArgumentException(
+                $"Unknown --pad button '{token}'. Expected up, down, left, right, start, a, b, c, x, y, z, l, or r.");
+        }
+
+        state |= button;
+    }
+
+    return state;
+}
+
+static IReadOnlyList<byte>? GetPadRawOption(string[] args)
+{
+    var value = GetOption(args, "--pad-raw");
+    if (value is null)
+    {
+        return null;
+    }
+
+    var hex = value.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? value[2..] : value;
+    if (hex.Length != 8)
+    {
+        throw new ArgumentException("--pad-raw expects exactly four bytes as eight hex digits, for example F102FFFF.");
+    }
+
+    var bytes = new byte[4];
+    for (var i = 0; i < bytes.Length; i++)
+    {
+        bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+    }
+
+    return bytes;
+}
+
 static IDiscImage OpenDiscImage(string path) =>
     Path.GetExtension(path).Equals(".cue", StringComparison.OrdinalIgnoreCase)
         ? new CueDiscImage(path)
@@ -1088,7 +1167,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2]");
 }
 
 sealed class ScuInterruptProbe

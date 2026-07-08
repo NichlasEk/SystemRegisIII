@@ -32,7 +32,9 @@ public sealed class SaturnSystemMap
         var workRamLow = new ByteArrayMemory("Work RAM Low", 1024 * 1024);
         IMainMemory workRamHigh = CreateHighWorkRam(options);
         var workRamHighDevice = (IBusDevice)workRamHigh;
-        var smpcRegisters = new SmpcRegisterBusDevice();
+        var smpcRegisters = new SmpcRegisterBusDevice(
+            options.DigitalPadState,
+            options.DigitalPadPeripheralData);
         var cdBlockRegisterMirror = new CdBlockRegisterBusDevice(
             options.DiscImage,
             options.MountedDiscInitialStatus);

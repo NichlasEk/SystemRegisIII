@@ -147,8 +147,31 @@ static void VerifySaturnSystemMap()
     systemMap.Bus.WriteByte(0x0010_001F, 0x10);
     Require(smpcRegisters.TryConsumeInterrupt(), "SMPC INTBACK interrupt latch failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0061) == 0x40, "SMPC INTBACK status register failed.");
-    Require(systemMap.Bus.ReadByte(0x0010_0021) == 0x40, "SMPC INTBACK system status 0 failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0021) == 0xC0, "SMPC INTBACK system status 0 failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0023) == 0x19, "SMPC INTBACK RTC century failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0025) == 0x96, "SMPC INTBACK RTC year failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0027) == 0x11, "SMPC INTBACK RTC weekday/month failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0029) == 0x01, "SMPC INTBACK RTC day failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_002B) == 0x12, "SMPC INTBACK RTC hour failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_002D) == 0x00, "SMPC INTBACK RTC minute failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_002F) == 0x00, "SMPC INTBACK RTC second failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0033) == 0x01, "SMPC INTBACK area code failed.");
+    systemMap.Bus.WriteByte(0x0010_0001, 0x20);
+    systemMap.Bus.WriteByte(0x0010_0003, 0x26);
+    systemMap.Bus.WriteByte(0x0010_0005, 0x38);
+    systemMap.Bus.WriteByte(0x0010_0007, 0x07);
+    systemMap.Bus.WriteByte(0x0010_0009, 0x08);
+    systemMap.Bus.WriteByte(0x0010_000B, 0x09);
+    systemMap.Bus.WriteByte(0x0010_000D, 0x10);
+    systemMap.Bus.WriteByte(0x0010_001F, 0x16);
+    systemMap.Bus.WriteByte(0x0010_0001, 0x01);
+    systemMap.Bus.WriteByte(0x0010_0003, 0x00);
+    systemMap.Bus.WriteByte(0x0010_0005, 0xF0);
+    systemMap.Bus.WriteByte(0x0010_001F, 0x10);
+    Require(systemMap.Bus.ReadByte(0x0010_0023) == 0x20, "SMPC SETTIME RTC century failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0025) == 0x26, "SMPC SETTIME RTC year failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0027) == 0x38, "SMPC SETTIME RTC weekday/month failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0029) == 0x07, "SMPC SETTIME RTC day failed.");
     systemMap.Bus.WriteByte(0x0010_0001, 0x00);
     systemMap.Bus.WriteByte(0x0010_0003, 0x08);
     systemMap.Bus.WriteByte(0x0010_0005, 0xF0);
@@ -159,6 +182,24 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadByte(0x0010_0025) == 0xFF, "SMPC INTBACK port 1 digital pad data 1 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC INTBACK port 1 digital pad data 2 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0029) == 0xF0, "SMPC INTBACK port 2 status failed.");
+    var pressedPadMap = SaturnSystemMap.CreateBringup(
+        bios,
+        new SaturnBringupOptions { DigitalPadState = SaturnInputState.Start | SaturnInputState.A });
+    pressedPadMap.Bus.WriteByte(0x0010_0003, 0x08);
+    pressedPadMap.Bus.WriteByte(0x0010_0005, 0xF0);
+    pressedPadMap.Bus.WriteByte(0x0010_001F, 0x10);
+    Require(pressedPadMap.Bus.ReadByte(0x0010_0021) == 0xF1, "SMPC pressed pad ID failed.");
+    Require(pressedPadMap.Bus.ReadByte(0x0010_0023) == 0x02, "SMPC pressed pad size failed.");
+    Require(pressedPadMap.Bus.ReadByte(0x0010_0025) == 0xCF, "SMPC pressed pad data 1 failed.");
+    Require(pressedPadMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC pressed pad data 2 failed.");
+    var rawPadMap = SaturnSystemMap.CreateBringup(
+        bios,
+        new SaturnBringupOptions { DigitalPadPeripheralData = [0xF1, 0x02, 0xBF, 0x7F] });
+    rawPadMap.Bus.WriteByte(0x0010_0003, 0x08);
+    rawPadMap.Bus.WriteByte(0x0010_0005, 0xF0);
+    rawPadMap.Bus.WriteByte(0x0010_001F, 0x10);
+    Require(rawPadMap.Bus.ReadByte(0x0010_0025) == 0xBF, "SMPC raw pad data 1 failed.");
+    Require(rawPadMap.Bus.ReadByte(0x0010_0027) == 0x7F, "SMPC raw pad data 2 failed.");
     var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     scuRegisters.RaiseVBlankIn();
     Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");
@@ -667,6 +708,27 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 STS.L MACL,@-Rn did not predecrement.");
     Require(ReadLong(data, 4) == 0x1234_5678, "SH-2 STS.L MACL,@-Rn failed.");
 
+    WriteWord(code, 0x08, 0x091A);
+    cpu.Reset();
+    cpu.Registers.MacLow = 0x0000_0040;
+    cpu.Registers.ProcedureRegister = 0xCAFEBABE;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[9] == 0x0000_0040, "SH-2 STS MACL,Rn failed.");
+
+    WriteWord(code, 0x08, 0x090A);
+    cpu.Reset();
+    cpu.Registers.MacHigh = 0x1357_2468;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[9] == 0x1357_2468, "SH-2 STS MACH,Rn failed.");
+
+    WriteWord(code, 0x08, 0x4F02);
+    cpu.Reset();
+    cpu.Registers.General[15] = 0x0600_0008;
+    cpu.Registers.MacHigh = 0x2468_1357;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[15] == 0x0600_0004, "SH-2 STS.L MACH,@-Rn did not predecrement.");
+    Require(ReadLong(data, 4) == 0x2468_1357, "SH-2 STS.L MACH,@-Rn failed.");
+
     WriteWord(code, 0x08, 0x4116);
     WriteLong(data, 8, 0x89AB_CDEF);
     cpu.Reset();
@@ -674,6 +736,14 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.General[1] == 0x0600_000C, "SH-2 LDS.L @Rn+,MACL did not postincrement.");
     Require(cpu.Registers.MacLow == 0x89AB_CDEF, "SH-2 LDS.L @Rn+,MACL failed.");
+
+    WriteWord(code, 0x08, 0x4F06);
+    WriteLong(data, 8, 0x7654_3210);
+    cpu.Reset();
+    cpu.Registers.General[15] = 0x0600_0008;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[15] == 0x0600_000C, "SH-2 LDS.L @Rn+,MACH did not postincrement.");
+    Require(cpu.Registers.MacHigh == 0x7654_3210, "SH-2 LDS.L @Rn+,MACH failed.");
 
     WriteWord(code, 0x08, 0x4113);
     cpu.Reset();
@@ -750,6 +820,37 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.MacLow == 0xFFFF_FFFE, "SH-2 MULS.W Rm,Rn failed.");
 
+    WriteWord(code, 0x08, 0x3125);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0xFFFF_FFFF;
+    cpu.Registers.General[2] = 2;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0x0000_0001, "SH-2 DMULU.L Rm,Rn failed high word.");
+    Require(cpu.Registers.MacLow == 0xFFFF_FFFE, "SH-2 DMULU.L Rm,Rn failed low word.");
+
+    WriteWord(code, 0x08, 0x312D);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0xFFFF_FFFF;
+    cpu.Registers.General[2] = 2;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0xFFFF_FFFF, "SH-2 DMULS.L Rm,Rn failed high word.");
+    Require(cpu.Registers.MacLow == 0xFFFF_FFFE, "SH-2 DMULS.L Rm,Rn failed low word.");
+
+    WriteWord(code, 0x08, 0x203D);
+    cpu.Reset();
+    cpu.Registers.General[0] = 0x1122_3344;
+    cpu.Registers.General[3] = 0xAABB_CCDD;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[0] == 0xCCDD_1122, "SH-2 XTRCT Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x0028);
+    cpu.Reset();
+    cpu.Registers.MacHigh = 0x1234_5678;
+    cpu.Registers.MacLow = 0x89AB_CDEF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0, "SH-2 CLRMAC failed MACH.");
+    Require(cpu.Registers.MacLow == 0, "SH-2 CLRMAC failed MACL.");
+
     WriteWord(code, 0x08, 0x312A);
     cpu.Reset();
     cpu.Registers.General[1] = 5;
@@ -785,6 +886,16 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.Q, "SH-2 DIV0S failed negative Q flag.");
     Require(cpu.Registers.M, "SH-2 DIV0S failed negative M flag.");
     Require(!cpu.Registers.T, "SH-2 DIV0S failed same-sign T flag.");
+
+    WriteWord(code, 0x08, 0x0019);
+    cpu.Reset();
+    cpu.Registers.M = true;
+    cpu.Registers.Q = true;
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.M, "SH-2 DIV0U failed M flag.");
+    Require(!cpu.Registers.Q, "SH-2 DIV0U failed Q flag.");
+    Require(!cpu.Registers.T, "SH-2 DIV0U failed T flag.");
 
     WriteWord(code, 0x08, 0x3124);
     cpu.Reset();

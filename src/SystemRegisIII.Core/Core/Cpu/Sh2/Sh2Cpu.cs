@@ -657,6 +657,15 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: OR R{source},R{destination}");
                     return;
                 }
+            case 0x200D:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.General[destination] =
+                        (Registers.General[destination] >> 16) | (Registers.General[source] << 16);
+                    Trace($"0x{pc:X8}: XTRCT R{source},R{destination} -> 0x{Registers.General[destination]:X8}");
+                    return;
+                }
             case 0x200E:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -679,6 +688,26 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var source = (opcode >> 4) & 0xF;
                     Registers.General[destination] += Registers.General[source];
                     Trace($"0x{pc:X8}: ADD R{source},R{destination}");
+                    return;
+                }
+            case 0x3005:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var result = (ulong)Registers.General[source] * Registers.General[destination];
+                    Registers.MacHigh = (uint)(result >> 32);
+                    Registers.MacLow = (uint)result;
+                    Trace($"0x{pc:X8}: DMULU.L R{source},R{destination} -> MACH=0x{Registers.MacHigh:X8} MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
+            case 0x300D:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var result = (long)(int)Registers.General[source] * (int)Registers.General[destination];
+                    Registers.MacHigh = (uint)((ulong)result >> 32);
+                    Registers.MacLow = (uint)result;
+                    Trace($"0x{pc:X8}: DMULS.L R{source},R{destination} -> MACH=0x{Registers.MacHigh:X8} MACL=0x{Registers.MacLow:X8}");
                     return;
                 }
             case 0x300E:
@@ -737,8 +766,15 @@ public sealed class Sh2Cpu : ISh2Cpu
             case 0x001A:
                 {
                     var register = (opcode >> 8) & 0xF;
-                    Registers.General[register] = Registers.ProcedureRegister;
-                    Trace($"0x{pc:X8}: STS PR,R{register}");
+                    Registers.General[register] = Registers.MacLow;
+                    Trace($"0x{pc:X8}: STS MACL,R{register}");
+                    return;
+                }
+            case 0x000A:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] = Registers.MacHigh;
+                    Trace($"0x{pc:X8}: STS MACH,R{register}");
                     return;
                 }
             case 0x0002:
@@ -969,6 +1005,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: STS.L MACL,@-R{register}");
                     return;
                 }
+            case 0x4002:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.General[register] -= 4;
+                    _bus.WriteLong(Registers.General[register], Registers.MacHigh);
+                    Trace($"0x{pc:X8}: STS.L MACH,@-R{register}");
+                    return;
+                }
             case 0x4003:
                 {
                     var register = (opcode >> 8) & 0xF;
@@ -1009,10 +1053,29 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: LDS.L @R{register}+,MACL <- 0x{Registers.MacLow:X8}");
                     return;
                 }
+            case 0x4006:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.MacHigh = _bus.ReadLong(Registers.General[register]);
+                    Registers.General[register] += 4;
+                    Trace($"0x{pc:X8}: LDS.L @R{register}+,MACH <- 0x{Registers.MacHigh:X8}");
+                    return;
+                }
         }
 
         switch (opcode)
         {
+            case 0x0019:
+                Registers.M = false;
+                Registers.Q = false;
+                Registers.T = false;
+                Trace($"0x{pc:X8}: DIV0U");
+                break;
+            case 0x0028:
+                Registers.MacHigh = 0;
+                Registers.MacLow = 0;
+                Trace($"0x{pc:X8}: CLRMAC");
+                break;
             case 0x0009:
                 Trace($"0x{pc:X8}: NOP");
                 break;
