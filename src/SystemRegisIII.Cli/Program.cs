@@ -352,6 +352,22 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
             precedingStart: 0x0602_BC80,
             precedingWords: 64);
     }
+    else if (pc is >= 0x0000_4B70 and <= 0x0000_4C10)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0000_4B70,
+            codeWords: 96,
+            dataStart: 0x0000_4BB8,
+            dataWords: 48,
+            precedingStart: 0x0000_4180,
+            precedingWords: 96);
+        PrintInstructionWindow(bus, 0x0000_4240, 64, "  CD helper continuation 0x00004240");
+        PrintInstructionWindow(bus, 0x0000_4280, 64, "  CD response helper 0x00004280");
+        PrintInstructionWindow(bus, 0x0000_42BE, 64, "  CD response copy 0x000042BE");
+        PrintWordWindow(bus, 0x0600_03A0, 8, "  CD HIRQ accumulator 0x060003A0");
+    }
     else if (pc is >= 0x0000_4C20 and <= 0x0000_4CA0)
     {
         PrintMasterPcProbeWindow(
@@ -363,6 +379,8 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
             dataWords: 32,
             precedingStart: 0x0000_4B80,
             precedingWords: 64);
+        PrintInstructionWindow(bus, 0x0000_3B80, 96, "  CD status caller 0x00003B80");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
     }
 }
 
@@ -384,6 +402,10 @@ static void PrintMasterPcProbeWindow(
         $"  R0=0x{master.Registers.General[0]:X8} R1=0x{master.Registers.General[1]:X8} R2=0x{master.Registers.General[2]:X8} R3=0x{master.Registers.General[3]:X8}");
     Console.WriteLine(
         $"  R4=0x{master.Registers.General[4]:X8} R5=0x{master.Registers.General[5]:X8} R6=0x{master.Registers.General[6]:X8} R7=0x{master.Registers.General[7]:X8}");
+    Console.WriteLine(
+        $"  R8=0x{master.Registers.General[8]:X8} R9=0x{master.Registers.General[9]:X8} R10=0x{master.Registers.General[10]:X8} R11=0x{master.Registers.General[11]:X8}");
+    Console.WriteLine(
+        $"  R12=0x{master.Registers.General[12]:X8} R13=0x{master.Registers.General[13]:X8} R14=0x{master.Registers.General[14]:X8} R15=0x{master.Registers.General[15]:X8}");
 
     try
     {
@@ -611,6 +633,9 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x4 => $"MOV.B @R{source}+,R{destination}",
             0x5 => $"MOV.W @R{source}+,R{destination}",
             0x6 => $"MOV.L @R{source}+,R{destination}",
+            0x7 => $"NOT R{source},R{destination}",
+            0x8 => $"SWAP.B R{source},R{destination}",
+            0x9 => $"SWAP.W R{source},R{destination}",
             0xC => $"EXTU.B R{source},R{destination}",
             0xD => $"EXTU.W R{source},R{destination}",
             0xE => $"EXTS.B R{source},R{destination}",
@@ -672,6 +697,18 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
     if ((opcode & 0xF00F) == 0x402B)
     {
         return $"JMP @R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) is 0x0002 or 0x0012 or 0x0022 or 0x001A or 0x002A)
+    {
+        var register = (opcode >> 8) & 0xF;
+        return (opcode & 0xF0FF) switch
+        {
+            0x0002 => $"STC SR,R{register}",
+            0x0012 => $"STC GBR,R{register}",
+            0x0022 => $"STC VBR,R{register}",
+            _ => $"STS PR,R{register}",
+        };
     }
 
     if ((opcode & 0xF0FF) == 0x4022)

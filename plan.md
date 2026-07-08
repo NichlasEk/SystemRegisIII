@@ -119,6 +119,7 @@ Work in small pushable slices:
 - Current slice: Added the first host-side disc abstraction (`IDiscImage`, `RawDiscImage`) and CLI `--disc <path>`. Mounted media now changes CD current-status from no-disc `CR1=0x0700` to media-present `CR1=0x0200`, and CLI output reports mounted disc name/sector count. A dummy 256-sector raw image confirms the status path but still stops at BIOS ROM `0x00004C58`, so the next blocker is richer CD Block behavior rather than simple media presence.
 - Current slice: Corrected the mounted-media current-status response shape using Mednafen only as a GPL behavioral oracle: mounted dummy media now reports `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096` (`STANDBY`, CD-ROM/data bit, track 1, index 1, FAD 150). The 40M dummy-disc run still stops at `0x00004C58` and the last CD command remains `0x00`, so the next blocker is likely CD drive phase/status semantics before BIOS asks for TOC or sector data.
 - Current slice: Added a reproducible mounted-CD status probe via `--cd-status busy|pause|standby|play|wait`. In 40M dummy-disc runs, `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with last command `0x00`; `wait` stops earlier at `0x00003C24`. The blocker is therefore not solved by a single mounted status code. The next productive move is to decode/probe the BIOS copy/parse routine around `0x00004C50..0x00004C6A` and the buffer at `0x0601FF64/0x0601FF7C`.
+- Current slice: Modeled mounted-media current status as periodic (`CR1=0x2280`) and latched the BIOS-observed mounted status-ready HIRQ mask `0x4658` for command `0x00`. Focused probes around `0x000041E4..0x000042BE` showed BIOS waiting first on accumulated HIRQ masks `0x4618` and then `0x0040`; satisfying those moves the 40M dummy-disc run from `0x00004C58/0x00004C04` to BIOS ROM `0x000032EE`. The next CD blocker is command `0x75` with HIRQ reads returning `0x0041`.
 
 ## Current Next Blocker
 
@@ -152,19 +153,19 @@ The 40M result after the V-Blank pulse fix:
 
 That SMPC blocker is now resolved for this bringup model. The focused probe showed BIOS copying INTBACK OREG bytes at `0x0602BD20..0x0602BD6E`; acknowledging the generated SMPC interrupt after SH-2 accepts vector `0x47` prevents repeated handler re-entry. The latest 40M result:
 
-- Master PC advances to `0x00004C58`
+- Master PC advances to `0x000032EE` with mounted dummy media after the CD HIRQ/status-ready update.
 - SCU delivery counters: VBlank-IN `attempts=89 accepted=11`, VBlank-OUT `attempts=87 accepted=11`, SMPC `attempts=1 accepted=1`
 - final SCU state: `mask=0xFFFFFE7C status=0x00000000`
 - CD Block current-status response is still no-media without `--disc`: `CR1=0x0700`, `CR2=CR3=CR4=0`
 - CD Block CR reads are now the hot activity again: `2,573,816` reads in the 40M run
-- With `--disc /tmp/systemregis_dummy.iso`, CD Block current-status reports `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096` and `256` mounted sectors, but the BIOS still remains at `0x00004C58` in a 40M run.
-- Mounted status variants are now reproducible with `--cd-status`. `busy`, `pause`, `standby`, and `play` do not advance past `0x00004C58`; `wait` stops earlier at `0x00003C24`.
+- With `--disc /tmp/systemregis_dummy.iso`, CD Block current-status now reports periodic mounted media as `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`, and `256` mounted sectors.
+- The BIOS CD helper around `0x000041E4..0x000042BE` now passes the mounted status-ready waits. The final HIRQ hot read at the new blocker is `0x0041` from `0x000040DA`, and the last command latch is `CR1=0x7500`.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify the new BIOS ROM `0x00004C58` blocker and the next CD Block behavior expected after media-present status:
+The next slice should identify the new BIOS ROM `0x000032EE` blocker and the CD Block behavior expected by command `0x75`:
 
-- keep the focused BIOS ROM code/data window around `0x00004C20..0x00004CA0`
-- keep PC-attributed CD Block CR reads around `0x000042EE/42F4/42FA/42FE`
-- improve the diagnostic SH-2 decoder for the implemented opcodes in the `0x00004C50..0x00004C6A` ROM routine and add a tiny buffer watch around `0x0601FF64/0x0601FF7C`
+- keep the focused BIOS ROM code/data window around `0x000032E0..0x00003310` plus the CD helper around `0x000040D0..0x000040F8`
+- keep PC-attributed CD Block HIRQ/CR reads around `0x000040DA` and command writes around `0x000040F4`
+- decode command `0x75` from clean-room docs or behavioral probes before inventing response data
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

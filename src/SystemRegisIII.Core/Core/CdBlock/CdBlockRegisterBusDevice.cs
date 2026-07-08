@@ -12,6 +12,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const uint Cr4Offset = 0x090024;
 
     private const ushort HirqCmok = 0x0001;
+    private const ushort HirqMountedStatusReady = 0x4658;
     private const byte CdStatusPeriodic = 0x20;
     private const byte CdRomStatusBit = 0x80;
     private const byte DataTrackControlAdr = 0x41;
@@ -28,6 +29,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _hirqMask;
     private bool _statusMode;
     private byte _status;
+    private bool _hasExecutedCommand;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -117,8 +119,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         switch (offset)
         {
             case HirqOffset:
-                EnterStatusMode();
                 _hirq = _hirq == 0 ? HirqCmok : (ushort)(_hirq & value);
+                if (!_hasExecutedCommand)
+                {
+                    EnterStatusMode();
+                }
+                else if ((_hirq & HirqCmok) == 0)
+                {
+                    EnterPeriodicStatusMode();
+                }
+
                 break;
             case HirqMaskOffset:
                 _hirqMask = value;
@@ -142,6 +152,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void ExecuteCommand()
     {
+        _hasExecutedCommand = true;
         switch (LastCommandCode)
         {
             case 0x00:
@@ -156,13 +167,17 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _hirq |= HirqCmok;
+        if (_discImage is not null && LastCommandCode == 0x00)
+        {
+            _hirq |= HirqMountedStatusReady;
+        }
     }
 
     private void GetCurrentStatus()
     {
         _statusMode = true;
         _status &= unchecked((byte)~CdStatusPeriodic);
-        WriteStatusResponse();
+        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 
     private void GetHardwareInfo()
@@ -189,18 +204,26 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr4 = 0;
     }
 
-    private void WriteStatusResponse()
+    private void EnterPeriodicStatusMode()
+    {
+        _statusMode = true;
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+    }
+
+    private void WriteStatusResponse() => WriteStatusResponse(_status);
+
+    private void WriteStatusResponse(byte status)
     {
         if (_discImage is null)
         {
-            _cr1 = (ushort)(_status << 8);
+            _cr1 = (ushort)(status << 8);
             _cr2 = 0;
             _cr3 = 0;
             _cr4 = 0;
             return;
         }
 
-        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr1 = (ushort)((status << 8) | CdRomStatusBit);
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
         _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
         _cr4 = (ushort)FirstTrackFad;

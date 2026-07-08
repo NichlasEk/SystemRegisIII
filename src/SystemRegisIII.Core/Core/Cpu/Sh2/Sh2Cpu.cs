@@ -348,7 +348,8 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var destination = (opcode >> 8) & 0xF;
                     var source = (opcode >> 4) & 0xF;
                     Registers.T = Registers.General[destination] == Registers.General[source];
-                    Trace($"0x{pc:X8}: CMP/EQ R{source},R{destination} T={Registers.T}");
+                    Trace(
+                        $"0x{pc:X8}: CMP/EQ R{source}=0x{Registers.General[source]:X8},R{destination}=0x{Registers.General[destination]:X8} T={Registers.T}");
                     return;
                 }
             case 0x3002:
@@ -578,7 +579,7 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var destination = (opcode >> 8) & 0xF;
                     var source = (opcode >> 4) & 0xF;
                     Registers.General[destination] &= Registers.General[source];
-                    Trace($"0x{pc:X8}: AND R{source},R{destination}");
+                    Trace($"0x{pc:X8}: AND R{source},R{destination} -> 0x{Registers.General[destination]:X8}");
                     return;
                 }
             case 0x200A:

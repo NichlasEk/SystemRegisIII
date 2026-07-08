@@ -74,7 +74,7 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - `CDC_GetCurStat` issues a CD block command and returns current status/report.
   - `CDC_GetPeriStat` reads periodic response without issuing a CD block command.
   - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
-  - Mounted dummy media currently reports a simple data-track current-status response: `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
+  - Mounted dummy media currently reports a simple periodic data-track status response: `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
 
 ## Current BIOS Bringup Evidence
 
@@ -87,14 +87,14 @@ dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --b
 
 Current bringup position:
 
-- Master PC reaches BIOS ROM `0x00004C58` in the latest 40M dual-SH2 run.
+- Master PC reaches BIOS ROM `0x000032EE` with mounted dummy media in the latest 40M dual-SH2 run.
 - The old Work RAM wait at `0x06028314..0x06028318` is passed after generated V-Blank-IN, V-Blank-OUT, and SMPC interrupt sources are modeled as accepted pulses.
 - `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
 - SCU status ends at `0x00000000`; SMPC vector `0x47` is accepted once for the latest INTBACK command.
 - CD Block CR reads are now the dominant activity again, with no-media response `CR1=0x0700`, `CR2=CR3=CR4=0`.
-- `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x0280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`, but still stops at `0x00004C58` with last CD command `0x00`.
-- The CLI `--cd-status` probe confirms that `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with command `0x00`; `wait` stops earlier at `0x00003C24`.
+- `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
+- BIOS-observed mounted status-ready HIRQ mask `0x4658` lets the CD helper pass the old `0x00004C58/0x00004C04` blocker. The new blocker is BIOS ROM `0x000032EE`, with CD command latch `CR1=0x7500` and HIRQ hot reads returning `0x0041` from `0x000040DA`.
 
 Next likely reference target:
 
-- The BIOS ROM routine around `0x00004C50..0x00004C6A` and its status-copy buffers at `0x0601FF64/0x0601FF7C`, then CD block drive-phase/status behavior, TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
+- CD Block command `0x75` semantics and the BIOS routines around `0x000032E0..0x00003310` and `0x000040D0..0x000040F8`, then TOC, sector-read, and periodic status details from a source with clear redistribution terms before vendoring.
