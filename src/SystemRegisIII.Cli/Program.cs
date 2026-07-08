@@ -401,6 +401,21 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
         PrintWordWindow(bus, 0x0600_03A0, 8, "  CD HIRQ accumulator 0x060003A0");
         PrintWordWindow(bus, 0x0602_0230, 16, "  BIOS flags 0x06020230");
     }
+    else if (pc is >= 0x0601_2D80 and <= 0x0601_2EA0)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0601_2D80,
+            codeWords: 160,
+            dataStart: 0x0602_AEE0,
+            dataWords: 40,
+            precedingStart: 0x0602_E400,
+            precedingWords: 96);
+        PrintWordWindow(bus, 0x0602_AF20, 24, "  table 0x0602AF20");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
+        PrintWordWindow(bus, master.Registers.General[12], 32, $"  dynamic source R12=0x{master.Registers.General[12]:X8}");
+    }
     else if (pc is >= 0x0604_0B70 and <= 0x0604_0C20)
     {
         PrintMasterPcProbeWindow(

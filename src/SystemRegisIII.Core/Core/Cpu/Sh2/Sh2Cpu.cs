@@ -293,6 +293,21 @@ public sealed class Sh2Cpu : ISh2Cpu
 
         switch (opcode & 0xF00F)
         {
+            case 0x000F:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var sourceValue = (int)_bus.ReadLong(Registers.General[source]);
+                    var destinationValue = (int)_bus.ReadLong(Registers.General[destination]);
+                    Registers.General[source] += 4;
+                    Registers.General[destination] += 4;
+                    var accumulator = ((long)(int)Registers.MacHigh << 32) | Registers.MacLow;
+                    var result = accumulator + ((long)sourceValue * destinationValue);
+                    Registers.MacHigh = (uint)((ulong)result >> 32);
+                    Registers.MacLow = (uint)result;
+                    Trace($"0x{pc:X8}: MAC.L @R{source}+,@R{destination}+ -> MACH=0x{Registers.MacHigh:X8} MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
             case 0x0004:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -813,11 +828,12 @@ public sealed class Sh2Cpu : ISh2Cpu
                     return;
                 }
             case 0x4000:
+            case 0x4020:
                 {
                     var register = (opcode >> 8) & 0xF;
                     Registers.T = (Registers.General[register] & 0x8000_0000) != 0;
                     Registers.General[register] <<= 1;
-                    Trace($"0x{pc:X8}: SHLL R{register} T={Registers.T}");
+                    Trace($"0x{pc:X8}: SHLL/SHAL R{register} T={Registers.T}");
                     return;
                 }
             case 0x4001:
