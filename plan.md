@@ -111,6 +111,7 @@ Work in small pushable slices:
 - Current slice: Used Mednafen's local Saturn source only as a GPL black-box/behavioral oracle and corrected the active SCU interrupt-mask interpretation: bits `7/8` are SMPC/PAD, not timers. Built a Saturn-only Mednafen oracle binary in `/tmp/systemregis_mednafen_probe/mednafen/src/mednafen`, and added a narrow SMPC `INTBACK` completion interrupt path through SCU bit `7`, vector `0x47`, level `8`.
 - Current slice result: the 40M BIOS run still stops at `0x06028318` with SMPC pending interrupts drained and `smpc-pending=False`. The next suspect is SMPC `INTBACK` output/status data or PAD interrupt behavior, not basic SCU SMPC interrupt delivery.
 - Current slice: Added byte-mapped SMPC IREG/OREG/SR bringup behavior and minimal INTBACK result buffers for system status plus no-peripheral port status. The BIOS now observes `IREG=01,02,F0`, `SR=0x40`, `OREG0=0x40`, area `0x01`, and system status `0x34`, but still stops at `0x06028318`; this weakens the INTBACK-output theory and points the next probe toward CD periodic status or SCSP/sound-init completion.
+- Current slice: Added PC-attributed RAM watch writes for the flag and callback-state windows. The latest meaningful flag writes are `0x0602024C = 0x06020728` from `0x060281F0` and `0x06020248 = 0x22` from `0x06028200`; callback-state zero/FE initialization is from `0x06029EDA`. No later writer changes `0x06020240`, so the next slice should disassemble/probe those writer routines and their callers rather than add more blind device status.
 
 ## Current Next Blocker
 
@@ -142,5 +143,6 @@ The current diagnostic slice identifies the relevant Work RAM and handler paths:
 The next slice should identify which remaining hardware status path is expected to activate the callback/state entry:
 
 - inspect the BIOS calls after the `0x06028C44` setup call and before the `0x06028314` wait loop;
+- inspect writer routines around `0x060281F0`, `0x06028200`, and `0x06029EDA` to find what activates `0x06020240` or the callback-state entries;
 - decide whether callback activation depends on CD periodic status, SCSP DSP/status, SMPC `INTBACK` result data, or PAD interrupt behavior from the active `0x0183` interrupt mask;
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

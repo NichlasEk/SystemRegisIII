@@ -25,6 +25,7 @@ public sealed class Sh2Cpu : ISh2Cpu
     public uint? LastUnimplementedProgramCounter { get; private set; }
     public ushort? LastUnimplementedOpcode { get; private set; }
     public long UnimplementedInstructionCount { get; private set; }
+    public uint? CurrentInstructionProgramCounter { get; private set; }
 
     public void Reset()
     {
@@ -39,6 +40,7 @@ public sealed class Sh2Cpu : ISh2Cpu
         LastUnimplementedProgramCounter = null;
         LastUnimplementedOpcode = null;
         UnimplementedInstructionCount = 0;
+        CurrentInstructionProgramCounter = null;
         _cycles = 0;
         Trace($"reset pc=0x{Registers.ProgramCounter:X8} sr=0x{Registers.StatusRegister:X8}");
     }
@@ -62,6 +64,7 @@ public sealed class Sh2Cpu : ISh2Cpu
     public void StepInstruction()
     {
         var pc = Registers.ProgramCounter;
+        CurrentInstructionProgramCounter = pc;
         var opcode = _bus.ReadWord(pc);
         Registers.ProgramCounter += 2;
         _cycles += 1;

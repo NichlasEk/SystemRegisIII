@@ -47,16 +47,32 @@ static int RunBios(string[] args)
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
-    var masterFlagWatch = new WatchedBus(masterInternalBus, 0x0602_0230, 0x0602_024F);
-    var masterCallbackWatch = new WatchedBus(masterFlagWatch, 0x0602_0720, 0x0602_075F);
-    WatchedBus? slaveFlagWatch = slaveInternalBus is null ? null : new WatchedBus(slaveInternalBus, 0x0602_0230, 0x0602_024F);
+    Sh2Cpu? master = null;
+    Sh2Cpu? slave = null;
+    var masterFlagWatch = new WatchedBus(
+        masterInternalBus,
+        0x0602_0230,
+        0x0602_024F,
+        () => master?.CurrentInstructionProgramCounter);
+    var masterCallbackWatch = new WatchedBus(
+        masterFlagWatch,
+        0x0602_0720,
+        0x0602_075F,
+        () => master?.CurrentInstructionProgramCounter);
+    WatchedBus? slaveFlagWatch = slaveInternalBus is null
+        ? null
+        : new WatchedBus(
+            slaveInternalBus,
+            0x0602_0230,
+            0x0602_024F,
+            () => slave?.CurrentInstructionProgramCounter);
     ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCallbackWatch, trace) : masterCallbackWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
 
-    var master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
-    var slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
+    master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
+    slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
     var smpc = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     var scu = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     master.Reset();
@@ -290,9 +306,17 @@ static void PrintWatchWindow(string label, WatchedBus watch)
 
     Console.WriteLine(
         $"  first=0x{watch.FirstWriteAddress!.Value:X8} last=0x{watch.LastWriteAddress!.Value:X8} value=0x{watch.LastWriteValue!.Value:X8}");
-    foreach (var (address, count, value) in watch.GetHotWrites(12))
+    foreach (var (address, count, value, pc) in watch.GetHotWrites(12))
     {
-        Console.WriteLine($"  0x{address:X8}: {count:N0} last=0x{value:X8}");
+        var lastPc = pc is { } pcValue ? $"0x{pcValue:X8}" : "<unknown>";
+        Console.WriteLine($"  0x{address:X8}: {count:N0} last=0x{value:X8} last-pc={lastPc}");
+    }
+
+    Console.WriteLine("  recent writes:");
+    foreach (var write in watch.RecentWrites.TakeLast(12))
+    {
+        var pc = write.ProgramCounter is { } value ? $"0x{value:X8}" : "<unknown>";
+        Console.WriteLine($"    pc={pc} address=0x{write.Address:X8} value=0x{write.Value:X8}");
     }
 }
 
