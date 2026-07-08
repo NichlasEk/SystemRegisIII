@@ -537,6 +537,26 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[1] == 0x4000_0000, "SH-2 SHLR failed.");
     Require(cpu.Registers.T, "SH-2 SHLR did not move bit 0 into T.");
 
+    WriteWord(code, 0x08, 0x4125);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0000_0003;
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0x8000_0001, "SH-2 ROTCR failed carry-in/result.");
+    Require(cpu.Registers.T, "SH-2 ROTCR did not move bit 0 into T.");
+
+    WriteWord(code, 0x08, 0x612B);
+    cpu.Reset();
+    cpu.Registers.General[2] = 3;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0xFFFF_FFFD, "SH-2 NEG Rm,Rn failed.");
+
+    WriteWord(code, 0x08, 0x611B);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[1] == 0, "SH-2 NEG Rn,Rn zero failed.");
+
     WriteWord(code, 0x08, 0x6127);
     cpu.Reset();
     cpu.Registers.General[2] = 0x00FF_00FF;

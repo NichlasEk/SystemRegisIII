@@ -540,6 +540,14 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: SWAP.W R{source},R{destination}");
                     return;
                 }
+            case 0x600B:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    Registers.General[destination] = 0u - Registers.General[source];
+                    Trace($"0x{pc:X8}: NEG R{source},R{destination}");
+                    return;
+                }
             case 0x600C:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -870,6 +878,15 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Registers.T = (Registers.General[register] & 0x8000_0000) != 0;
                     Registers.General[register] = (Registers.General[register] << 1) | carry;
                     Trace($"0x{pc:X8}: ROTCL R{register} T={Registers.T}");
+                    return;
+                }
+            case 0x4025:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    var carry = Registers.T ? 0x8000_0000u : 0u;
+                    Registers.T = (Registers.General[register] & 1) != 0;
+                    Registers.General[register] = (Registers.General[register] >> 1) | carry;
+                    Trace($"0x{pc:X8}: ROTCR R{register} T={Registers.T}");
                     return;
                 }
             case 0x402A:

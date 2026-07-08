@@ -121,10 +121,11 @@ Work in small pushable slices:
 - Current slice: Added a reproducible mounted-CD status probe via `--cd-status busy|pause|standby|play|wait`. In 40M dummy-disc runs, `busy`, `pause`, `standby`, and `play` all still stop at `0x00004C58` with last command `0x00`; `wait` stops earlier at `0x00003C24`. The blocker is therefore not solved by a single mounted status code. The next productive move is to decode/probe the BIOS copy/parse routine around `0x00004C50..0x00004C6A` and the buffer at `0x0601FF64/0x0601FF7C`.
 - Current slice: Modeled mounted-media current status as periodic (`CR1=0x2280`) and latched the BIOS-observed mounted status-ready HIRQ mask `0x4658` for command `0x00`. Focused probes around `0x000041E4..0x000042BE` showed BIOS waiting first on accumulated HIRQ masks `0x4618` and then `0x0040`; satisfying those moves the 40M dummy-disc run from `0x00004C58/0x00004C04` to BIOS ROM `0x000032EE`. The next CD blocker is command `0x75` with HIRQ reads returning `0x0041`.
 - Current slice: Implemented the BIOS-observed CD Block command `0x75` as Abort File status plus `EFLS` HIRQ, using Mednafen only as a GPL behavioral oracle for command/HIRQ naming. Added SH-2 coverage for `DIV0S`, `DIV1`, `SUBC`, `ADDC`, `MUL.L`, `MULU.W`, `MULS.W`, `STS.L MACL,@-Rn`, and `LDS.L @Rn+,MACL`, plus smoke coverage for the flag/MACL cases. Added internal Backup RAM mapping at `0x00180000..0x001FFFFF`, write-back for its cache-through aliases, and the BIOS-used Work RAM High mirror at `0x0C000000..0x0C0FFFFF`. The 40M mounted dummy-disc run now reaches `0x06040C0C` with no reported unimplemented opcodes or bus faults.
+- Current slice: Extended the BIOS run to 80M instructions and filled the next SH-2 opcodes it hit: `ROTCR Rn` and `NEG Rm,Rn`. The 80M mounted dummy-disc run now has no reported unimplemented opcodes or bus faults and reaches a hot frame-wait loop at `0x06040226..0x0604022A`, reading `GBR+0x90` / `0x06020240`. V-Blank callbacks are still active and increment that flag to `0x2E` in the run, so this looks like a normal frame pacing wait rather than a new CPU fault.
 
 ## Current Next Blocker
 
-In real dual mode with mounted dummy media, the verified `40M`-instruction run has no reported unimplemented opcodes and no bus faults. Master leaves the early BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, reads internal Backup RAM through cache-through aliases, touches the BIOS-used `0x0C` Work RAM High mirror, and reaches `0x06040C0C`.
+In real dual mode with mounted dummy media, the verified `80M`-instruction run has no reported unimplemented opcodes and no bus faults. Master leaves the early BIOS CD status polling path, initializes SCSP/VDP-facing registers, runs unpacked code from Work RAM High, reads internal Backup RAM through cache-through aliases, touches the BIOS-used `0x0C` Work RAM High mirror, and reaches a hot Work RAM High frame-wait loop at `0x06040226`.
 
 The old loop was a Work RAM change wait:
 
@@ -161,12 +162,14 @@ The older SMPC/CD blockers are now resolved for this bringup model. The focused 
 - The BIOS CD helper around `0x000041E4..0x000042BE` now passes the mounted status-ready waits, and command `0x75` (`Abort File`) raises `EFLS` (`0x0200`) alongside `CMOK`.
 - CD Block CR reads remain hot, with the latest response `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
 - The latest run ends in Work RAM High around `0x06040C0C`; hot PCs include `0x00001D3C/0x00001D3E`, `0x06032D02/0x06032D04`, and CD/status-buffer activity around `0x06040B7E..0x06040C08`.
+- The latest 80M run ends at `0x06040226` with hot PCs `0x06040226/0x06040228/0x0604022A`. That loop reads `0x06020240`; V-Blank-OUT callback writes have advanced it to `0x0000002E`, and SCU delivery counters show VBlank-IN `attempts=53 accepted=51`, VBlank-OUT `attempts=51 accepted=51`, SMPC `attempts=237 accepted=49`.
 
 The forced `--simulate-slave-ready` path is a separate blocker: it still runs into empty high RAM and reports a slave bus fault at `0x06100000`, with first unimplemented `0x0000` at `0x06000600`.
 
-The next slice should identify what the BIOS is waiting for in the new Work RAM High/status path:
+The next slice should distinguish normal frame pacing from a missing device event in the new Work RAM High path:
 
-- keep the focused Work RAM High code windows around `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and the callback/status routines around `0x060422A0..0x060425D0`
+- keep the focused Work RAM High code windows around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and the callback/status routines around `0x060422A0..0x060425D0`
 - keep PC-attributed CD Block CR/HIRQ reads and the `0x0601FF60..0x0601FF8F` status-buffer watch
-- probe whether the repeated mounted response needs TOC/read-sector semantics, selector/filter responses, or a more complete periodic status transition
+- probe whether `0x06040226` exits cleanly on the next generated V-Blank tick over a longer run or whether it expects a different flag/source than the current V-Blank counter
+- after the frame wait is understood, probe whether the repeated mounted response needs TOC/read-sector semantics, selector/filter responses, or a more complete periodic status transition
 - keep CD/SCSP/VDP behavior changes evidence-driven from those watches.

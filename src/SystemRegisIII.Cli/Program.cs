@@ -352,6 +352,36 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
             precedingStart: 0x0602_BC80,
             precedingWords: 64);
     }
+    else if (pc is >= 0x0604_0000 and <= 0x0604_0300)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0604_0000,
+            codeWords: 320,
+            dataStart: 0x0602_0230,
+            dataWords: 16,
+            precedingStart: 0x0604_4C60,
+            precedingWords: 64);
+        PrintInstructionWindow(bus, 0x0604_01B0, 96, "  frame wait loop 0x060401B0");
+        PrintInstructionWindow(bus, 0x0604_14A0, 64, "  caller/status sequence 0x060414A0");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
+    }
+    else if (pc is >= 0x0604_0B70 and <= 0x0604_0C20)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0604_0B70,
+            codeWords: 96,
+            dataStart: 0x0604_0C20,
+            dataWords: 32,
+            precedingStart: 0x0604_1460,
+            precedingWords: 64);
+        PrintInstructionWindow(bus, 0x0604_22A0, 128, "  CD/status callback 0x060422A0");
+        PrintInstructionWindow(bus, 0x0604_2450, 128, "  CD/status poller 0x06042450");
+        PrintWordWindow(bus, 0x0601_FF60, 24, "  CD status buffers 0x0601FF60");
+    }
     else if (pc is >= 0x060F_0A00 and <= 0x060F_0A40)
     {
         PrintMasterPcProbeWindow(
@@ -674,6 +704,7 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x7 => $"NOT R{source},R{destination}",
             0x8 => $"SWAP.B R{source},R{destination}",
             0x9 => $"SWAP.W R{source},R{destination}",
+            0xB => $"NEG R{source},R{destination}",
             0xC => $"EXTU.B R{source},R{destination}",
             0xD => $"EXTU.W R{source},R{destination}",
             0xE => $"EXTS.B R{source},R{destination}",
@@ -779,7 +810,7 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"LDC R{(opcode >> 8) & 0xF},SR";
     }
 
-    if ((opcode & 0xF0FF) is 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4028 or 0x4029)
+    if ((opcode & 0xF0FF) is 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4024 or 0x4025 or 0x4028 or 0x4029)
     {
         var register = (opcode >> 8) & 0xF;
         return (opcode & 0xF0FF) switch
@@ -788,6 +819,8 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x4009 => $"SHLR2 R{register}",
             0x4018 => $"SHLL8 R{register}",
             0x4019 => $"SHLR8 R{register}",
+            0x4024 => $"ROTCL R{register}",
+            0x4025 => $"ROTCR R{register}",
             0x4028 => $"SHLL16 R{register}",
             _ => $"SHLR16 R{register}",
         };

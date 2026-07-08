@@ -88,15 +88,16 @@ dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --b
 
 Current bringup position:
 
-- Master PC reaches Work RAM High `0x06040C0C` with mounted dummy media in the latest 40M dual-SH2 run.
+- Master PC reaches Work RAM High frame-wait code at `0x06040226` with mounted dummy media in the latest 80M dual-SH2 run.
 - The old Work RAM wait at `0x06028314..0x06028318` is passed after generated V-Blank-IN, V-Blank-OUT, and SMPC interrupt sources are modeled as accepted pulses.
 - `GBR+0x90` / `0x06020240` is incremented by the V-Blank-OUT callback at `0x06028DB0`.
 - SCU status ends at `0x00000000`; generated V-Blank and SMPC interrupt pulses are accepted and drained.
 - `--disc` mounts a raw image through `RawDiscImage`; the dummy 256-sector image changes current-status to `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
 - BIOS-observed mounted status-ready HIRQ mask `0x4658` lets the CD helper pass the old `0x00004C58/0x00004C04` blocker. Command `0x75` now raises `EFLS` and passes the old `0x000032EE` blocker.
-- The current run reports no unimplemented opcodes or bus faults in 40M instructions.
+- The current 80M run reports no unimplemented opcodes or bus faults after adding SH-2 `ROTCR Rn` and `NEG Rm,Rn`.
 - Memory-map additions needed by the latest BIOS path: internal Backup RAM at `0x00180000..0x001FFFFF` with cache-through write-back, and Work RAM High mirror at `0x0C000000..0x0C0FFFFF`.
+- The hot frame-wait loop at `0x06040226..0x0604022A` reads `GBR+0x90` / `0x06020240`; V-Blank callbacks are still accepted and increment that flag to `0x2E` in the 80M run.
 
 Next likely reference target:
 
-- CD Block TOC/read-sector/filter/selector behavior and the BIOS Work RAM High routines around `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
+- CD Block TOC/read-sector/filter/selector behavior and the BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.
