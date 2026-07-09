@@ -113,8 +113,10 @@ Current bringup position:
 - Current setup-command coverage includes `Init` (`0x04`), `Reset Selector` (`0x48`), `Set Sector Length` (`0x60`), and `Get Copy Error` (`0x67`), implemented as register-level clean-room behavior from Mednafen-observed command semantics.
 - SMPC INTBACK peripheral data now reports an idle digital pad on port 1 as `F1 02 FF FF`, with port 2 disconnected as `F0`.
 - The latest Nights probe ends in BIOS menu state `0x060B306C = 0x0401`, with CD command counts `0x00:51, 0x01:4, 0x04:2, 0x06:3, 0x48:2, 0x60:2, 0x67:2, 0x75:3`.
+- The July 9 NiGHTS cue/bin probe with `--cd-status standby --dual-sh2 --instructions 80_000_000 --summary-only` has CD auth complete and no new CD command sequence after `Get Hardware Info`; the hot loop is now the Work RAM High normalizer at `0x06012C84..0x06012C8A`. The focused caller is `PR=0x06011690`, after `0x06012DCC` scans geometry source data and reaches the normalizer tail with `R0=0`, `R4` shifting to zero, and `R6` decrementing for millions of iterations. Treat the next blocker as transform/geometry dataflow or an SH-2 arithmetic edge, not CD authentication or VDP display bringup.
+- CLI `--summary-only` keeps long bringup runs readable while still printing hot PCs, compact PC-window probes, interrupt delivery, and touched stub summaries.
 
 Next likely reference target:
 
-- Real-disc boot gaps: BIOS menu state `0x0401` exit conditions, selector/filter/buffer side effects after CD init, richer status transitions while BIOS polls current status, multi-directory ISO9660 behavior, and any transfer semantics proven by a bootable Saturn image.
+- Real-disc boot gaps: the normalizer/dataflow path around `0x06011640`, `0x06012C40..0x06012CC2`, and `0x06012DCC..0x06012EAA`; selector/filter/buffer side effects after CD init; richer status transitions while BIOS polls current status; multi-directory ISO9660 behavior; and any transfer semantics proven by a bootable Saturn image.
 - BIOS Work RAM High routines around `0x06040000..0x06040240`, `0x06040B70..0x06040C20`, `0x06041460..0x060414B0`, and `0x060422A0..0x060425D0`, from sources with clear redistribution terms before vendoring.

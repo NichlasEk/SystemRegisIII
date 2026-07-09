@@ -44,6 +44,7 @@ static int RunBios(string[] args)
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var dualSh2 = Has(args, "--dual-sh2");
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
+    var summaryOnly = Has(args, "--summary-only");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -319,23 +320,27 @@ static int RunBios(string[] args)
         PrintHotProgramCounters(slave.Name, slavePcHits!);
     }
 
+    var pcProbeSampleLimit = summaryOnly ? 8 : int.MaxValue;
     PrintMasterGbrLoopProbe(master, addressMap);
-    normalizeProbe.Print();
-    geometryProducerProbe.Print();
-    geometryLargeProducerProbe.Print();
-    PrintMasterPcProbe(master, addressMap);
-    PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
-    PrintWatchWindow("Master flag watch", masterFlagWatch);
-    PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
-    PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
-    PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
-    PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
-    PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
-    PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
-    PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
-    if (slaveFlagWatch is not null)
+    normalizeProbe.Print(pcProbeSampleLimit);
+    geometryProducerProbe.Print(pcProbeSampleLimit);
+    geometryLargeProducerProbe.Print(pcProbeSampleLimit);
+    if (!summaryOnly)
     {
-        PrintWatchWindow("Slave flag watch", slaveFlagWatch);
+        PrintMasterPcProbe(master, addressMap);
+        PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
+        PrintWatchWindow("Master flag watch", masterFlagWatch);
+        PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
+        PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
+        PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
+        PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
+        PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
+        PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
+        PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
+        if (slaveFlagWatch is not null)
+        {
+            PrintWatchWindow("Slave flag watch", slaveFlagWatch);
+        }
     }
 
     PrintScuInterruptState(scu, interruptProbe);
@@ -1438,7 +1443,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2] [--defer-vblank-in-critical-windows]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
@@ -1580,7 +1585,7 @@ sealed class PcWindowProbe(
         }
     }
 
-    public void Print()
+    public void Print(int maxSamplesPerSet = int.MaxValue)
     {
         if (_hits == 0)
         {
@@ -1589,19 +1594,19 @@ sealed class PcWindowProbe(
 
         Console.WriteLine($"{label}: hits={_hits:N0} window=0x{start:X8}..0x{end:X8}");
         PrintProcedureRegisterHits();
-        PrintSamples("first", _first);
+        PrintSamples("first", _first, maxSamplesPerSet, fromEnd: false);
         if (_hits > _first.Count)
         {
-            PrintSamples("last", _last);
+            PrintSamples("last", _last, maxSamplesPerSet, fromEnd: true);
         }
 
         if (focusedProcedureRegister is { } pr && _focusedHits > 0)
         {
             Console.WriteLine($"  focused PR=0x{pr:X8} hits={_focusedHits:N0}:");
-            PrintSamples("focused first", _focusedFirst);
+            PrintSamples("focused first", _focusedFirst, maxSamplesPerSet, fromEnd: false);
             if (_focusedHits > _focusedFirst.Count)
             {
-                PrintSamples("focused last", _focusedLast);
+                PrintSamples("focused last", _focusedLast, maxSamplesPerSet, fromEnd: true);
             }
         }
     }
@@ -1618,10 +1623,11 @@ sealed class PcWindowProbe(
         }
     }
 
-    private static void PrintSamples(string name, IEnumerable<PcWindowSample> samples)
+    private static void PrintSamples(string name, IEnumerable<PcWindowSample> samples, int maxSamples, bool fromEnd)
     {
         Console.WriteLine($"  {name} samples:");
-        foreach (var sample in samples)
+        var selectedSamples = fromEnd ? samples.TakeLast(maxSamples) : samples.Take(maxSamples);
+        foreach (var sample in selectedSamples)
         {
             Console.WriteLine(
                 $"    i={sample.InstructionIndex:N0} pc=0x{sample.Pc:X8} pr=0x{sample.Pr:X8} sr=0x{sample.Sr:X8} r0=0x{sample.R0:X8} r1=0x{sample.R1:X8} r2=0x{sample.R2:X8} r3=0x{sample.R3:X8} r4=0x{sample.R4:X8} r5=0x{sample.R5:X8} r6=0x{sample.R6:X8} r7=0x{sample.R7:X8} r9=0x{sample.R9:X8} r10=0x{sample.R10:X8} r12=0x{sample.R12:X8} r13=0x{sample.R13:X8} mach=0x{sample.Mach:X8} macl=0x{sample.Macl:X8} {sample.Instruction}");
