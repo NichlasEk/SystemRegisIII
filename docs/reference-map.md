@@ -115,6 +115,7 @@ Current bringup position:
 - The latest Nights probe ends in BIOS menu state `0x060B306C = 0x0401`, with CD command counts `0x00:51, 0x01:4, 0x04:2, 0x06:3, 0x48:2, 0x60:2, 0x67:2, 0x75:3`.
 - The July 9 NiGHTS cue/bin probe with `--cd-status standby --dual-sh2 --instructions 80_000_000 --summary-only` has CD auth complete and no new CD command sequence after `Get Hardware Info`; the hot loop is now the Work RAM High normalizer at `0x06012C84..0x06012C8A`. The focused caller is `PR=0x06011690`, after `0x06012DCC` scans geometry source data and reaches the normalizer tail with `R0=0`, `R4` shifting to zero, and `R6` decrementing for millions of iterations. Treat the next blocker as transform/geometry dataflow or an SH-2 arithmetic edge, not CD authentication or VDP display bringup.
 - CLI `--summary-only` keeps long bringup runs readable while still printing hot PCs, compact PC-window probes, interrupt delivery, and touched stub summaries.
+- The latest NiGHTS transform-source probe shows `0x0605D000..0x0605EFFF` is populated by the routine around `0x0602DC0C` with small signed fixed-point-looking values, then read by the transform builder around `0x0602E680..0x0602E7F0`. The large geometry-source values are produced later through the transform/key path (`0x0602E70C`, `0x0602E7AA`, `0x0602E7D2`, `0x0602E7EA`) and then copied into the normalizer source by `0x0602EA90`. Keep the next probe focused on the transform builder's `MAC.L`/`XTRCT` dataflow and pointer registers (`R1`, `R4`, `R7`, `R8`, `R11`, `R14`).
 
 Next likely reference target:
 

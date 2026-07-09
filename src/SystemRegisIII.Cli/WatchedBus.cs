@@ -186,15 +186,20 @@ internal readonly record struct WatchedAccessContext(
     uint ProcedureRegister,
     uint GlobalBaseRegister,
     uint R0,
+    uint R1,
     uint R2,
     uint R3,
     uint R4,
     uint R5,
     uint R6,
+    uint R7,
+    uint R8,
     uint R9,
     uint R10,
+    uint R11,
     uint R12,
-    uint R13);
+    uint R13,
+    uint R14);
 
 internal readonly record struct WatchedAccess(WatchedAccessContext? Context, uint Address, uint Value);
 

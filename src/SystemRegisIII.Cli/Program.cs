@@ -91,8 +91,13 @@ static int RunBios(string[] args)
         0x0603_01A8,
         0x0603_01C8,
         () => GetWatchContext(master));
-    var masterGeometrySourceWatch = new WatchedBus(
+    var masterTransformSourceWatch = new WatchedBus(
         masterTransformKeyWatch,
+        0x0605_D000,
+        0x0605_EFFF,
+        () => GetWatchContext(master));
+    var masterGeometrySourceWatch = new WatchedBus(
+        masterTransformSourceWatch,
         0x0604_9E00,
         0x0604_A9FF,
         () => GetWatchContext(master));
@@ -320,7 +325,7 @@ static int RunBios(string[] args)
         PrintHotProgramCounters(slave.Name, slavePcHits!);
     }
 
-    var pcProbeSampleLimit = summaryOnly ? 8 : int.MaxValue;
+    var pcProbeSampleLimit = summaryOnly ? 4 : int.MaxValue;
     PrintMasterGbrLoopProbe(master, addressMap);
     normalizeProbe.Print(pcProbeSampleLimit);
     geometryProducerProbe.Print(pcProbeSampleLimit);
@@ -333,6 +338,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
         PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
         PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
+        PrintWatchWindow("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
         PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
@@ -341,6 +347,12 @@ static int RunBios(string[] args)
         {
             PrintWatchWindow("Slave flag watch", slaveFlagWatch);
         }
+    }
+    else
+    {
+        PrintWatchSummary("Master transform-key watch", masterTransformKeyWatch);
+        PrintWatchSummary("Master transform-source watch", masterTransformSourceWatch);
+        PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);
@@ -408,15 +420,20 @@ static WatchedAccessContext? GetWatchContext(Sh2Cpu? cpu) =>
             cpu.Registers.ProcedureRegister,
             cpu.Registers.GlobalBaseRegister,
             cpu.Registers.General[0],
+            cpu.Registers.General[1],
             cpu.Registers.General[2],
             cpu.Registers.General[3],
             cpu.Registers.General[4],
             cpu.Registers.General[5],
             cpu.Registers.General[6],
+            cpu.Registers.General[7],
+            cpu.Registers.General[8],
             cpu.Registers.General[9],
             cpu.Registers.General[10],
+            cpu.Registers.General[11],
             cpu.Registers.General[12],
-            cpu.Registers.General[13]);
+            cpu.Registers.General[13],
+            cpu.Registers.General[14]);
 
 static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 {
@@ -745,6 +762,41 @@ static void PrintWatchWindow(string label, WatchedBus watch)
     }
 }
 
+static void PrintWatchSummary(string label, WatchedBus watch)
+{
+    Console.WriteLine($"{label}: reads={watch.ReadCount:N0} writes={watch.WriteCount:N0}");
+    if (watch.ReadCount > 0)
+    {
+        Console.WriteLine("  hot reads:");
+        foreach (var (address, count, value, context) in watch.GetHotReads(4))
+        {
+            Console.WriteLine($"    0x{address:X8}: {count:N0} last=0x{value:X8} {FormatWatchContext(context)}");
+        }
+    }
+
+    if (watch.WriteCount > 0)
+    {
+        Console.WriteLine("  hot writes:");
+        foreach (var (address, count, value, context) in watch.GetHotWrites(6))
+        {
+            Console.WriteLine($"    0x{address:X8}: {count:N0} last=0x{value:X8} {FormatWatchContext(context)}");
+        }
+
+        Console.WriteLine("  recent writes:");
+        foreach (var write in watch.RecentWrites.TakeLast(6))
+        {
+            Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
+        }
+
+        if (watch.LargeWriteCount > 0)
+        {
+            Console.WriteLine($"  large signed writes: {watch.LargeWriteCount:N0}");
+            PrintLargeWrites("first large writes", watch.FirstLargeWrites.Take(6).ToArray());
+            PrintLargeWrites("recent large writes", watch.RecentLargeWrites.TakeLast(6).ToArray());
+        }
+    }
+}
+
 static void PrintLargeWrites(string label, IReadOnlyList<WatchedWrite> writes)
 {
     if (writes.Count == 0)
@@ -767,7 +819,7 @@ static string FormatWatchContext(WatchedAccessContext? context)
     }
 
     var pc = value.ProgramCounter is { } programCounter ? $"0x{programCounter:X8}" : "<unknown>";
-    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8} r2=0x{value.R2:X8} r3=0x{value.R3:X8} r4=0x{value.R4:X8} r5=0x{value.R5:X8} r6=0x{value.R6:X8} r9=0x{value.R9:X8} r10=0x{value.R10:X8} r12=0x{value.R12:X8} r13=0x{value.R13:X8}";
+    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8} r1=0x{value.R1:X8} r2=0x{value.R2:X8} r3=0x{value.R3:X8} r4=0x{value.R4:X8} r5=0x{value.R5:X8} r6=0x{value.R6:X8} r7=0x{value.R7:X8} r8=0x{value.R8:X8} r9=0x{value.R9:X8} r10=0x{value.R10:X8} r11=0x{value.R11:X8} r12=0x{value.R12:X8} r13=0x{value.R13:X8} r14=0x{value.R14:X8}";
 }
 
 static string FormatLoopProbeInstruction(ISaturnBus bus, uint address)
