@@ -54,6 +54,12 @@ public sealed class SaturnSystemMap
             options.DiscImage,
             options.MountedDiscInitialStatus);
         var scuRegisters = new ScuRegisterBusDevice();
+        var scspArea = new StubBusDevice("SCSP Area").EnableWriteBack();
+        if (options.SimulateScspCommandAck)
+        {
+            scspArea.AddReadByteProvider(0x700, static () => 0);
+        }
+
         var vdp1Area = new DebugMemoryBusDevice("VDP1 Area", 1024 * 1024);
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
@@ -67,7 +73,7 @@ public sealed class SaturnSystemMap
             new StubBusDevice("CD Block Area"),
             new StubBusDevice("A-Bus Probe Area"),
             cdBlockRegisterMirror,
-            new StubBusDevice("SCSP Area").EnableWriteBack(),
+            scspArea,
             vdp1Area,
             vdp2Vram,
             vdp2Cram,

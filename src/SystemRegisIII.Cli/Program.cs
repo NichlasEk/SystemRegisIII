@@ -42,6 +42,7 @@ static int RunBios(string[] args)
     var vblankOutOffset = vblankInterval / 2;
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
+    var simulateScspCommandAck = Has(args, "--simulate-scsp-command-ack");
     var dualSh2 = Has(args, "--dual-sh2");
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
     var summaryOnly = Has(args, "--summary-only");
@@ -56,6 +57,7 @@ static int RunBios(string[] args)
         new SaturnBringupOptions
         {
             SimulateSlaveReady = simulateSlaveReady,
+            SimulateScspCommandAck = simulateScspCommandAck,
             DiscImage = discImage,
             MountedDiscInitialStatus = cdStatus,
             DigitalPadState = digitalPadState,
@@ -66,8 +68,13 @@ static int RunBios(string[] args)
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
     Sh2Cpu? master = null;
     Sh2Cpu? slave = null;
-    var masterCdStatusBufferWatch = new WatchedBus(
+    var masterScspRamWatch = new WatchedBus(
         masterInternalBus,
+        0x05A0_06F0,
+        0x05A0_0730,
+        () => GetWatchContext(master));
+    var masterCdStatusBufferWatch = new WatchedBus(
+        masterScspRamWatch,
         0x0601_FF60,
         0x0601_FF8F,
         () => GetWatchContext(master));
@@ -155,6 +162,7 @@ static int RunBios(string[] args)
     master.Reset();
     slave?.Reset();
     var masterPcHits = new Dictionary<uint, long>();
+    var masterTailPcHits = new Dictionary<uint, long>();
     var masterHandlerPcHits = new Dictionary<uint, long>();
     var masterCallbackPcHits = new Dictionary<uint, long>();
     var masterSetupPcHits = new Dictionary<uint, long>();
@@ -168,6 +176,21 @@ static int RunBios(string[] args)
         0x0601_2CC2,
         capacity: 64,
         focusedProcedureRegister: 0x0601_1690);
+    var postDivisionWaitProbe = new PcWindowProbe(
+        "Master SH-2 post-DIVU wait probe",
+        0x0601_1180,
+        0x0601_11C0,
+        capacity: 64);
+    var postFrameWaitProbe = new PcWindowProbe(
+        "Master SH-2 post-frame wait probe",
+        0x0601_2F80,
+        0x0601_2FC0,
+        capacity: 64);
+    var biosTailProbe = new PcWindowProbe(
+        "Master SH-2 BIOS tail probe",
+        0x0000_2320,
+        0x0000_23A0,
+        capacity: 96);
     var matrixBuilderProbe = new PcWindowProbe(
         "Master SH-2 matrix builder probe",
         0x0602_E3A0,
@@ -181,10 +204,9 @@ static int RunBios(string[] args)
         capacity: 32);
     var transformNodeBuilderProbe = new PcWindowProbe(
         "Master SH-2 transform node builder probe",
-        0x0602_DE80,
+        0x0602_DD60,
         0x0602_DF10,
-        capacity: 96,
-        focusedProcedureRegister: 0x0602_DE80);
+        capacity: 256);
     var geometryProducerProbe = new PcWindowProbe(
         "Master SH-2 geometry producer probe",
         0x0602_E924,
@@ -282,7 +304,14 @@ static int RunBios(string[] args)
 
         var masterPc = master.Registers.ProgramCounter;
         RecordPc(masterPcHits, masterPc);
+        if (i >= instructionCount - 1_000_000)
+        {
+            RecordPc(masterTailPcHits, masterPc);
+        }
         normalizeProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        postDivisionWaitProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        postFrameWaitProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        biosTailProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         matrixBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         matrixCallerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         transformNodeBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
@@ -334,6 +363,7 @@ static int RunBios(string[] args)
     }
 
     Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
+    Console.WriteLine($"SCSP command-ack simulation: {(simulateScspCommandAck ? "on" : "off")}");
     Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
     Console.WriteLine($"VBlank interval: {vblankInterval:N0} instructions");
     Console.WriteLine(
@@ -357,6 +387,7 @@ static int RunBios(string[] args)
     }
 
     PrintHotProgramCounters(master.Name, masterPcHits);
+    PrintHotProgramCounters($"{master.Name} tail", masterTailPcHits);
     PrintHotProgramCounters($"{master.Name} handler", masterHandlerPcHits);
     PrintHotProgramCounters($"{master.Name} callback", masterCallbackPcHits);
     PrintHotProgramCounters($"{master.Name} setup", masterSetupPcHits);
@@ -368,6 +399,9 @@ static int RunBios(string[] args)
     var pcProbeSampleLimit = summaryOnly ? 4 : int.MaxValue;
     PrintMasterGbrLoopProbe(master, addressMap);
     normalizeProbe.Print(pcProbeSampleLimit);
+    postDivisionWaitProbe.Print(summaryOnly ? 32 : int.MaxValue);
+    postFrameWaitProbe.Print(summaryOnly ? 32 : int.MaxValue);
+    biosTailProbe.Print(summaryOnly ? 48 : int.MaxValue);
     matrixCallerProbe.Print(summaryOnly ? 48 : int.MaxValue);
     matrixBuilderProbe.Print(summaryOnly ? 48 : int.MaxValue);
     transformNodeBuilderProbe.Print(summaryOnly ? 48 : int.MaxValue);
@@ -376,6 +410,9 @@ static int RunBios(string[] args)
     if (!summaryOnly)
     {
         PrintMasterPcProbe(master, addressMap);
+        PrintInstructionWindow(addressMap, 0x0602_DD60, 224, "  transform node builder 0x0602DD60");
+        PrintInstructionWindow(addressMap, 0x0601_1570, 48, "  fixed-point helper 0x06011570");
+        PrintWatchWindow("Master SCSP RAM handshake watch", masterScspRamWatch);
         PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
         PrintWatchWindow("Master flag watch", masterFlagWatch);
         PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
@@ -397,6 +434,7 @@ static int RunBios(string[] args)
     }
     else
     {
+        PrintWatchSummary("Master SCSP RAM handshake watch", masterScspRamWatch);
         PrintWatchSummary("Master transform-matrix watch", masterTransformMatrixWatch);
         PrintWatchSummary("Master transform-node watch", masterTransformNodeWatch);
         PrintWatchSummary("Master transform-parent-node watch", masterTransformParentNodeWatch);
@@ -1546,7 +1584,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

@@ -2,13 +2,17 @@
 
 ## Current State
 
-The current NiGHTS bringup blocker is no longer CD authentication or a missing BIOS menu input path. With:
+The old NiGHTS transform/normalizer blocker is fixed. The game uses the SH-2 on-chip division unit through `0xFFFFFF00`, but `Sh2InternalRegisterBus` previously treated those registers as passive storage. The fixed-point helper at `0x0601157C` therefore returned the written dividend low word instead of the signed 64/32 quotient, which caused the large transform values and the long normalizer loop.
+
+With:
 
 ```text
 dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc "/home/nichlas/roms/Saturn/NightsIntoDreams/NiGHTS into Dreams... (Japan).cue" --dual-sh2 --cd-status standby --instructions 30000000 --summary-only
 ```
 
-the run still reaches the Work RAM High normalizer loop at `0x06012C84..0x06012C8A`, focused through `PR=0x06011690`. CD Block auth is complete, the mounted NiGHTS disc is detected as auth type `0x04`, and the CD command stream has settled at `Get Hardware Info`/current-status polling rather than exposing a new CD command gap.
+the 30M run now reaches `PC=0x060110C4` instead of `0x06012C88`, and normalizer-probe hits fall from about 916,000 to about 81,000. The formerly corrupt parent-node values are now small signed fixed-point values.
+
+After about 130 simulated frames NiGHTS reaches a separate SCSP sound-driver handshake at sound RAM `0x05A00700`. Since no 68k/SCSP CPU core runs yet, `--simulate-scsp-command-ack` explicitly supplies that bringup-only acknowledgement. With that flag and `--vblank-interval 100000`, a 50M run passes both old loops, increases Work RAM High writes to about 11.6 million, and spends its tail in returning BIOS byte-copy calls rather than a stable wait loop.
 
 ## Latest Pushed Checkpoints
 
@@ -25,6 +29,7 @@ The current diagnostic slice adds targeted matrix-caller, node-builder, node-poo
 dotnet format SystemRegisIII.slnx --verify-no-changes
 dotnet run --project tests/SystemRegisIII.Smoke/SystemRegisIII.Smoke.csproj
 dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc "/home/nichlas/roms/Saturn/NightsIntoDreams/NiGHTS into Dreams... (Japan).cue" --dual-sh2 --cd-status standby --instructions 30000000 --summary-only
+dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc "/home/nichlas/roms/Saturn/NightsIntoDreams/NiGHTS into Dreams... (Japan).cue" --dual-sh2 --cd-status standby --simulate-scsp-command-ack --vblank-interval 100000 --instructions 50000000 --summary-only
 ```
 
 Smoke output:
@@ -67,18 +72,28 @@ The large-value chain is now:
 
 Running with `--defer-vblank-in-critical-windows` produces the same parent-node values and write PCs, so periodic VBlank injection is not the cause of this data chain.
 
+The missing hardware behavior was the SH-2 DIVU register block:
+
+- `0xFFFFFF00`: signed divisor (`DVSR`)
+- `0xFFFFFF04`: signed 32/32 dividend trigger/result (`DVDNT`)
+- `0xFFFFFF10`: signed 64-bit dividend high/remainder (`DVDNTH`)
+- `0xFFFFFF14`: signed 64-bit dividend low trigger/quotient (`DVDNTL`)
+- `0xFFFFFF18..1C`: result shadows
+
+The implementation now handles normal signed 32/32 and 64/32 division, remainder, mirrored register addresses, and saturating overflow status. Smoke coverage includes the exact NiGHTS-shaped `0xFFFFFFFE_79880000 / 0x00220000 = -2940` case.
+
 No obvious one-line SH-2 semantic fix was proven in the last slice. `XTRCT`, `MAC.L`, `DMULS.L`, signed comparisons, and delayed branch latching already have smoke coverage, though the matrix-builder path may still expose a subtler multiply/divide/shift edge.
 
 ## Next Recommended Step
 
-Focus on `0x0602DD80..0x0602DE82` and the inputs feeding those fixed-point shifts.
+Continue after the now-passed SCSP handshake using the accelerated bringup command above.
 
 Recommended approach:
 
-1. Extend the transform-node-builder probe backward from `0x0602DE80` to cover `0x0602DD80..0x0602DE82`.
-2. Capture the unshifted source words and their writer/loader addresses before the first large writes into `0x06041584..0x06041598`.
-3. Compare the `SHLL`, signed-load, and `DMULS.L` dataflow against the local Mednafen SH-2 reference, but do not patch CPU semantics without a small smoke-test repro.
-4. Only patch CPU semantics when a small repro can be expressed as a smoke test.
+1. Run farther with `--simulate-scsp-command-ack --vblank-interval 100000` and use the tail-hot-PC report to distinguish active BIOS copy/decompression calls from a stable loop.
+2. Track whether the game reaches VDP1 command submission or a CD file-transfer request.
+3. Keep the SCSP acknowledgement explicit until a real 68k/SCSP execution path exists.
+4. Implement the next hardware behavior only when its read/write protocol is proven by the focused probes.
 
 ## Useful Current Probe Output
 

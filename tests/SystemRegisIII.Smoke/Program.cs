@@ -134,6 +134,13 @@ static void VerifySaturnSystemMap()
     Require(cdRegisters.LastCommandCode == 0x00, "CD Block current status command latch failed.");
     systemMap.Bus.WriteLong(0x25A0_0000, 0x0000_A000);
     Require(systemMap.Bus.ReadLong(0x25A0_0000) == 0x0000_A000, "SCSP register write-back failed.");
+
+    var scspAckMap = SaturnSystemMap.CreateBringup(
+        bios,
+        new SaturnBringupOptions { SimulateScspCommandAck = true });
+    scspAckMap.Bus.WriteLong(0x25A0_0700, 0x0800_0000);
+    Require(scspAckMap.Bus.ReadByte(0x25A0_0700) == 0, "SCSP command-ack simulation failed.");
+    Require(scspAckMap.Bus.ReadByte(0x25A0_0701) == 0, "SCSP command payload write-back failed.");
     systemMap.Bus.WriteWord(0x2018_0000, 0xBEEF);
     Require(systemMap.Bus.ReadWord(0x0018_0000) == 0xBEEF, "Backup RAM cache-through write-back failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
@@ -593,6 +600,24 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteByte(0xFFFF_FE92, 0x40);
     Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 internal latch failed.");
     Require(slaveBus.ReadByte(0xFFFF_FE92) == 0, "SH-2 internal latch leaked across CPUs.");
+
+    masterBus.WriteLong(0xFFFF_FF00, 7);
+    masterBus.WriteLong(0xFFFF_FF04, unchecked((uint)-100));
+    Require(masterBus.ReadLong(0xFFFF_FF04) == unchecked((uint)-14), "SH-2 DIVU 32/32 quotient failed.");
+    Require(masterBus.ReadLong(0xFFFF_FF10) == unchecked((uint)-2), "SH-2 DIVU 32/32 remainder failed.");
+
+    masterBus.WriteLong(0xFFFF_FF00, 0x0022_0000);
+    masterBus.WriteLong(0xFFFF_FF10, 0xFFFF_FFFE);
+    masterBus.WriteLong(0xFFFF_FF14, 0x7988_0000);
+    Require(masterBus.ReadLong(0xFFFF_FF14) == 0xFFFF_F484, "SH-2 DIVU 64/32 quotient failed.");
+    Require(masterBus.ReadLong(0xFFFF_FF10) == 0, "SH-2 DIVU 64/32 remainder failed.");
+    Require(masterBus.ReadLong(0xFFFF_FF34) == 0xFFFF_F484, "SH-2 DIVU register mirror failed.");
+
+    masterBus.WriteLong(0xFFFF_FF08, 0);
+    masterBus.WriteLong(0xFFFF_FF00, 0);
+    masterBus.WriteLong(0xFFFF_FF04, 1);
+    Require((masterBus.ReadLong(0xFFFF_FF08) & 1) != 0, "SH-2 DIVU divide-by-zero flag failed.");
+    Require(masterBus.ReadLong(0xFFFF_FF04) == 0x7FFF_FFFF, "SH-2 DIVU divide-by-zero saturation failed.");
 }
 
 static void VerifySh2InterruptEntry()

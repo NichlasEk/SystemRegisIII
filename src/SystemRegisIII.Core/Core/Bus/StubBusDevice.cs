@@ -61,6 +61,12 @@ public sealed class StubBusDevice(string name, byte readValue = 0) : IInspectabl
         return this;
     }
 
+    public StubBusDevice AddReadByteProvider(uint offset, Func<byte> provider)
+    {
+        _readProviders[offset] = provider;
+        return this;
+    }
+
     public StubBusDevice AddReadWordProvider(uint offset, Func<ushort> provider)
     {
         _readProviders[offset] = () => (byte)(provider() >> 8);
