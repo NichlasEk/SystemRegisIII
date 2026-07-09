@@ -15,6 +15,8 @@ public sealed class SaturnSystemMap
         DebugMemoryBusDevice vdp1Area,
         DebugMemoryBusDevice vdp2Vram,
         DebugMemoryBusDevice vdp2Cram,
+        DebugMemoryBusDevice vdp2Registers,
+        CdBlockRegisterBusDevice cdBlock,
         IReadOnlyList<IInspectableBusDevice> stubs)
     {
         Bus = bus;
@@ -23,6 +25,8 @@ public sealed class SaturnSystemMap
         Vdp1Area = vdp1Area;
         Vdp2Vram = vdp2Vram;
         Vdp2Cram = vdp2Cram;
+        Vdp2Registers = vdp2Registers;
+        CdBlock = cdBlock;
         Stubs = stubs;
     }
 
@@ -32,6 +36,8 @@ public sealed class SaturnSystemMap
     public DebugMemoryBusDevice Vdp1Area { get; }
     public DebugMemoryBusDevice Vdp2Vram { get; }
     public DebugMemoryBusDevice Vdp2Cram { get; }
+    public DebugMemoryBusDevice Vdp2Registers { get; }
+    public CdBlockRegisterBusDevice CdBlock { get; }
     public IReadOnlyList<IInspectableBusDevice> Stubs { get; }
 
     public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
@@ -51,6 +57,7 @@ public sealed class SaturnSystemMap
         var vdp1Area = new DebugMemoryBusDevice("VDP1 Area", 1024 * 1024);
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
+        var vdp2Registers = new DebugMemoryBusDevice("VDP2 Registers", 0x40000);
 
         IInspectableBusDevice[] stubs =
         [
@@ -64,6 +71,7 @@ public sealed class SaturnSystemMap
             vdp1Area,
             vdp2Vram,
             vdp2Cram,
+            vdp2Registers,
             scuRegisters,
             new StubBusDevice("SH-2 Internal Registers"),
         ];
@@ -82,13 +90,15 @@ public sealed class SaturnSystemMap
             .Map(0x05B0_0000, 0x05BF_FFFF, stubs[7])
             .Map(0x05C0_0000, 0x05DF_FFFF, stubs[8])
             .Map(0x05E0_0000, 0x05EF_FFFF, stubs[9])
-            .Map(0x05F0_0000, 0x05FF_FFFF, stubs[10])
+            .Map(0x05F0_0000, 0x05F7_FFFF, stubs[9])
+            .Map(0x05F8_0000, 0x05FB_FFFF, stubs[10])
+            .Map(0x05FE_0000, 0x05FF_FFFF, stubs[11])
             .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
             .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
             .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
-            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[11]);
+            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[12]);
 
-        return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, vdp1Area, vdp2Vram, vdp2Cram, stubs);
+        return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, vdp1Area, vdp2Vram, vdp2Cram, vdp2Registers, cdBlockRegisterMirror, stubs);
     }
 
     private static IMainMemory CreateHighWorkRam(SaturnBringupOptions options)

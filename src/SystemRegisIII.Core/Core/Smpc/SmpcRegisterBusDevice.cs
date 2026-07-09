@@ -39,7 +39,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private readonly Queue<byte> _recentCommands = new();
     private readonly byte[] _inputRegisters = new byte[7];
     private readonly byte[] _outputRegisters = new byte[32];
-    private readonly byte[] _digitalPadPortData;
+    private byte[] _digitalPadPortData;
     private readonly byte[] _rtc = new byte[7];
     private readonly byte[] _systemMemory = new byte[4];
     private bool _rtcValid = true;
@@ -49,6 +49,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         SaturnInputState digitalPadState = SaturnInputState.None,
         IReadOnlyList<byte>? digitalPadPeripheralData = null)
     {
+        DigitalPadState = digitalPadState;
         _digitalPadPortData = digitalPadPeripheralData is null
             ? BuildDigitalPadPortData(digitalPadState)
             : CopyDigitalPadPeripheralData(digitalPadPeripheralData);
@@ -69,6 +70,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     public IReadOnlyList<byte> InputRegisters => _inputRegisters;
     public IReadOnlyList<byte> OutputRegisters => _outputRegisters;
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
+    public SaturnInputState DigitalPadState { get; private set; }
 
     public byte ReadByte(uint offset)
     {
@@ -163,6 +165,17 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
 
         PendingInterrupts--;
         return true;
+    }
+
+    public void SetDigitalPadState(SaturnInputState state)
+    {
+        if (DigitalPadState == state)
+        {
+            return;
+        }
+
+        DigitalPadState = state;
+        _digitalPadPortData = BuildDigitalPadPortData(state);
     }
 
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>
