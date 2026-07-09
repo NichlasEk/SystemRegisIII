@@ -757,6 +757,13 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.General[9] == 0x0000_0040, "SH-2 STS MACL,Rn failed.");
 
+    WriteWord(code, 0x08, 0x431A);
+    cpu.Reset();
+    cpu.Registers.General[3] = 0x89AB_CDEF;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacLow == 0x89AB_CDEF, "SH-2 LDS Rn,MACL failed.");
+    Require(cpu.UnimplementedInstructionCount == 0, "SH-2 LDS Rn,MACL was recorded as unimplemented.");
+
     WriteWord(code, 0x08, 0x090A);
     cpu.Reset();
     cpu.Registers.MacHigh = 0x1357_2468;

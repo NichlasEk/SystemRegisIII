@@ -94,6 +94,8 @@ The fixed 80M A/B run reports no unimplemented SH-2 instructions, but its final 
 
 Continue beyond 80M using the accelerated bringup command above and classify the next tail before treating it as a blocker.
 
+A 100M run reaches `PC=0x060330D6`, performs about 4.85 million VDP2 VRAM reads, and exposes 16 executions of another missing SH-2 instruction: `0x4n1A` (`LDS Rn,MACL`), first at `0x060361A0` and last at `0x06036DAA`. Direct register-to-MACL loading is now implemented and smoke-covered. Re-run the 100M checkpoint before classifying the `0x060330D6..0x060330DC` tail because the missing MACL inputs may affect the path leading there.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

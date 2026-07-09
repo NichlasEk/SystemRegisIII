@@ -896,6 +896,13 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: CMP/PL R{register} T={Registers.T}");
                     return;
                 }
+            case 0x401A:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    Registers.MacLow = Registers.General[register];
+                    Trace($"0x{pc:X8}: LDS R{register},MACL <- 0x{Registers.MacLow:X8}");
+                    return;
+                }
             case 0x401B:
                 {
                     var register = (opcode >> 8) & 0xF;
