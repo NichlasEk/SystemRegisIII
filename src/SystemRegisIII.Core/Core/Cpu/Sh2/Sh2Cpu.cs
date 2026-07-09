@@ -301,9 +301,17 @@ public sealed class Sh2Cpu : ISh2Cpu
                     var destinationValue = (int)_bus.ReadLong(Registers.General[destination]);
                     Registers.General[source] += 4;
                     Registers.General[destination] += 4;
-                    var accumulator = ((long)(int)Registers.MacHigh << 32) | Registers.MacLow;
-                    var result = accumulator + ((long)sourceValue * destinationValue);
-                    Registers.MacHigh = (uint)((ulong)result >> 32);
+                    var accumulator = ((ulong)Registers.MacHigh << 32) | Registers.MacLow;
+                    var product = (long)sourceValue * destinationValue;
+                    var result = accumulator + unchecked((ulong)product);
+                    if (Registers.S && result > 0x0000_7FFF_FFFF_FFFFUL && result < 0xFFFF_8000_0000_0000UL)
+                    {
+                        result = (sourceValue ^ destinationValue) < 0
+                            ? 0xFFFF_8000_0000_0000UL
+                            : 0x0000_7FFF_FFFF_FFFFUL;
+                    }
+
+                    Registers.MacHigh = (uint)(result >> 32);
                     Registers.MacLow = (uint)result;
                     Trace($"0x{pc:X8}: MAC.L @R{source}+,@R{destination}+ -> MACH=0x{Registers.MacHigh:X8} MACL=0x{Registers.MacLow:X8}");
                     return;

@@ -63,6 +63,7 @@ static void VerifyPageMappedBus()
     Require(bus.ReadWord(0x6000_0FFE) == 0xCAFE, "Partial page RAM write failed.");
     bus.WriteLong(0x4600_0FF0, 0x1122_3344);
     Require(bus.ReadLong(0x0600_0FF0) == 0x1122_3344, "SH-2 high RAM cache-through alias failed.");
+    Require(bus.ReadWord(0x8600_0FF0) == 0x1122, "SH-2 high area RAM alias failed.");
 
     try
     {
@@ -864,6 +865,19 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[2] == 0x0600_0024, "SH-2 MAC.L did not postincrement destination.");
     Require(cpu.Registers.MacHigh == 0xFFFF_FFFF, "SH-2 MAC.L failed high word.");
     Require(cpu.Registers.MacLow == 0xFFFF_FFFB, "SH-2 MAC.L failed low word.");
+
+    WriteLong(data, 0x10, 0x0000_0002);
+    WriteLong(data, 0x20, 0x0000_0002);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0010;
+    cpu.Registers.General[2] = 0x0600_0020;
+    cpu.Registers.S = true;
+    cpu.Registers.MacHigh = 0x0000_7FFF;
+    cpu.Registers.MacLow = 0xFFFF_FFFE;
+    cpu.StepInstruction();
+    Require(cpu.Registers.S, "SH-2 SR.S flag did not remain set.");
+    Require(cpu.Registers.MacHigh == 0x0000_7FFF, "SH-2 MAC.L saturation failed high word.");
+    Require(cpu.Registers.MacLow == 0xFFFF_FFFF, "SH-2 MAC.L saturation failed low word.");
 
     WriteWord(code, 0x08, 0x312A);
     cpu.Reset();

@@ -115,6 +115,11 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
             return address - 0x4000_0000;
         }
 
+        if (address is >= 0x8000_0000 and <= 0x9FFF_FFFF)
+        {
+            return address - 0x8000_0000;
+        }
+
         return address;
     }
 }

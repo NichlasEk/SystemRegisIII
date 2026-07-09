@@ -3,6 +3,7 @@ namespace SystemRegisIII.Core.Core.Cpu.Sh2;
 public sealed class Sh2Registers
 {
     private const uint InterruptMask = 0x0000_00F0;
+    private const uint SMask = 0x0000_0002;
     private const uint QMask = 0x0000_0100;
     private const uint MMask = 0x0000_0200;
 
@@ -26,6 +27,12 @@ public sealed class Sh2Registers
     {
         get => (StatusRegister & 1) != 0;
         set => StatusRegister = value ? StatusRegister | 1u : StatusRegister & ~1u;
+    }
+
+    public bool S
+    {
+        get => (StatusRegister & SMask) != 0;
+        set => StatusRegister = value ? StatusRegister | SMask : StatusRegister & ~SMask;
     }
 
     public bool Q
