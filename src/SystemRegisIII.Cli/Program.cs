@@ -91,8 +91,23 @@ static int RunBios(string[] args)
         0x0603_0080,
         0x0603_017F,
         () => GetWatchContext(master));
-    var masterTransformKeyWatch = new WatchedBus(
+    var masterTransformNodeWatch = new WatchedBus(
         masterTransformMatrixWatch,
+        0x0603_5200,
+        0x0603_533F,
+        () => GetWatchContext(master));
+    var masterTransformParentNodeWatch = new WatchedBus(
+        masterTransformNodeWatch,
+        0x0603_527C,
+        0x0603_5284,
+        () => GetWatchContext(master));
+    var masterTransformCoefficientSourceWatch = new WatchedBus(
+        masterTransformParentNodeWatch,
+        0x0604_1500,
+        0x0604_163F,
+        () => GetWatchContext(master));
+    var masterTransformKeyWatch = new WatchedBus(
+        masterTransformCoefficientSourceWatch,
         0x0603_01A8,
         0x0603_01C8,
         () => GetWatchContext(master));
@@ -153,6 +168,23 @@ static int RunBios(string[] args)
         0x0601_2CC2,
         capacity: 64,
         focusedProcedureRegister: 0x0601_1690);
+    var matrixBuilderProbe = new PcWindowProbe(
+        "Master SH-2 matrix builder probe",
+        0x0602_E3A0,
+        0x0602_E420,
+        capacity: 96,
+        focusedProcedureRegister: 0x0602_DABE);
+    var matrixCallerProbe = new PcWindowProbe(
+        "Master SH-2 matrix caller probe",
+        0x0602_DA40,
+        0x0602_DABE,
+        capacity: 32);
+    var transformNodeBuilderProbe = new PcWindowProbe(
+        "Master SH-2 transform node builder probe",
+        0x0602_DE80,
+        0x0602_DF10,
+        capacity: 96,
+        focusedProcedureRegister: 0x0602_DE80);
     var geometryProducerProbe = new PcWindowProbe(
         "Master SH-2 geometry producer probe",
         0x0602_E924,
@@ -251,6 +283,9 @@ static int RunBios(string[] args)
         var masterPc = master.Registers.ProgramCounter;
         RecordPc(masterPcHits, masterPc);
         normalizeProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        matrixBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        matrixCallerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        transformNodeBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         geometryProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         geometryLargeProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         if (masterPc is >= 0x0600_083C and <= 0x0600_094C)
@@ -333,6 +368,9 @@ static int RunBios(string[] args)
     var pcProbeSampleLimit = summaryOnly ? 4 : int.MaxValue;
     PrintMasterGbrLoopProbe(master, addressMap);
     normalizeProbe.Print(pcProbeSampleLimit);
+    matrixCallerProbe.Print(summaryOnly ? 48 : int.MaxValue);
+    matrixBuilderProbe.Print(summaryOnly ? 48 : int.MaxValue);
+    transformNodeBuilderProbe.Print(summaryOnly ? 48 : int.MaxValue);
     geometryProducerProbe.Print(pcProbeSampleLimit);
     geometryLargeProducerProbe.Print(pcProbeSampleLimit);
     if (!summaryOnly)
@@ -343,6 +381,9 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
         PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
         PrintWatchWindow("Master transform-matrix watch", masterTransformMatrixWatch);
+        PrintWatchWindow("Master transform-node watch", masterTransformNodeWatch);
+        PrintWatchWindow("Master transform-parent-node watch", masterTransformParentNodeWatch);
+        PrintWatchWindow("Master transform-coefficient-source watch", masterTransformCoefficientSourceWatch);
         PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchWindow("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
@@ -357,6 +398,9 @@ static int RunBios(string[] args)
     else
     {
         PrintWatchSummary("Master transform-matrix watch", masterTransformMatrixWatch);
+        PrintWatchSummary("Master transform-node watch", masterTransformNodeWatch);
+        PrintWatchSummary("Master transform-parent-node watch", masterTransformParentNodeWatch);
+        PrintWatchSummary("Master transform-coefficient-source watch", masterTransformCoefficientSourceWatch);
         PrintWatchSummary("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchSummary("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
@@ -1604,10 +1648,13 @@ sealed class PcWindowProbe(
             cpu.Registers.General[5],
             r6,
             cpu.Registers.General[7],
+            cpu.Registers.General[8],
             cpu.Registers.General[9],
             cpu.Registers.General[10],
+            cpu.Registers.General[11],
             cpu.Registers.General[12],
             cpu.Registers.General[13],
+            cpu.Registers.General[14],
             cpu.Registers.MacHigh,
             cpu.Registers.MacLow,
             formatInstruction(bus, pc));
@@ -1689,7 +1736,7 @@ sealed class PcWindowProbe(
         foreach (var sample in selectedSamples)
         {
             Console.WriteLine(
-                $"    i={sample.InstructionIndex:N0} pc=0x{sample.Pc:X8} pr=0x{sample.Pr:X8} sr=0x{sample.Sr:X8} r0=0x{sample.R0:X8} r1=0x{sample.R1:X8} r2=0x{sample.R2:X8} r3=0x{sample.R3:X8} r4=0x{sample.R4:X8} r5=0x{sample.R5:X8} r6=0x{sample.R6:X8} r7=0x{sample.R7:X8} r9=0x{sample.R9:X8} r10=0x{sample.R10:X8} r12=0x{sample.R12:X8} r13=0x{sample.R13:X8} mach=0x{sample.Mach:X8} macl=0x{sample.Macl:X8} {sample.Instruction}");
+                $"    i={sample.InstructionIndex:N0} pc=0x{sample.Pc:X8} pr=0x{sample.Pr:X8} sr=0x{sample.Sr:X8} r0=0x{sample.R0:X8} r1=0x{sample.R1:X8} r2=0x{sample.R2:X8} r3=0x{sample.R3:X8} r4=0x{sample.R4:X8} r5=0x{sample.R5:X8} r6=0x{sample.R6:X8} r7=0x{sample.R7:X8} r8=0x{sample.R8:X8} r9=0x{sample.R9:X8} r10=0x{sample.R10:X8} r11=0x{sample.R11:X8} r12=0x{sample.R12:X8} r13=0x{sample.R13:X8} r14=0x{sample.R14:X8} mach=0x{sample.Mach:X8} macl=0x{sample.Macl:X8} {sample.Instruction}");
         }
     }
 
@@ -1706,10 +1753,13 @@ sealed class PcWindowProbe(
         uint R5,
         uint R6,
         uint R7,
+        uint R8,
         uint R9,
         uint R10,
+        uint R11,
         uint R12,
         uint R13,
+        uint R14,
         uint Mach,
         uint Macl,
         string Instruction);
