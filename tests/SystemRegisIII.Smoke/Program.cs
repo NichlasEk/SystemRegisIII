@@ -770,6 +770,13 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.General[9] == 0x1357_2468, "SH-2 STS MACH,Rn failed.");
 
+    WriteWord(code, 0x08, 0x420A);
+    cpu.Reset();
+    cpu.Registers.General[2] = 0x7654_3210;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0x7654_3210, "SH-2 LDS Rn,MACH failed.");
+    Require(cpu.UnimplementedInstructionCount == 0, "SH-2 LDS Rn,MACH was recorded as unimplemented.");
+
     WriteWord(code, 0x08, 0x4F02);
     cpu.Reset();
     cpu.Registers.General[15] = 0x0600_0008;
