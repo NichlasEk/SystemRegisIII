@@ -181,9 +181,10 @@ public sealed class Sh2Cpu : ISh2Cpu
         {
             var displacement = SignExtend8(opcode & 0xFF) * 2;
             var target = (uint)(Registers.ProgramCounter + 2 + displacement);
+            var shouldBranch = Registers.T;
             Trace($"0x{pc:X8}: BT/S 0x{target:X8} T={Registers.T}");
             ExecuteDelaySlot();
-            if (Registers.T)
+            if (shouldBranch)
             {
                 Registers.ProgramCounter = target;
             }
@@ -231,9 +232,10 @@ public sealed class Sh2Cpu : ISh2Cpu
         {
             var displacement = SignExtend8(opcode & 0xFF) * 2;
             var target = (uint)(Registers.ProgramCounter + 2 + displacement);
+            var shouldBranch = !Registers.T;
             Trace($"0x{pc:X8}: BF/S 0x{target:X8} T={Registers.T}");
             ExecuteDelaySlot();
-            if (!Registers.T)
+            if (shouldBranch)
             {
                 Registers.ProgramCounter = target;
             }

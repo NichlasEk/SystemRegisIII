@@ -1067,6 +1067,24 @@ static void VerifySh2BranchAndExceptionInstructions()
     Require(cpu.Registers.General[1] == 1, "SH-2 BT/S did not execute fallthrough delay slot.");
     Require(cpu.Registers.ProgramCounter == 0x0000_000C, "SH-2 BT/S branched when T=false.");
 
+    WriteWord(code, 0x08, 0x8D01);
+    WriteWord(code, 0x0A, 0x4111);
+    cpu.Reset();
+    cpu.Registers.T = true;
+    cpu.Registers.General[1] = 0x8000_0000;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.T, "SH-2 BT/S delay slot test setup did not clear T.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_000E, "SH-2 BT/S used delay-slot T instead of latched T.");
+
+    WriteWord(code, 0x08, 0x8F01);
+    WriteWord(code, 0x0A, 0x4111);
+    cpu.Reset();
+    cpu.Registers.T = false;
+    cpu.Registers.General[1] = 0;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 BF/S delay slot test setup did not set T.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_000E, "SH-2 BF/S used delay-slot T instead of latched T.");
+
     WriteWord(code, 0x08, 0x002B);
     WriteWord(code, 0x0A, 0xE201);
     WriteLong(stack, 0x10, 0x0000_0040);

@@ -43,6 +43,7 @@ static int RunBios(string[] args)
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var dualSh2 = Has(args, "--dual-sh2");
+    var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -84,8 +85,13 @@ static int RunBios(string[] args)
         0x0603_0180,
         0x0603_028F,
         () => GetWatchContext(master));
-    var masterGeometrySourceWatch = new WatchedBus(
+    var masterTransformKeyWatch = new WatchedBus(
         masterTransformTableWatch,
+        0x0603_01A8,
+        0x0603_01C8,
+        () => GetWatchContext(master));
+    var masterGeometrySourceWatch = new WatchedBus(
+        masterTransformKeyWatch,
         0x0604_9E00,
         0x0604_A9FF,
         () => GetWatchContext(master));
@@ -146,10 +152,14 @@ static int RunBios(string[] args)
         "Master SH-2 first-large geometry producer probe",
         0x0602_E924,
         0x0602_EA90,
-        capacity: 96,
+        capacity: 80,
         focusedProcedureRegister: 0x0601_15BC,
         focusedR6Start: 0x0606_3D54,
-        focusedR6End: 0x0606_3DD0);
+        focusedR6End: 0x0606_3D54);
+    var vblankInDue = false;
+    var vblankOutDue = false;
+    var deferredVblankInChecks = 0L;
+    var deferredVblankOutChecks = 0L;
 
     for (var i = 0; i < instructionCount; i++)
     {
@@ -160,11 +170,40 @@ static int RunBios(string[] args)
 
         if (i > 0 && i % vblankInterval == 0)
         {
-            scu.RaiseVBlankIn();
+            vblankInDue = true;
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
         {
-            scu.RaiseVBlankOut();
+            vblankOutDue = true;
+        }
+
+        if (vblankInDue || vblankOutDue)
+        {
+            if (deferVblankInCriticalWindows && IsUnsafeVBlankInjectionPoint(master))
+            {
+                if (vblankInDue)
+                {
+                    deferredVblankInChecks++;
+                }
+
+                if (vblankOutDue)
+                {
+                    deferredVblankOutChecks++;
+                }
+            }
+            else if (!scu.HasPendingVBlankIn && !scu.HasPendingVBlankOut)
+            {
+                if (vblankInDue)
+                {
+                    scu.RaiseVBlankIn();
+                    vblankInDue = false;
+                }
+                else
+                {
+                    scu.RaiseVBlankOut();
+                    vblankOutDue = false;
+                }
+            }
         }
 
         if (scu.HasPendingVBlankIn)
@@ -251,6 +290,8 @@ static int RunBios(string[] args)
     Console.WriteLine($"Slave-ready simulation: {(simulateSlaveReady ? "on" : "off")}");
     Console.WriteLine($"Dual SH-2 interleave: {(dualSh2 ? "on" : "off")}");
     Console.WriteLine($"VBlank interval: {vblankInterval:N0} instructions");
+    Console.WriteLine(
+        $"VBlank critical-window deferral: {(deferVblankInCriticalWindows ? "on" : "off")} in={deferredVblankInChecks:N0} out={deferredVblankOutChecks:N0} pending-in={vblankInDue} pending-out={vblankOutDue}");
     if (slave is not null)
     {
         Console.WriteLine($"Slave SH-2 enabled by SMPC: {(smpc.SlaveSh2Enabled ? "on" : "off")}");
@@ -287,6 +328,7 @@ static int RunBios(string[] args)
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
     PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
+    PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
     PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
     PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
     PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
@@ -318,6 +360,14 @@ static void RecordPc(Dictionary<uint, long> hits, uint pc)
 {
     hits.TryGetValue(pc, out var count);
     hits[pc] = count + 1;
+}
+
+static bool IsUnsafeVBlankInjectionPoint(Sh2Cpu cpu)
+{
+    var pc = cpu.Registers.ProgramCounter;
+    var pr = cpu.Registers.ProcedureRegister;
+    return pc is >= 0x0602_E680 and <= 0x0602_EA90
+        || pr is 0x0601_15BC or 0x0601_1690;
 }
 
 static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
@@ -468,6 +518,7 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
         PrintInstructionWindow(bus, 0x0602_E2C0, 112, "  transform setup 0x0602E2C0");
         PrintInstructionWindow(bus, 0x0602_E680, 192, "  transform builder 0x0602E680");
         PrintInstructionWindow(bus, 0x0602_E900, 256, "  geometry producer 0x0602E900");
+        PrintWordWindow(bus, 0x0603_0180, 96, "  transform table 0x06030180");
         PrintWordWindow(bus, 0x0604_C280, 96, "  geometry producer source window 0x0604C280");
         PrintWordWindow(bus, 0x0606_3D40, 96, "  geometry producer source window 0x06063D40");
         PrintInstructionWindow(bus, 0x0600_0830, 80, "  interrupt handler 0x06000830");
@@ -478,6 +529,21 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
         PrintWordWindow(bus, 0x0602_AF20, 64, "  normalize shift table 0x0602AF20");
         PrintWordWindow(bus, 0x060B_3060, 16, "  BIOS menu state 0x060B3060");
         PrintWordWindow(bus, 0x0010_0000, 64, "  SMPC registers 0x00100000");
+    }
+    else if (pc is >= 0x0601_0800 and <= 0x0601_0900)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0601_0800,
+            codeWords: 160,
+            dataStart: 0x0601_FF60,
+            dataWords: 24,
+            precedingStart: 0x0601_0200,
+            precedingWords: 128);
+        PrintInstructionWindow(bus, 0x0600_0830, 128, "  interrupt handler 0x06000830");
+        PrintInstructionWindow(bus, 0x0600_08F0, 160, "  interrupt common handler 0x060008F0");
+        PrintWordWindow(bus, 0x0602_0230, 16, "  BIOS flags 0x06020230");
     }
     else if (pc is >= 0x0601_2D80 and <= 0x0601_2EA0)
     {
@@ -1372,7 +1438,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--dual-sh2] [--defer-vblank-in-critical-windows]");
 }
 
 sealed class ScuInterruptProbe
