@@ -718,6 +718,22 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.General[1] == 0x0600_0004, "SH-2 MOV.L Rm,@-Rn did not predecrement.");
     Require(ReadLong(data, 4) == 0x5566_7788, "SH-2 MOV.L Rm,@-Rn failed.");
 
+    WriteWord(code, 0x08, 0x431B);
+    data.WriteByte(0x20, 0);
+    cpu.Reset();
+    cpu.Registers.General[3] = 0x0600_0020;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 TAS.B failed zero-byte test.");
+    Require(data.ReadByte(0x20) == 0x80, "SH-2 TAS.B failed to set bit 7.");
+    Require(cpu.UnimplementedInstructionCount == 0, "SH-2 TAS.B was recorded as unimplemented.");
+
+    data.WriteByte(0x20, 0x45);
+    cpu.Reset();
+    cpu.Registers.General[3] = 0x0600_0020;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.T, "SH-2 TAS.B failed nonzero-byte test.");
+    Require(data.ReadByte(0x20) == 0xC5, "SH-2 TAS.B did not preserve existing bits.");
+
     WriteWord(code, 0x08, 0x4122);
     cpu.Reset();
     cpu.Registers.General[1] = 0x0600_0008;

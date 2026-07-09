@@ -86,11 +86,15 @@ No obvious one-line SH-2 semantic fix was proven in the last slice. `XTRCT`, `MA
 
 ## Next Recommended Step
 
-Continue after the now-passed SCSP handshake using the accelerated bringup command above.
+An accelerated 80M run now reaches a stable tail at `0x0602941E..0x06029422` after the BIOS copy/decompression work. The same run exposed one missing SH-2 instruction, `0x431B` (`TAS.B @R3`) at `0x060432A2`. `TAS.B` is now implemented with the specified zero test, T flag update, and bit-7 write-back, with smoke coverage for zero and nonzero bytes.
+
+The fixed 80M A/B run reports no unimplemented SH-2 instructions, but its final PC and tail-hot-PC counts are otherwise unchanged. Therefore `TAS.B` was a real CPU-core gap but is not the cause of the `0x0602941E..0x06029422` wait.
+
+Continue by probing the new stable tail using the accelerated bringup command above.
 
 Recommended approach:
 
-1. Run farther with `--simulate-scsp-command-ack --vblank-interval 100000` and use the tail-hot-PC report to distinguish active BIOS copy/decompression calls from a stable loop.
+1. Capture instruction/register samples around `0x06029400..0x06029440` and identify the memory-mapped or Work RAM condition tested by `0x0602941E..0x06029422`.
 2. Track whether the game reaches VDP1 command submission or a CD file-transfer request.
 3. Keep the SCSP acknowledgement explicit until a real 68k/SCSP execution path exists.
 4. Implement the next hardware behavior only when its read/write protocol is proven by the focused probes.

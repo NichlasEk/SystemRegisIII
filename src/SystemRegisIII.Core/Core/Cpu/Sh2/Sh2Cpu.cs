@@ -896,6 +896,16 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: CMP/PL R{register} T={Registers.T}");
                     return;
                 }
+            case 0x401B:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    var address = Registers.General[register];
+                    var value = _bus.ReadByte(address);
+                    Registers.T = value == 0;
+                    _bus.WriteByte(address, (byte)(value | 0x80));
+                    Trace($"0x{pc:X8}: TAS.B @R{register} address=0x{address:X8} value=0x{value:X2} T={Registers.T}");
+                    return;
+                }
             case 0x401E:
                 {
                     var register = (opcode >> 8) & 0xF;
