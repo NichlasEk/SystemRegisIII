@@ -86,8 +86,13 @@ static int RunBios(string[] args)
         0x0603_0180,
         0x0603_028F,
         () => GetWatchContext(master));
-    var masterTransformKeyWatch = new WatchedBus(
+    var masterTransformMatrixWatch = new WatchedBus(
         masterTransformTableWatch,
+        0x0603_0080,
+        0x0603_017F,
+        () => GetWatchContext(master));
+    var masterTransformKeyWatch = new WatchedBus(
+        masterTransformMatrixWatch,
         0x0603_01A8,
         0x0603_01C8,
         () => GetWatchContext(master));
@@ -337,6 +342,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master flag watch", masterFlagWatch);
         PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
         PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
+        PrintWatchWindow("Master transform-matrix watch", masterTransformMatrixWatch);
         PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchWindow("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
@@ -350,6 +356,7 @@ static int RunBios(string[] args)
     }
     else
     {
+        PrintWatchSummary("Master transform-matrix watch", masterTransformMatrixWatch);
         PrintWatchSummary("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchSummary("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
