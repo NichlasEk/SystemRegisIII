@@ -4,8 +4,8 @@ namespace SystemRegisIII.Core.Core.Scu;
 
 public sealed class ScuRegisterBusDevice : IInspectableBusDevice
 {
-    private const uint InterruptMaskOffset = 0x0E00A0;
-    private const uint InterruptStatusOffset = 0x0E00A4;
+    private const uint InterruptMaskOffset = 0x00A0;
+    private const uint InterruptStatusOffset = 0x00A4;
     private const uint VBlankInBit = 1u << 0;
     private const uint VBlankOutBit = 1u << 1;
     private const uint SmpcBit = 1u << 7;

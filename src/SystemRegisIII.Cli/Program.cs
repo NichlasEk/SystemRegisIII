@@ -79,10 +79,15 @@ static int RunBios(string[] args)
         0x0602_0720,
         0x0602_075F,
         () => GetWatchContext(master));
-    var masterGeometrySourceWatch = new WatchedBus(
+    var masterTransformTableWatch = new WatchedBus(
         masterCallbackWatch,
+        0x0603_0180,
+        0x0603_028F,
+        () => GetWatchContext(master));
+    var masterGeometrySourceWatch = new WatchedBus(
+        masterTransformTableWatch,
         0x0604_9E00,
-        0x0604_9EFF,
+        0x0604_A9FF,
         () => GetWatchContext(master));
     var masterMenuStateWatch = new WatchedBus(
         masterGeometrySourceWatch,
@@ -125,6 +130,26 @@ static int RunBios(string[] args)
     var busFaults = new List<string>();
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
     var interruptProbe = new ScuInterruptProbe();
+    var normalizeProbe = new PcWindowProbe(
+        "Master SH-2 normalize probe",
+        0x0601_2C6C,
+        0x0601_2CC2,
+        capacity: 64,
+        focusedProcedureRegister: 0x0601_1690);
+    var geometryProducerProbe = new PcWindowProbe(
+        "Master SH-2 geometry producer probe",
+        0x0602_E924,
+        0x0602_EA90,
+        capacity: 96,
+        focusedProcedureRegister: 0x0601_15BC);
+    var geometryLargeProducerProbe = new PcWindowProbe(
+        "Master SH-2 first-large geometry producer probe",
+        0x0602_E924,
+        0x0602_EA90,
+        capacity: 96,
+        focusedProcedureRegister: 0x0601_15BC,
+        focusedR6Start: 0x0606_3D54,
+        focusedR6End: 0x0606_3DD0);
 
     for (var i = 0; i < instructionCount; i++)
     {
@@ -144,8 +169,9 @@ static int RunBios(string[] args)
 
         if (scu.HasPendingVBlankIn)
         {
+            var interruptedPc = master.Registers.ProgramCounter;
             var accepted = master.RequestInterrupt(15, 0x40);
-            interruptProbe.RecordVBlankIn(accepted, master.Registers.ProgramCounter);
+            interruptProbe.RecordVBlankIn(accepted, interruptedPc);
             if (accepted)
             {
                 scu.AcknowledgeVBlankIn();
@@ -153,8 +179,9 @@ static int RunBios(string[] args)
         }
         else if (scu.HasPendingVBlankOut)
         {
+            var interruptedPc = master.Registers.ProgramCounter;
             var accepted = master.RequestInterrupt(14, 0x41);
-            interruptProbe.RecordVBlankOut(accepted, master.Registers.ProgramCounter);
+            interruptProbe.RecordVBlankOut(accepted, interruptedPc);
             if (accepted)
             {
                 scu.AcknowledgeVBlankOut();
@@ -162,8 +189,9 @@ static int RunBios(string[] args)
         }
         else if (scu.HasPendingSmpc)
         {
+            var interruptedPc = master.Registers.ProgramCounter;
             var accepted = master.RequestInterrupt(8, 0x47);
-            interruptProbe.RecordSmpc(accepted, master.Registers.ProgramCounter);
+            interruptProbe.RecordSmpc(accepted, interruptedPc);
             if (accepted)
             {
                 scu.AcknowledgeSmpc();
@@ -172,6 +200,9 @@ static int RunBios(string[] args)
 
         var masterPc = master.Registers.ProgramCounter;
         RecordPc(masterPcHits, masterPc);
+        normalizeProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        geometryProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        geometryLargeProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         if (masterPc is >= 0x0600_083C and <= 0x0600_094C)
         {
             RecordPc(masterHandlerPcHits, masterPc);
@@ -248,10 +279,14 @@ static int RunBios(string[] args)
     }
 
     PrintMasterGbrLoopProbe(master, addressMap);
+    normalizeProbe.Print();
+    geometryProducerProbe.Print();
+    geometryLargeProducerProbe.Print();
     PrintMasterPcProbe(master, addressMap);
     PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
     PrintWatchWindow("Master flag watch", masterFlagWatch);
     PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
+    PrintWatchWindow("Master transform-table watch", masterTransformTableWatch);
     PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
     PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
     PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
@@ -317,7 +352,16 @@ static WatchedAccessContext? GetWatchContext(Sh2Cpu? cpu) =>
             cpu.CurrentInstructionProgramCounter,
             cpu.Registers.ProcedureRegister,
             cpu.Registers.GlobalBaseRegister,
-            cpu.Registers.General[0]);
+            cpu.Registers.General[0],
+            cpu.Registers.General[2],
+            cpu.Registers.General[3],
+            cpu.Registers.General[4],
+            cpu.Registers.General[5],
+            cpu.Registers.General[6],
+            cpu.Registers.General[9],
+            cpu.Registers.General[10],
+            cpu.Registers.General[12],
+            cpu.Registers.General[13]);
 
 static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 {
@@ -406,6 +450,34 @@ static void PrintMasterPcProbe(Sh2Cpu master, ISaturnBus bus)
         PrintInstructionWindow(bus, 0x0000_42B0, 96, "  CD response loop 0x000042B0");
         PrintWordWindow(bus, 0x0600_03A0, 8, "  CD HIRQ accumulator 0x060003A0");
         PrintWordWindow(bus, 0x0602_0230, 16, "  BIOS flags 0x06020230");
+    }
+    else if (pc is >= 0x0601_2C40 and <= 0x0601_2CC0)
+    {
+        PrintMasterPcProbeWindow(
+            master,
+            bus,
+            codeStart: 0x0601_2C40,
+            codeWords: 96,
+            dataStart: 0x0601_FF60,
+            dataWords: 24,
+            precedingStart: 0x0601_2B80,
+            precedingWords: 96);
+        PrintInstructionWindow(bus, 0x0601_3300, 128, "  CD/status helper 0x06013300");
+        PrintInstructionWindow(bus, 0x0601_1640, 80, "  normalize caller 0x06011640");
+        PrintInstructionWindow(bus, 0x0601_2D80, 144, "  normalize caller/tail 0x06012D80");
+        PrintInstructionWindow(bus, 0x0602_E2C0, 112, "  transform setup 0x0602E2C0");
+        PrintInstructionWindow(bus, 0x0602_E680, 192, "  transform builder 0x0602E680");
+        PrintInstructionWindow(bus, 0x0602_E900, 256, "  geometry producer 0x0602E900");
+        PrintWordWindow(bus, 0x0604_C280, 96, "  geometry producer source window 0x0604C280");
+        PrintWordWindow(bus, 0x0606_3D40, 96, "  geometry producer source window 0x06063D40");
+        PrintInstructionWindow(bus, 0x0600_0830, 80, "  interrupt handler 0x06000830");
+        PrintInstructionWindow(bus, 0x0600_08F0, 128, "  interrupt common handler 0x060008F0");
+        PrintInstructionWindow(bus, 0x0602_8D60, 96, "  VBlank callback 0x06028D60");
+        PrintWordWindow(bus, 0x0604_9E40, 96, "  geometry source vector 0x06049E40");
+        PrintWordWindow(bus, 0x0602_AEE8, 64, "  normalize magnitude table 0x0602AEE8");
+        PrintWordWindow(bus, 0x0602_AF20, 64, "  normalize shift table 0x0602AF20");
+        PrintWordWindow(bus, 0x060B_3060, 16, "  BIOS menu state 0x060B3060");
+        PrintWordWindow(bus, 0x0010_0000, 64, "  SMPC registers 0x00100000");
     }
     else if (pc is >= 0x0601_2D80 and <= 0x0601_2EA0)
     {
@@ -583,6 +655,13 @@ static void PrintWatchWindow(string label, WatchedBus watch)
         {
             Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
         }
+
+        if (watch.LargeWriteCount > 0)
+        {
+            Console.WriteLine($"  large signed writes: {watch.LargeWriteCount:N0}");
+            PrintLargeWrites("first large writes", watch.FirstLargeWrites);
+            PrintLargeWrites("recent large writes", watch.RecentLargeWrites);
+        }
     }
 
     if (watch.ReadCount > 0)
@@ -595,6 +674,20 @@ static void PrintWatchWindow(string label, WatchedBus watch)
     }
 }
 
+static void PrintLargeWrites(string label, IReadOnlyList<WatchedWrite> writes)
+{
+    if (writes.Count == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine($"  {label}:");
+    foreach (var write in writes)
+    {
+        Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
+    }
+}
+
 static string FormatWatchContext(WatchedAccessContext? context)
 {
     if (context is not { } value)
@@ -603,7 +696,20 @@ static string FormatWatchContext(WatchedAccessContext? context)
     }
 
     var pc = value.ProgramCounter is { } programCounter ? $"0x{programCounter:X8}" : "<unknown>";
-    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8}";
+    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8} r2=0x{value.R2:X8} r3=0x{value.R3:X8} r4=0x{value.R4:X8} r5=0x{value.R5:X8} r6=0x{value.R6:X8} r9=0x{value.R9:X8} r10=0x{value.R10:X8} r12=0x{value.R12:X8} r13=0x{value.R13:X8}";
+}
+
+static string FormatLoopProbeInstruction(ISaturnBus bus, uint address)
+{
+    try
+    {
+        var opcode = bus.ReadWord(address);
+        return $"0x{opcode:X4} {DecodeSh2Instruction(bus, address, opcode)}";
+    }
+    catch (BusFaultException exception)
+    {
+        return $"fault 0x{exception.Address:X8}";
+    }
 }
 
 static void PrintWordWindow(ISaturnBus bus, uint startAddress, int wordCount, string label)
@@ -674,6 +780,16 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         var destination = (opcode >> 8) & 0xF;
         var source = (opcode >> 4) & 0xF;
         return $"MAC.L @R{source}+,@R{destination}+";
+    }
+
+    if ((opcode & 0xF0FF) == 0x0003)
+    {
+        return $"BSRF R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) == 0x0023)
+    {
+        return $"BRAF R{(opcode >> 8) & 0xF}";
     }
 
     if ((opcode & 0xF00F) is 0x0004 or 0x0005 or 0x0006 or 0x000C or 0x000D or 0x000E)
@@ -807,6 +923,7 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x9 => $"AND R{source},R{destination}",
             0xA => $"XOR R{source},R{destination}",
             0xB => $"OR R{source},R{destination}",
+            0xD => $"XTRCT R{source},R{destination}",
             0xE => $"MULU.W R{source},R{destination}",
             0xF => $"MULS.W R{source},R{destination}",
             _ => $"2xxx op R{source},R{destination}",
@@ -829,6 +946,7 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
             0x8 => $"SUB R{source},R{destination}",
             0xA => $"SUBC R{source},R{destination}",
             0xC => $"ADD R{source},R{destination}",
+            0xD => $"DMULS.L R{source},R{destination}",
             0xE => $"ADDC R{source},R{destination}",
             _ => $"3xxx op R{source},R{destination}",
         };
@@ -874,6 +992,21 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"STS.L PR,@-R{(opcode >> 8) & 0xF}";
     }
 
+    if ((opcode & 0xF0FF) == 0x4003)
+    {
+        return $"STC.L SR,@-R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4013)
+    {
+        return $"STC.L GBR,@-R{(opcode >> 8) & 0xF}";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4023)
+    {
+        return $"STC.L VBR,@-R{(opcode >> 8) & 0xF}";
+    }
+
     if ((opcode & 0xF0FF) == 0x4012)
     {
         return $"STS.L MACL,@-R{(opcode >> 8) & 0xF}";
@@ -882,6 +1015,21 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
     if ((opcode & 0xF0FF) == 0x4026)
     {
         return $"LDS.L @R{(opcode >> 8) & 0xF}+,PR";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4007)
+    {
+        return $"LDC.L @R{(opcode >> 8) & 0xF}+,SR";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4017)
+    {
+        return $"LDC.L @R{(opcode >> 8) & 0xF}+,GBR";
+    }
+
+    if ((opcode & 0xF0FF) == 0x4027)
+    {
+        return $"LDC.L @R{(opcode >> 8) & 0xF}+,VBR";
     }
 
     if ((opcode & 0xF0FF) == 0x4016)
@@ -894,17 +1042,22 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"LDC R{(opcode >> 8) & 0xF},SR";
     }
 
-    if ((opcode & 0xF0FF) is 0x4000 or 0x4001 or 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4024 or 0x4025 or 0x4028 or 0x4029)
+    if ((opcode & 0xF0FF) is 0x4000 or 0x4001 or 0x4010 or 0x4011 or 0x4015 or 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4020 or 0x4021 or 0x4024 or 0x4025 or 0x4028 or 0x4029)
     {
         var register = (opcode >> 8) & 0xF;
         return (opcode & 0xF0FF) switch
         {
             0x4000 => $"SHLL R{register}",
             0x4001 => $"SHLR R{register}",
+            0x4010 => $"DT R{register}",
+            0x4011 => $"CMP/PZ R{register}",
+            0x4015 => $"CMP/PL R{register}",
             0x4008 => $"SHLL2 R{register}",
             0x4009 => $"SHLR2 R{register}",
             0x4018 => $"SHLL8 R{register}",
             0x4019 => $"SHLR8 R{register}",
+            0x4020 => $"SHAL R{register}",
+            0x4021 => $"SHAR R{register}",
             0x4024 => $"ROTCL R{register}",
             0x4025 => $"ROTCR R{register}",
             0x4028 => $"SHLL16 R{register}",
@@ -1270,4 +1423,163 @@ sealed class ScuInterruptProbe
                 $"    {_label} level={_level} vector=0x{_vector:X2} attempts={_attempts:N0} accepted={_accepted:N0} last-accepted-pc={lastAccepted}");
         }
     }
+}
+
+sealed class PcWindowProbe(
+    string label,
+    uint start,
+    uint end,
+    int capacity,
+    uint? focusedProcedureRegister = null,
+    uint? focusedR6Start = null,
+    uint? focusedR6End = null)
+{
+    private readonly Queue<PcWindowSample> _first = new(capacity);
+    private readonly Queue<PcWindowSample> _last = new(capacity);
+    private readonly Queue<PcWindowSample> _focusedFirst = new(capacity);
+    private readonly Queue<PcWindowSample> _focusedLast = new(capacity);
+    private readonly Dictionary<uint, long> _procedureRegisterHits = [];
+    private long _hits;
+    private long _focusedHits;
+
+    public void Record(int instructionIndex, Sh2Cpu cpu, ISaturnBus bus, Func<ISaturnBus, uint, string> formatInstruction)
+    {
+        var pc = cpu.Registers.ProgramCounter;
+        if (pc < start || pc > end)
+        {
+            return;
+        }
+
+        var r6 = cpu.Registers.General[6];
+        if (focusedR6Start is { } r6Start && r6 < r6Start)
+        {
+            return;
+        }
+
+        if (focusedR6End is { } r6End && r6 > r6End)
+        {
+            return;
+        }
+
+        var sample = new PcWindowSample(
+            instructionIndex,
+            pc,
+            cpu.Registers.ProcedureRegister,
+            cpu.Registers.StatusRegister,
+            cpu.Registers.General[0],
+            cpu.Registers.General[1],
+            cpu.Registers.General[2],
+            cpu.Registers.General[3],
+            cpu.Registers.General[4],
+            cpu.Registers.General[5],
+            r6,
+            cpu.Registers.General[7],
+            cpu.Registers.General[9],
+            cpu.Registers.General[10],
+            cpu.Registers.General[12],
+            cpu.Registers.General[13],
+            cpu.Registers.MacHigh,
+            cpu.Registers.MacLow,
+            formatInstruction(bus, pc));
+
+        _hits++;
+        _procedureRegisterHits.TryGetValue(sample.Pr, out var procedureRegisterHits);
+        _procedureRegisterHits[sample.Pr] = procedureRegisterHits + 1;
+        if (_first.Count < capacity)
+        {
+            _first.Enqueue(sample);
+        }
+
+        _last.Enqueue(sample);
+        if (_last.Count > capacity)
+        {
+            _last.Dequeue();
+        }
+
+        if (focusedProcedureRegister != sample.Pr)
+        {
+            return;
+        }
+
+        _focusedHits++;
+        if (_focusedFirst.Count < capacity)
+        {
+            _focusedFirst.Enqueue(sample);
+        }
+
+        _focusedLast.Enqueue(sample);
+        if (_focusedLast.Count > capacity)
+        {
+            _focusedLast.Dequeue();
+        }
+    }
+
+    public void Print()
+    {
+        if (_hits == 0)
+        {
+            return;
+        }
+
+        Console.WriteLine($"{label}: hits={_hits:N0} window=0x{start:X8}..0x{end:X8}");
+        PrintProcedureRegisterHits();
+        PrintSamples("first", _first);
+        if (_hits > _first.Count)
+        {
+            PrintSamples("last", _last);
+        }
+
+        if (focusedProcedureRegister is { } pr && _focusedHits > 0)
+        {
+            Console.WriteLine($"  focused PR=0x{pr:X8} hits={_focusedHits:N0}:");
+            PrintSamples("focused first", _focusedFirst);
+            if (_focusedHits > _focusedFirst.Count)
+            {
+                PrintSamples("focused last", _focusedLast);
+            }
+        }
+    }
+
+    private void PrintProcedureRegisterHits()
+    {
+        Console.WriteLine("  hot PRs:");
+        foreach (var (procedureRegister, count) in _procedureRegisterHits
+                     .OrderByDescending(static pair => pair.Value)
+                     .ThenBy(static pair => pair.Key)
+                     .Take(12))
+        {
+            Console.WriteLine($"    0x{procedureRegister:X8}: {count:N0}");
+        }
+    }
+
+    private static void PrintSamples(string name, IEnumerable<PcWindowSample> samples)
+    {
+        Console.WriteLine($"  {name} samples:");
+        foreach (var sample in samples)
+        {
+            Console.WriteLine(
+                $"    i={sample.InstructionIndex:N0} pc=0x{sample.Pc:X8} pr=0x{sample.Pr:X8} sr=0x{sample.Sr:X8} r0=0x{sample.R0:X8} r1=0x{sample.R1:X8} r2=0x{sample.R2:X8} r3=0x{sample.R3:X8} r4=0x{sample.R4:X8} r5=0x{sample.R5:X8} r6=0x{sample.R6:X8} r7=0x{sample.R7:X8} r9=0x{sample.R9:X8} r10=0x{sample.R10:X8} r12=0x{sample.R12:X8} r13=0x{sample.R13:X8} mach=0x{sample.Mach:X8} macl=0x{sample.Macl:X8} {sample.Instruction}");
+        }
+    }
+
+    private readonly record struct PcWindowSample(
+        int InstructionIndex,
+        uint Pc,
+        uint Pr,
+        uint Sr,
+        uint R0,
+        uint R1,
+        uint R2,
+        uint R3,
+        uint R4,
+        uint R5,
+        uint R6,
+        uint R7,
+        uint R9,
+        uint R10,
+        uint R12,
+        uint R13,
+        uint Mach,
+        uint Macl,
+        string Instruction);
 }

@@ -879,6 +879,18 @@ static void VerifySh2BiosBringupInstructions()
     Require(cpu.Registers.MacHigh == 0x0000_7FFF, "SH-2 MAC.L saturation failed high word.");
     Require(cpu.Registers.MacLow == 0xFFFF_FFFF, "SH-2 MAC.L saturation failed low word.");
 
+    WriteLong(data, 0x10, 0xFFFF_FFFE);
+    WriteLong(data, 0x20, 0x0000_0002);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x0600_0010;
+    cpu.Registers.General[2] = 0x0600_0020;
+    cpu.Registers.S = true;
+    cpu.Registers.MacHigh = 0xFFFF_8000;
+    cpu.Registers.MacLow = 0x0000_0001;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0xFFFF_8000, "SH-2 MAC.L negative saturation failed high word.");
+    Require(cpu.Registers.MacLow == 0x0000_0000, "SH-2 MAC.L negative saturation failed low word.");
+
     WriteWord(code, 0x08, 0x312A);
     cpu.Reset();
     cpu.Registers.General[1] = 5;

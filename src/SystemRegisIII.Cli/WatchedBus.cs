@@ -16,6 +16,8 @@ internal sealed class WatchedBus(
     private readonly Dictionary<uint, WatchedAccessContext?> _lastWriteContexts = [];
     private readonly Queue<WatchedAccess> _recentReads = new();
     private readonly Queue<WatchedWrite> _recentWrites = new();
+    private readonly Queue<WatchedWrite> _firstLargeWrites = new();
+    private readonly Queue<WatchedWrite> _recentLargeWrites = new();
 
     public long ReadCount { get; private set; }
     public uint? FirstReadAddress { get; private set; }
@@ -27,6 +29,9 @@ internal sealed class WatchedBus(
     public uint? LastWriteValue { get; private set; }
     public IReadOnlyList<WatchedAccess> RecentReads => _recentReads.ToArray();
     public IReadOnlyList<WatchedWrite> RecentWrites => _recentWrites.ToArray();
+    public long LargeWriteCount { get; private set; }
+    public IReadOnlyList<WatchedWrite> FirstLargeWrites => _firstLargeWrites.ToArray();
+    public IReadOnlyList<WatchedWrite> RecentLargeWrites => _recentLargeWrites.ToArray();
 
     public byte ReadByte(uint address)
     {
@@ -131,6 +136,28 @@ internal sealed class WatchedBus(
         {
             _recentWrites.Dequeue();
         }
+
+        if (IsLargeSignedValue(value))
+        {
+            LargeWriteCount++;
+            var write = new WatchedWrite(context, normalized, value);
+            if (_firstLargeWrites.Count < 12)
+            {
+                _firstLargeWrites.Enqueue(write);
+            }
+
+            _recentLargeWrites.Enqueue(write);
+            while (_recentLargeWrites.Count > 12)
+            {
+                _recentLargeWrites.Dequeue();
+            }
+        }
+    }
+
+    private static bool IsLargeSignedValue(uint value)
+    {
+        var signed = unchecked((int)value);
+        return signed >= 0x0100_0000 || signed <= -0x0100_0000;
     }
 
     private static uint Normalize(uint address)
@@ -158,7 +185,16 @@ internal readonly record struct WatchedAccessContext(
     uint? ProgramCounter,
     uint ProcedureRegister,
     uint GlobalBaseRegister,
-    uint R0);
+    uint R0,
+    uint R2,
+    uint R3,
+    uint R4,
+    uint R5,
+    uint R6,
+    uint R9,
+    uint R10,
+    uint R12,
+    uint R13);
 
 internal readonly record struct WatchedAccess(WatchedAccessContext? Context, uint Address, uint Value);
 
