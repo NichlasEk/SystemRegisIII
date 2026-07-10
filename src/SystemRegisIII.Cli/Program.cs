@@ -171,6 +171,7 @@ static int RunBios(string[] args)
     var busFaults = new List<string>();
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
     var interruptProbe = new ScuInterruptProbe();
+    var vdp1CommandProbe = new Vdp1CommandProbe();
     var normalizeProbe = new PcWindowProbe(
         "Master SH-2 normalize probe",
         0x0601_2C6C,
@@ -251,6 +252,7 @@ static int RunBios(string[] args)
 
         if (i > 0 && i % vblankInterval == 0)
         {
+            vdp1CommandProbe.Record(i, systemMap.Vdp1Area.Snapshot.Span);
             vblankInDue = true;
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
@@ -467,6 +469,7 @@ static int RunBios(string[] args)
     }
 
     PrintScuInterruptState(scu, interruptProbe);
+    vdp1CommandProbe.Print();
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
@@ -1718,6 +1721,102 @@ sealed class ScuInterruptProbe
             Console.WriteLine(
                 $"    {_label} level={_level} vector=0x{_vector:X2} attempts={_attempts:N0} accepted={_accepted:N0} last-accepted-pc={lastAccepted}");
         }
+    }
+}
+
+sealed class Vdp1CommandProbe
+{
+    private IReadOnlyList<Vdp1Command> _richestCommands = [];
+    private long _richestInstruction;
+    private int _richestDrawableCount;
+    private long _captures;
+
+    public void Record(long instruction, ReadOnlySpan<byte> vram)
+    {
+        _captures++;
+        var commands = ReadCommandChain(vram);
+        if (!commands.Any(static command => command.End))
+        {
+            return;
+        }
+
+        var drawableCount = commands.Count(static command =>
+            !command.End && !command.Skip && IsDrawable(command));
+        if (drawableCount < _richestDrawableCount ||
+            (drawableCount == _richestDrawableCount && commands.Count <= _richestCommands.Count))
+        {
+            return;
+        }
+
+        _richestInstruction = instruction;
+        _richestDrawableCount = drawableCount;
+        _richestCommands = commands;
+
+        static bool IsDrawable(Vdp1Command command) => command.CommandCode switch
+        {
+            <= 0x3 => command.CharacterWidth > 0 && command.CharacterHeight > 0,
+            >= 0x4 and <= 0x7 =>
+                command.Xa != 0 || command.Ya != 0 ||
+                command.Xb != 0 || command.Yb != 0 ||
+                command.Xc != 0 || command.Yc != 0 ||
+                command.Xd != 0 || command.Yd != 0,
+            _ => false,
+        };
+    }
+
+    public void Print()
+    {
+        Console.WriteLine(
+            $"VDP1 VBlank command probe: captures={_captures:N0} richest-instruction={_richestInstruction:N0} drawables={_richestDrawableCount:N0} commands={_richestCommands.Count:N0}");
+        foreach (var command in _richestCommands)
+        {
+            Console.WriteLine(
+                $"  0x{command.Address:X5} ctrl=0x{command.Control:X4} {(command.Skip ? "skip " : string.Empty)}{command.CommandName} " +
+                $"src=0x{command.CharacterByteAddress:X5} size={command.CharacterWidth}x{command.CharacterHeight} " +
+                $"A=({command.Xa},{command.Ya}) B=({command.Xb},{command.Yb}) C=({command.Xc},{command.Yc}) D=({command.Xd},{command.Yd})");
+        }
+    }
+
+    private static IReadOnlyList<Vdp1Command> ReadCommandChain(ReadOnlySpan<byte> vram)
+    {
+        var commands = new List<Vdp1Command>(64);
+        var visited = new HashSet<uint>();
+        uint address = 0;
+        uint? returnAddress = null;
+
+        while (commands.Count < 64 && address <= vram.Length - 0x20 && visited.Add(address))
+        {
+            var command = Vdp1Command.Read(vram, address);
+            commands.Add(command);
+            if (command.End)
+            {
+                break;
+            }
+
+            var sequentialAddress = address + 0x20;
+            switch (command.JumpMode)
+            {
+                case 0:
+                    address = sequentialAddress;
+                    break;
+                case 1:
+                    address = command.LinkAddress;
+                    break;
+                case 2:
+                    returnAddress ??= sequentialAddress;
+                    address = command.LinkAddress;
+                    break;
+                case 3 when returnAddress is uint target:
+                    address = target;
+                    returnAddress = null;
+                    break;
+                default:
+                    address = sequentialAddress;
+                    break;
+            }
+        }
+
+        return commands;
     }
 }
 

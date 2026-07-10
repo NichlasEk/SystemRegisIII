@@ -108,6 +108,8 @@ The 120M continuation confirms forward progress. Final PC moves to `0x0607166C`,
 
 A core `Vdp1Command` decoder and CLI command-chain inspector now expose the first concrete video target. The 100M final snapshot follows `0x00000 -> 0x10AC0 -> 0x10B20 -> 0x10B00 -> 0x10AE0 -> 0x10B40 -> 0x10B60`. It establishes a `319x223` system/user clip and local coordinate `(160,112)`, then reaches skipped normal-sprite slots and END. This end-of-run snapshot has no active draw primitive, so the next video probe must sample command chains at VBlank or draw start rather than only after the final instruction.
 
+The VBlank command probe samples every accelerated frame, rejects incomplete zero-filled chains, and retains the list with the most visible primitives. In the 90M run the richest chain occurs at instruction 29,000,000 with 11 commands and 8 active normal sprites. It sets system clip `319x223`, local coordinate `(158,107)`, and references sprite data at addresses including `0x118A0`, `0x133A0`, `0x13420`, and `0x13520`, with sizes from `8x8` through `216x16`, before a valid END command. The first renderer slice should therefore implement VDP1 system clip, local coordinate, and normal-sprite drawing before polygon support.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.
