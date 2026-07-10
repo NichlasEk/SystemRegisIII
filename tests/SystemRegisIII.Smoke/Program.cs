@@ -39,6 +39,7 @@ Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full fr
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
 VerifyVdp1CommandDecode();
+VerifyVdp1SoftwareRenderer();
 VerifySh2InternalRegisterBus();
 VerifySh2InterruptEntry();
 VerifySh2IndexedMoveDecoding();
@@ -525,6 +526,55 @@ static void VerifyVdp1CommandDecode()
         destination[offset] = (byte)(value >> 8);
         destination[offset + 1] = (byte)value;
     }
+}
+
+static void VerifyVdp1SoftwareRenderer()
+{
+    var vram = new byte[0x80000];
+    var colorRam = new byte[0x1000];
+    colorRam[2] = 0x00;
+    colorRam[3] = 0x1F;
+    vram[0x100] = 0x10;
+
+    var commands = new[]
+    {
+        MakeCommand(0x0009, xc: 7, yc: 1),
+        MakeCommand(0x0000, characterAddress: 0x0020, characterSize: 0x0101),
+        MakeCommand(0x8000),
+    };
+    var rendered = Vdp1SoftwareRenderer.Render(vram, colorRam, commands, width: 8, height: 2);
+    Require(rendered.DrawnSprites == 1, "VDP1 normal-sprite renderer did not draw the command.");
+    Require(rendered.DrawnPixels == 1, "VDP1 normal-sprite transparency failed.");
+    Require(rendered.Frame.BgraPixels.Span[0] == 0xFFFF_0000, "VDP1 CRAM RGB555 conversion failed.");
+    Require(rendered.Frame.BgraPixels.Span[1] == 0xFF00_0000, "VDP1 transparent texel overwrote the frame.");
+
+    static Vdp1Command MakeCommand(
+        ushort control,
+        ushort drawMode = 0,
+        ushort color = 0,
+        ushort characterAddress = 0,
+        ushort characterSize = 0,
+        short xa = 0,
+        short ya = 0,
+        short xc = 0,
+        short yc = 0) =>
+        new(
+            0,
+            control,
+            0,
+            drawMode,
+            color,
+            characterAddress,
+            characterSize,
+            xa,
+            ya,
+            0,
+            0,
+            xc,
+            yc,
+            0,
+            0,
+            0);
 }
 
 static void CreateTinyIsoImage(string path)

@@ -110,6 +110,8 @@ A core `Vdp1Command` decoder and CLI command-chain inspector now expose the firs
 
 The VBlank command probe samples every accelerated frame, rejects incomplete zero-filled chains, and retains the list with the most visible primitives. In the 90M run the richest chain occurs at instruction 29,000,000 with 11 commands and 8 active normal sprites. It sets system clip `319x223`, local coordinate `(158,107)`, and references sprite data at addresses including `0x118A0`, `0x133A0`, `0x13420`, and `0x13520`, with sizes from `8x8` through `216x16`, before a valid END command. The first renderer slice should therefore implement VDP1 system clip, local coordinate, and normal-sprite drawing before polygon support.
 
+That first software renderer slice is now implemented. `Vdp1SoftwareRenderer` handles system clip, local coordinates, normal-sprite horizontal/vertical flip, transparent pixels, the VDP1 4-bit/8-bit color-bank and LUT modes, direct RGB555, and VDP2 CRAM palette conversion. The CLI option `--dump-vdp1-frame <path.ppm>` renders the richest VBlank snapshot. The 30M NiGHTS checkpoint renders all 8 captured sprites and 1,137 visible pixels; visual inspection of `/tmp/nights_vdp1_30m.ppm` confirms the Sega logo and `SEGA ENTERPRISES, LTD. 1994, 1995` copyright text. The next visual slice can build on this proven path with VDP2 background composition or additional VDP1 primitive types.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

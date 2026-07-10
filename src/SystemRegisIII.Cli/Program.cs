@@ -47,6 +47,7 @@ static int RunBios(string[] args)
     var dualSh2 = Has(args, "--dual-sh2");
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
     var summaryOnly = Has(args, "--summary-only");
+    var vdp1FramePath = GetOption(args, "--dump-vdp1-frame");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -252,7 +253,10 @@ static int RunBios(string[] args)
 
         if (i > 0 && i % vblankInterval == 0)
         {
-            vdp1CommandProbe.Record(i, systemMap.Vdp1Area.Snapshot.Span);
+            vdp1CommandProbe.Record(
+                i,
+                systemMap.Vdp1Area.Snapshot.Span,
+                systemMap.Vdp2Cram.Snapshot.Span);
             vblankInDue = true;
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
@@ -470,6 +474,10 @@ static int RunBios(string[] args)
 
     PrintScuInterruptState(scu, interruptProbe);
     vdp1CommandProbe.Print();
+    if (vdp1FramePath is not null)
+    {
+        WriteVdp1Frame(vdp1FramePath, vdp1CommandProbe);
+    }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
@@ -552,6 +560,32 @@ static void PrintVdp1CommandTable(DebugMemoryBusDevice vdp1Area)
         returnAddress = null;
         return target;
     }
+}
+
+static void WriteVdp1Frame(string path, Vdp1CommandProbe probe)
+{
+    if (probe.RichestCommands.Count == 0)
+    {
+        Console.WriteLine("VDP1 frame dump: no completed command chain captured");
+        return;
+    }
+
+    var rendered = Vdp1SoftwareRenderer.Render(
+        probe.RichestVram.Span,
+        probe.RichestColorRam.Span,
+        probe.RichestCommands);
+    using var stream = File.Create(path);
+    var header = System.Text.Encoding.ASCII.GetBytes($"P6\n{rendered.Frame.Width} {rendered.Frame.Height}\n255\n");
+    stream.Write(header);
+    foreach (var pixel in rendered.Frame.BgraPixels.Span)
+    {
+        stream.WriteByte((byte)(pixel >> 16));
+        stream.WriteByte((byte)(pixel >> 8));
+        stream.WriteByte((byte)pixel);
+    }
+
+    Console.WriteLine(
+        $"VDP1 frame dump: {path} sprites={rendered.DrawnSprites:N0} pixels={rendered.DrawnPixels:N0} size={rendered.Frame.Width}x{rendered.Frame.Height}");
 }
 
 static bool IsUnsafeVBlankInjectionPoint(Sh2Cpu cpu)
@@ -1671,7 +1705,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
@@ -1730,8 +1764,14 @@ sealed class Vdp1CommandProbe
     private long _richestInstruction;
     private int _richestDrawableCount;
     private long _captures;
+    private byte[] _richestVram = [];
+    private byte[] _richestColorRam = [];
 
-    public void Record(long instruction, ReadOnlySpan<byte> vram)
+    public IReadOnlyList<Vdp1Command> RichestCommands => _richestCommands;
+    public ReadOnlyMemory<byte> RichestVram => _richestVram;
+    public ReadOnlyMemory<byte> RichestColorRam => _richestColorRam;
+
+    public void Record(long instruction, ReadOnlySpan<byte> vram, ReadOnlySpan<byte> colorRam)
     {
         _captures++;
         var commands = ReadCommandChain(vram);
@@ -1751,6 +1791,8 @@ sealed class Vdp1CommandProbe
         _richestInstruction = instruction;
         _richestDrawableCount = drawableCount;
         _richestCommands = commands;
+        _richestVram = vram.ToArray();
+        _richestColorRam = colorRam.ToArray();
 
         static bool IsDrawable(Vdp1Command command) => command.CommandCode switch
         {

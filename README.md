@@ -30,3 +30,9 @@ dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --b
 
 The `bios/` directory is intentionally ignored by Git.
 Without `--trace`, the CLI prints a compact bringup summary with the current PC, first/last unimplemented opcode if any, and touched stub devices.
+
+The bringup CLI can render the richest completed VDP1 command list captured at VBlank to a binary PPM image:
+
+```sh
+dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc "/path/to/game.cue" --dual-sh2 --simulate-scsp-command-ack --vblank-interval 100000 --instructions 30000000 --summary-only --dump-vdp1-frame /tmp/saturn-vdp1.ppm
+```
