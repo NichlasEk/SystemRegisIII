@@ -534,7 +534,10 @@ static void VerifyVdp1SoftwareRenderer()
     var colorRam = new byte[0x1000];
     colorRam[2] = 0x00;
     colorRam[3] = 0x1F;
-    vram[0x100] = 0x10;
+    colorRam[4] = 0x03;
+    colorRam[5] = 0xE0;
+    vram[0x100] = 0x1F;
+    vram[0x101] = 0xF2;
 
     var commands = new[]
     {
@@ -544,9 +547,21 @@ static void VerifyVdp1SoftwareRenderer()
     };
     var rendered = Vdp1SoftwareRenderer.Render(vram, colorRam, commands, width: 8, height: 2);
     Require(rendered.DrawnSprites == 1, "VDP1 normal-sprite renderer did not draw the command.");
-    Require(rendered.DrawnPixels == 1, "VDP1 normal-sprite transparency failed.");
+    Require(rendered.DrawnPixels == 1, "VDP1 normal-sprite end-code handling failed.");
     Require(rendered.Frame.BgraPixels.Span[0] == 0xFFFF_0000, "VDP1 CRAM RGB555 conversion failed.");
     Require(rendered.Frame.BgraPixels.Span[1] == 0xFF00_0000, "VDP1 transparent texel overwrote the frame.");
+    Require(rendered.Frame.BgraPixels.Span[3] == 0xFF00_0000, "VDP1 renderer continued after two end codes.");
+
+    var rgbVram = new byte[0x80000];
+    rgbVram[0x100] = 0x00;
+    rgbVram[0x101] = 0x1F;
+    rgbVram[0x102] = 0x80;
+    rgbVram[0x103] = 0x1F;
+    var rgbCommand = MakeCommand(0x0000, drawMode: 0x0028, characterAddress: 0x0020, characterSize: 0x0101);
+    var rgbRendered = Vdp1SoftwareRenderer.Render(rgbVram, colorRam, [rgbCommand, MakeCommand(0x8000)], width: 8, height: 1);
+    Require(rgbRendered.DrawnPixels == 1, "VDP1 direct-RGB transparency threshold failed.");
+    Require(rgbRendered.Frame.BgraPixels.Span[0] == 0xFF00_0000, "VDP1 low direct-RGB value was not transparent.");
+    Require(rgbRendered.Frame.BgraPixels.Span[1] == 0xFFFF_0000, "VDP1 direct-RGB visible pixel conversion failed.");
 
     static Vdp1Command MakeCommand(
         ushort control,

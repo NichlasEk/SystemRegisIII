@@ -75,6 +75,7 @@ public static class Vdp1SoftwareRenderer
         var verticalFlip = (command.Control & 0x0020) != 0;
         var colorMode = (command.DrawMode >> 3) & 0x7;
         var showTransparentPixels = (command.DrawMode & 0x0040) != 0;
+        var endCodesDisabled = (command.DrawMode & 0x0080) != 0;
         var drawn = 0;
 
         for (var destinationY = 0; destinationY < command.CharacterHeight; destinationY++)
@@ -86,6 +87,7 @@ public static class Vdp1SoftwareRenderer
             }
 
             var sourceY = verticalFlip ? command.CharacterHeight - 1 - destinationY : destinationY;
+            var remainingEndCodes = 2;
             for (var destinationX = 0; destinationX < command.CharacterWidth; destinationX++)
             {
                 var x = originX + destinationX;
@@ -95,6 +97,18 @@ public static class Vdp1SoftwareRenderer
                 }
 
                 var sourceX = horizontalFlip ? command.CharacterWidth - 1 - destinationX : destinationX;
+                var pixelIndex = (sourceY * command.CharacterWidth) + sourceX;
+                if (!endCodesDisabled && IsEndCode(vram, command, colorMode, pixelIndex))
+                {
+                    remainingEndCodes--;
+                    if (remainingEndCodes == 0)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
                 var color = FetchColor(vram, colorRam, command, colorMode, sourceX, sourceY, showTransparentPixels);
                 if (color is not uint bgra)
                 {
@@ -108,6 +122,18 @@ public static class Vdp1SoftwareRenderer
 
         return drawn;
     }
+
+    private static bool IsEndCode(
+        ReadOnlySpan<byte> vram,
+        Vdp1Command command,
+        int colorMode,
+        int pixelIndex) => colorMode switch
+        {
+            0 or 1 => ReadPackedNibble(vram, command.CharacterByteAddress, pixelIndex) == 0xF,
+            2 or 3 or 4 => ReadByte(vram, command.CharacterByteAddress + (uint)pixelIndex) == 0xFF,
+            5 => (ReadWord(vram, command.CharacterByteAddress + (uint)(pixelIndex * 2)) & 0xC000) == 0x4000,
+            _ => false,
+        };
 
     private static uint? FetchColor(
         ReadOnlySpan<byte> vram,
@@ -123,8 +149,7 @@ public static class Vdp1SoftwareRenderer
         switch (colorMode)
         {
             case 0:
-                var packed = ReadByte(vram, command.CharacterByteAddress + (uint)(pixelIndex >> 1));
-                var nibble = (pixelIndex & 1) == 0 ? packed >> 4 : packed & 0xF;
+                var nibble = ReadPackedNibble(vram, command.CharacterByteAddress, pixelIndex);
                 if (nibble == 0 && !showTransparentPixels)
                 {
                     return null;
@@ -133,8 +158,7 @@ public static class Vdp1SoftwareRenderer
                 paletteIndex = (command.Color & 0xFFF0) | nibble;
                 return ReadPaletteColor(colorRam, paletteIndex);
             case 1:
-                packed = ReadByte(vram, command.CharacterByteAddress + (uint)(pixelIndex >> 1));
-                nibble = (pixelIndex & 1) == 0 ? packed >> 4 : packed & 0xF;
+                nibble = ReadPackedNibble(vram, command.CharacterByteAddress, pixelIndex);
                 if (nibble == 0 && !showTransparentPixels)
                 {
                     return null;
@@ -156,7 +180,7 @@ public static class Vdp1SoftwareRenderer
                 return ReadPaletteColor(colorRam, paletteIndex);
             case 5:
                 var rgb = ReadWord(vram, command.CharacterByteAddress + (uint)(pixelIndex * 2));
-                if ((rgb & 0x7FFF) == 0 && !showTransparentPixels)
+                if (rgb < 0x4000 && !showTransparentPixels)
                 {
                     return null;
                 }
@@ -190,6 +214,12 @@ public static class Vdp1SoftwareRenderer
 
     private static byte ReadByte(ReadOnlySpan<byte> memory, uint address) =>
         memory[(int)(address % (uint)memory.Length)];
+
+    private static int ReadPackedNibble(ReadOnlySpan<byte> memory, uint baseAddress, int pixelIndex)
+    {
+        var packed = ReadByte(memory, baseAddress + (uint)(pixelIndex >> 1));
+        return (pixelIndex & 1) == 0 ? packed >> 4 : packed & 0xF;
+    }
 
     private static ushort ReadWord(ReadOnlySpan<byte> memory, uint address) =>
         (ushort)((ReadByte(memory, address) << 8) | ReadByte(memory, address + 1));

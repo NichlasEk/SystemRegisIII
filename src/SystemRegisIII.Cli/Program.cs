@@ -1813,7 +1813,7 @@ sealed class Vdp1CommandProbe
         foreach (var command in _richestCommands)
         {
             Console.WriteLine(
-                $"  0x{command.Address:X5} ctrl=0x{command.Control:X4} {(command.Skip ? "skip " : string.Empty)}{command.CommandName} " +
+                $"  0x{command.Address:X5} ctrl=0x{command.Control:X4} pmod=0x{command.DrawMode:X4} colr=0x{command.Color:X4} {(command.Skip ? "skip " : string.Empty)}{command.CommandName} " +
                 $"src=0x{command.CharacterByteAddress:X5} size={command.CharacterWidth}x{command.CharacterHeight} " +
                 $"A=({command.Xa},{command.Ya}) B=({command.Xb},{command.Yb}) C=({command.Xc},{command.Yc}) D=({command.Xd},{command.Yd})");
         }

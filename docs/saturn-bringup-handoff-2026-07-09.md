@@ -112,6 +112,8 @@ The VBlank command probe samples every accelerated frame, rejects incomplete zer
 
 That first software renderer slice is now implemented. `Vdp1SoftwareRenderer` handles system clip, local coordinates, normal-sprite horizontal/vertical flip, transparent pixels, the VDP1 4-bit/8-bit color-bank and LUT modes, direct RGB555, and VDP2 CRAM palette conversion. The CLI option `--dump-vdp1-frame <path.ppm>` renders the richest VBlank snapshot. The 30M NiGHTS checkpoint renders all 8 captured sprites and 1,137 visible pixels; visual inspection of `/tmp/nights_vdp1_30m.ppm` confirms the Sega logo and `SEGA ENTERPRISES, LTD. 1994, 1995` copyright text. The next visual slice can build on this proven path with VDP2 background composition or additional VDP1 primitive types.
 
+WaylandForge live integration exposed that the small BIOS copyright glyphs are still visibly corrupt even though the Sega logo is recognizable. The raw CLI dump has the same artifact, ruling out Wayland scaling. The active sprites all use `PMOD=0x0028` (16-bit direct RGB). VDP1 two-end-code handling and the direct-RGB transparency threshold are now implemented and smoke-covered, but neither changes the glyph geometry. Treat the next visual blocker as direct-RGB texture data/stride or the upstream VDP1 VRAM upload path, not host presentation.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.
