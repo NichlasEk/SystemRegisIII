@@ -977,6 +977,15 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: SHAR R{register} T={Registers.T}");
                     return;
                 }
+            case 0x4005:
+                {
+                    var register = (opcode >> 8) & 0xF;
+                    var value = Registers.General[register];
+                    Registers.T = (value & 1) != 0;
+                    Registers.General[register] = (value >> 1) | (value << 31);
+                    Trace($"0x{pc:X8}: ROTR R{register} T={Registers.T}");
+                    return;
+                }
             case 0x4024:
                 {
                     var register = (opcode >> 8) & 0xF;

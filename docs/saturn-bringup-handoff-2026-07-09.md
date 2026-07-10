@@ -100,6 +100,8 @@ The clean accumulator run proved `0x060330D4..0x060330DC` polls VDP1 `EDSR` bit 
 
 With the corrected map, the 100M EDSR probe falls from 12,126,838 hits to 13, final PC advances to `0x0607157C`, and Work RAM High writes rise from about 25.2M to 28.0M. The next missing instruction is `0x0008` (`CLRT`) at `0x0607162C`; it is now implemented and smoke-covered. The next run should rebuild the CLI and classify the `0x0607157A..0x06071580` tail after CLRT is active.
 
+The clean 100M run with `CLRT` active reports no further `CLRT` hits and remains active around `0x0607157A..0x06071580`. It exposes 69 executions of `0x4n05` (`ROTR Rn`), first at `0x0602B680` and last at `0x06071590`. `ROTR` is now implemented with bit 0 copied to both T and bit 31, smoke-covered, and recognized by the CLI decoder. A clean 100M A/B run with `ROTR` active has the same final `PC=0x0607157C`, tail counts, Work RAM High write count, and video-bus traffic. `ROTR` was a real CPU gap but is not the cause of this tail; classify the `0x0607157A..0x06071580` loop with a focused register and memory-read probe next.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

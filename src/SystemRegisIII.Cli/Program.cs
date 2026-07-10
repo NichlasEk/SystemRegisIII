@@ -1268,13 +1268,14 @@ static string DecodeSh2Instruction(ISaturnBus bus, uint address, ushort opcode)
         return $"LDC R{(opcode >> 8) & 0xF},SR";
     }
 
-    if ((opcode & 0xF0FF) is 0x4000 or 0x4001 or 0x4010 or 0x4011 or 0x4015 or 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4020 or 0x4021 or 0x4024 or 0x4025 or 0x4028 or 0x4029)
+    if ((opcode & 0xF0FF) is 0x4000 or 0x4001 or 0x4005 or 0x4010 or 0x4011 or 0x4015 or 0x4008 or 0x4009 or 0x4018 or 0x4019 or 0x4020 or 0x4021 or 0x4024 or 0x4025 or 0x4028 or 0x4029)
     {
         var register = (opcode >> 8) & 0xF;
         return (opcode & 0xF0FF) switch
         {
             0x4000 => $"SHLL R{register}",
             0x4001 => $"SHLR R{register}",
+            0x4005 => $"ROTR R{register}",
             0x4010 => $"DT R{register}",
             0x4011 => $"CMP/PZ R{register}",
             0x4015 => $"CMP/PL R{register}",
