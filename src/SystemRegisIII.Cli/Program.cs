@@ -48,6 +48,7 @@ static int RunBios(string[] args)
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
     var summaryOnly = Has(args, "--summary-only");
     var vdp1FramePath = GetOption(args, "--dump-vdp1-frame");
+    var vdp1TexturePath = GetOption(args, "--dump-vdp1-texture");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -70,8 +71,18 @@ static int RunBios(string[] args)
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
     Sh2Cpu? master = null;
     Sh2Cpu? slave = null;
-    var masterScspRamWatch = new WatchedBus(
+    var masterVdp1TextureSourceWatch = new WatchedBus(
         masterInternalBus,
+        0x0602_9194,
+        0x0602_AC93,
+        () => GetWatchContext(master));
+    var masterVdp1TextureWatch = new WatchedBus(
+        masterVdp1TextureSourceWatch,
+        0x05C1_18A0,
+        0x05C1_339F,
+        () => GetWatchContext(master));
+    var masterScspRamWatch = new WatchedBus(
+        masterVdp1TextureWatch,
         0x05A0_06F0,
         0x05A0_0730,
         () => GetWatchContext(master));
@@ -441,6 +452,8 @@ static int RunBios(string[] args)
         PrintInstructionWindow(addressMap, 0x0602_DD60, 224, "  transform node builder 0x0602DD60");
         PrintInstructionWindow(addressMap, 0x0601_1570, 48, "  fixed-point helper 0x06011570");
         PrintWatchWindow("Master SCSP RAM handshake watch", masterScspRamWatch);
+        PrintWatchWindow("Master VDP1 BIOS texture watch", masterVdp1TextureWatch);
+        PrintWatchWindow("Master VDP1 BIOS texture source watch", masterVdp1TextureSourceWatch);
         PrintWatchWindow("Master CD status buffer watch", masterCdStatusBufferWatch);
         PrintWatchWindow("Master flag watch", masterFlagWatch);
         PrintWatchWindow("Master callback-state watch", masterCallbackWatch);
@@ -463,6 +476,8 @@ static int RunBios(string[] args)
     else
     {
         PrintWatchSummary("Master SCSP RAM handshake watch", masterScspRamWatch);
+        PrintWatchSummary("Master VDP1 BIOS texture watch", masterVdp1TextureWatch);
+        PrintWatchSummary("Master VDP1 BIOS texture source watch", masterVdp1TextureSourceWatch);
         PrintWatchSummary("Master transform-matrix watch", masterTransformMatrixWatch);
         PrintWatchSummary("Master transform-node watch", masterTransformNodeWatch);
         PrintWatchSummary("Master transform-parent-node watch", masterTransformParentNodeWatch);
@@ -477,6 +492,11 @@ static int RunBios(string[] args)
     if (vdp1FramePath is not null)
     {
         WriteVdp1Frame(vdp1FramePath, vdp1CommandProbe);
+    }
+
+    if (vdp1TexturePath is not null)
+    {
+        WriteLargestVdp1Texture(vdp1TexturePath, vdp1CommandProbe);
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -586,6 +606,45 @@ static void WriteVdp1Frame(string path, Vdp1CommandProbe probe)
 
     Console.WriteLine(
         $"VDP1 frame dump: {path} sprites={rendered.DrawnSprites:N0} pixels={rendered.DrawnPixels:N0} size={rendered.Frame.Width}x{rendered.Frame.Height}");
+}
+
+static void WriteLargestVdp1Texture(string path, Vdp1CommandProbe probe)
+{
+    var command = probe.RichestCommands
+        .Where(static candidate => candidate.CommandCode == 0x0)
+        .OrderByDescending(static candidate => candidate.CharacterWidth * candidate.CharacterHeight)
+        .FirstOrDefault();
+    if (command.CharacterWidth == 0 || command.CharacterHeight == 0)
+    {
+        Console.WriteLine("VDP1 texture dump: no normal sprite captured");
+        return;
+    }
+
+    var colorMode = (command.DrawMode >> 3) & 0x7;
+    var bytesPerRow = colorMode switch
+    {
+        0 or 1 => command.CharacterWidth / 2,
+        2 or 3 or 4 => command.CharacterWidth,
+        5 => command.CharacterWidth * 2,
+        _ => 0,
+    };
+    if (bytesPerRow == 0)
+    {
+        Console.WriteLine($"VDP1 texture dump: unsupported color mode {colorMode}");
+        return;
+    }
+
+    var byteCount = checked(bytesPerRow * command.CharacterHeight);
+    var texture = new byte[byteCount];
+    var vram = probe.RichestVram.Span;
+    for (var index = 0; index < texture.Length; index++)
+    {
+        texture[index] = vram[(int)((command.CharacterByteAddress + (uint)index) % (uint)vram.Length)];
+    }
+
+    File.WriteAllBytes(path, texture);
+    Console.WriteLine(
+        $"VDP1 texture dump: {path} src=0x{command.CharacterByteAddress:X5} size={command.CharacterWidth}x{command.CharacterHeight} mode={colorMode} bytes={byteCount:N0}");
 }
 
 static bool IsUnsafeVBlankInjectionPoint(Sh2Cpu cpu)
@@ -953,6 +1012,13 @@ static void PrintWatchWindow(string label, WatchedBus watch)
             Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
         }
 
+        if (watch.NonZeroWriteCount > 0)
+        {
+            Console.WriteLine($"  nonzero writes: {watch.NonZeroWriteCount:N0}");
+            PrintLargeWrites("first nonzero writes", watch.FirstNonZeroWrites);
+            PrintLargeWrites("recent nonzero writes", watch.RecentNonZeroWrites);
+        }
+
         if (watch.LargeWriteCount > 0)
         {
             Console.WriteLine($"  large signed writes: {watch.LargeWriteCount:N0}");
@@ -995,6 +1061,13 @@ static void PrintWatchSummary(string label, WatchedBus watch)
         foreach (var write in watch.RecentWrites.TakeLast(6))
         {
             Console.WriteLine($"    {FormatWatchContext(write.Context)} address=0x{write.Address:X8} value=0x{write.Value:X8}");
+        }
+
+        if (watch.NonZeroWriteCount > 0)
+        {
+            Console.WriteLine($"  nonzero writes: {watch.NonZeroWriteCount:N0}");
+            PrintLargeWrites("first nonzero writes", watch.FirstNonZeroWrites.Take(6).ToArray());
+            PrintLargeWrites("recent nonzero writes", watch.RecentNonZeroWrites.TakeLast(6).ToArray());
         }
 
         if (watch.LargeWriteCount > 0)
@@ -1705,7 +1778,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

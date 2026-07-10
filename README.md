@@ -36,3 +36,5 @@ The bringup CLI can render the richest completed VDP1 command list captured at V
 ```sh
 dotnet run --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj -- run --bios "bios/Sega Saturn BIOS (J) (1.01).zip" --disc "/path/to/game.cue" --dual-sh2 --simulate-scsp-command-ack --vblank-interval 100000 --instructions 30000000 --summary-only --dump-vdp1-frame /tmp/saturn-vdp1.ppm
 ```
+
+Add `--dump-vdp1-texture /tmp/saturn-vdp1-texture.bin` to dump the largest captured normal-sprite texture as raw VDP1 bytes for reference-emulator comparisons.

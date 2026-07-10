@@ -18,6 +18,8 @@ internal sealed class WatchedBus(
     private readonly Queue<WatchedWrite> _recentWrites = new();
     private readonly Queue<WatchedWrite> _firstLargeWrites = new();
     private readonly Queue<WatchedWrite> _recentLargeWrites = new();
+    private readonly Queue<WatchedWrite> _firstNonZeroWrites = new();
+    private readonly Queue<WatchedWrite> _recentNonZeroWrites = new();
 
     public long ReadCount { get; private set; }
     public uint? FirstReadAddress { get; private set; }
@@ -32,6 +34,9 @@ internal sealed class WatchedBus(
     public long LargeWriteCount { get; private set; }
     public IReadOnlyList<WatchedWrite> FirstLargeWrites => _firstLargeWrites.ToArray();
     public IReadOnlyList<WatchedWrite> RecentLargeWrites => _recentLargeWrites.ToArray();
+    public long NonZeroWriteCount { get; private set; }
+    public IReadOnlyList<WatchedWrite> FirstNonZeroWrites => _firstNonZeroWrites.ToArray();
+    public IReadOnlyList<WatchedWrite> RecentNonZeroWrites => _recentNonZeroWrites.ToArray();
 
     public byte ReadByte(uint address)
     {
@@ -135,6 +140,22 @@ internal sealed class WatchedBus(
         while (_recentWrites.Count > 24)
         {
             _recentWrites.Dequeue();
+        }
+
+        if (value != 0)
+        {
+            NonZeroWriteCount++;
+            var write = new WatchedWrite(context, normalized, value);
+            if (_firstNonZeroWrites.Count < 12)
+            {
+                _firstNonZeroWrites.Enqueue(write);
+            }
+
+            _recentNonZeroWrites.Enqueue(write);
+            while (_recentNonZeroWrites.Count > 12)
+            {
+                _recentNonZeroWrites.Dequeue();
+            }
         }
 
         if (IsLargeSignedValue(value))
