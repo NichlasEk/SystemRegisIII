@@ -6,6 +6,7 @@ using SystemRegisIII.Core.Core.Cpu.Sh2;
 using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
+using SystemRegisIII.Core.Core.Vdp1;
 using SystemRegisIII.Core.Host.Input;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
@@ -466,6 +467,7 @@ static int RunBios(string[] args)
     }
 
     PrintScuInterruptState(scu, interruptProbe);
+    PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
@@ -487,6 +489,66 @@ static void RecordPc(Dictionary<uint, long> hits, uint pc)
 {
     hits.TryGetValue(pc, out var count);
     hits[pc] = count + 1;
+}
+
+static void PrintVdp1CommandTable(DebugMemoryBusDevice vdp1Area)
+{
+    Console.WriteLine("VDP1 command table:");
+    if (vdp1Area.WriteCount == 0)
+    {
+        Console.WriteLine("  untouched");
+        return;
+    }
+
+    var vram = vdp1Area.Snapshot.Span;
+    var visited = new HashSet<uint>();
+    uint address = 0;
+    uint? returnAddress = null;
+
+    for (var index = 0; index < 64; index++)
+    {
+        if (address > vram.Length - 0x20 || !visited.Add(address))
+        {
+            Console.WriteLine($"  stopped at 0x{address:X5}: {(address > vram.Length - 0x20 ? "outside VRAM" : "control-flow cycle")}");
+            return;
+        }
+
+        var command = Vdp1Command.Read(vram, address);
+        Console.WriteLine(
+            $"  {index,2}: 0x{address:X5} ctrl=0x{command.Control:X4} {(command.Skip ? "skip " : string.Empty)}{command.CommandName} jump={command.JumpMode} link=0x{command.LinkAddress:X5} " +
+            $"src=0x{command.CharacterByteAddress:X5} size={command.CharacterWidth}x{command.CharacterHeight} " +
+            $"A=({command.Xa},{command.Ya}) B=({command.Xb},{command.Yb}) C=({command.Xc},{command.Yc}) D=({command.Xd},{command.Yd})");
+
+        if (command.End)
+        {
+            Console.WriteLine("  end");
+            return;
+        }
+
+        var sequentialAddress = address + 0x20;
+        address = command.JumpMode switch
+        {
+            0 => sequentialAddress,
+            1 => command.LinkAddress,
+            2 => Call(command.LinkAddress, sequentialAddress, ref returnAddress),
+            3 when returnAddress is uint target => Return(target, ref returnAddress),
+            _ => sequentialAddress,
+        };
+    }
+
+    Console.WriteLine("  stopped after 64 commands");
+
+    static uint Call(uint target, uint sequentialAddress, ref uint? returnAddress)
+    {
+        returnAddress ??= sequentialAddress;
+        return target;
+    }
+
+    static uint Return(uint target, ref uint? returnAddress)
+    {
+        returnAddress = null;
+        return target;
+    }
 }
 
 static bool IsUnsafeVBlankInjectionPoint(Sh2Cpu cpu)

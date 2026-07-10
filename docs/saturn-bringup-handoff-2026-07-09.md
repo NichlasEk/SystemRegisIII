@@ -104,6 +104,10 @@ The clean 100M run with `CLRT` active reports no further `CLRT` hits and remains
 
 The focused gameplay-tail probe proves that `0x0607157A..0x06071580` is not a hardware wait. It is an often-called, finite bit-normalization loop: `SHLL R7`, `ROTCL R6`, `CMP/GE R0,R6`, then `BF/S` with a counter update in the delay slot. Here `R0=0x00100000`, and captured calls show `R6` growing from zero through `1`, `3`, `6`, and onward until the comparison succeeds. The probe records several hot caller PRs (`0x060710C6`, `0x06070FFA`, and `0x06071034`), further confirming repeated calls rather than one stuck invocation. Continue beyond 100M and classify the next phase boundary instead of treating the final sampled PC as a blocker.
 
+The 120M continuation confirms forward progress. Final PC moves to `0x0607166C`, Work RAM High writes rise from `28,004,861` at 100M to `32,973,632`, and the focused trace captures the normalization comparison succeeding at `R6=0x00181C4C` followed by the exit at `0x06071584 -> 0x060715FE`. The hot caller counts continue to grow across the extra 20M instructions. The bringup is executing active game math rather than waiting at the former tail; choose the next slice from missing visible video/hardware behavior rather than another arbitrary final-PC probe.
+
+A core `Vdp1Command` decoder and CLI command-chain inspector now expose the first concrete video target. The 100M final snapshot follows `0x00000 -> 0x10AC0 -> 0x10B20 -> 0x10B00 -> 0x10AE0 -> 0x10B40 -> 0x10B60`. It establishes a `319x223` system/user clip and local coordinate `(160,112)`, then reaches skipped normal-sprite slots and END. This end-of-run snapshot has no active draw primitive, so the next video probe must sample command chains at VBlank or draw start rather than only after the final instruction.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

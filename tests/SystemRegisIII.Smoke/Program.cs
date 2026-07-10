@@ -38,6 +38,7 @@ Require(slaveSh2.TotalCycles == 536_931, "Slave SH-2 did not receive the full fr
 
 VerifyPageMappedBus();
 VerifySaturnSystemMap();
+VerifyVdp1CommandDecode();
 VerifySh2InternalRegisterBus();
 VerifySh2InterruptEntry();
 VerifySh2IndexedMoveDecoding();
@@ -499,6 +500,30 @@ static void VerifySaturnSystemMap()
         {
             Directory.Delete(cueDirectory, recursive: true);
         }
+    }
+}
+
+static void VerifyVdp1CommandDecode()
+{
+    var commandBytes = new byte[0x20];
+    WriteWord(commandBytes, 0x00, 0x1204);
+    WriteWord(commandBytes, 0x02, 0x0040);
+    WriteWord(commandBytes, 0x08, 0x0100);
+    WriteWord(commandBytes, 0x0A, 0x0407);
+    WriteWord(commandBytes, 0x0C, 0xFFF0);
+    WriteWord(commandBytes, 0x0E, 0x0020);
+
+    var command = Vdp1Command.Read(commandBytes, 0);
+    Require(command.CommandName == "polygon", "VDP1 command type decode failed.");
+    Require(command.JumpMode == 1 && command.LinkAddress == 0x200, "VDP1 command link decode failed.");
+    Require(command.CharacterByteAddress == 0x800, "VDP1 character address decode failed.");
+    Require(command.CharacterWidth == 32 && command.CharacterHeight == 7, "VDP1 character size decode failed.");
+    Require(command.Xa == -16 && command.Ya == 32, "VDP1 coordinate decode failed.");
+
+    static void WriteWord(Span<byte> destination, int offset, ushort value)
+    {
+        destination[offset] = (byte)(value >> 8);
+        destination[offset + 1] = (byte)value;
     }
 }
 
