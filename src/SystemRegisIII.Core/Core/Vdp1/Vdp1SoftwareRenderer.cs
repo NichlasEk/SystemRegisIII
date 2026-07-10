@@ -11,10 +11,29 @@ public static class Vdp1SoftwareRenderer
         ReadOnlySpan<byte> colorRam,
         IReadOnlyList<Vdp1Command> commands,
         int width = 320,
+        int height = 224) =>
+        Render(vram, colorRam, commands, ReadOnlySpan<uint>.Empty, width, height);
+
+    public static Vdp1RenderResult Render(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        IReadOnlyList<Vdp1Command> commands,
+        ReadOnlySpan<uint> backgroundRows,
+        int width = 320,
         int height = 224)
     {
         var pixels = new uint[checked(width * height)];
-        Array.Fill(pixels, 0xFF00_0000u);
+        if (backgroundRows.IsEmpty)
+        {
+            Array.Fill(pixels, 0xFF00_0000u);
+        }
+        else
+        {
+            for (var y = 0; y < height; y++)
+            {
+                pixels.AsSpan(y * width, width).Fill(backgroundRows[Math.Min(y, backgroundRows.Length - 1)]);
+            }
+        }
         var localX = 0;
         var localY = 0;
         var clipRight = width - 1;

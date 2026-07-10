@@ -7,6 +7,7 @@ using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
 using SystemRegisIII.Core.Core.Vdp1;
+using SystemRegisIII.Core.Core.Vdp2;
 using SystemRegisIII.Core.Host.Input;
 using SystemRegisIII.Core.Tools.TraceViewer;
 
@@ -267,7 +268,9 @@ static int RunBios(string[] args)
             vdp1CommandProbe.Record(
                 i,
                 systemMap.Vdp1Area.Snapshot.Span,
-                systemMap.Vdp2Cram.Snapshot.Span);
+                systemMap.Vdp2Cram.Snapshot.Span,
+                systemMap.Vdp2Vram.Snapshot.Span,
+                systemMap.Vdp2Registers.Snapshot.Span);
             vblankInDue = true;
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
@@ -593,7 +596,11 @@ static void WriteVdp1Frame(string path, Vdp1CommandProbe probe)
     var rendered = Vdp1SoftwareRenderer.Render(
         probe.RichestVram.Span,
         probe.RichestColorRam.Span,
-        probe.RichestCommands);
+        probe.RichestCommands,
+        Vdp2BackScreenRenderer.CreateRows(
+            probe.RichestVdp2Vram.Span,
+            probe.RichestVdp2Registers.Span,
+            height: 224));
     using var stream = File.Create(path);
     var header = System.Text.Encoding.ASCII.GetBytes($"P6\n{rendered.Frame.Width} {rendered.Frame.Height}\n255\n");
     stream.Write(header);
@@ -1839,12 +1846,21 @@ sealed class Vdp1CommandProbe
     private long _captures;
     private byte[] _richestVram = [];
     private byte[] _richestColorRam = [];
+    private byte[] _richestVdp2Vram = [];
+    private byte[] _richestVdp2Registers = [];
 
     public IReadOnlyList<Vdp1Command> RichestCommands => _richestCommands;
     public ReadOnlyMemory<byte> RichestVram => _richestVram;
     public ReadOnlyMemory<byte> RichestColorRam => _richestColorRam;
+    public ReadOnlyMemory<byte> RichestVdp2Vram => _richestVdp2Vram;
+    public ReadOnlyMemory<byte> RichestVdp2Registers => _richestVdp2Registers;
 
-    public void Record(long instruction, ReadOnlySpan<byte> vram, ReadOnlySpan<byte> colorRam)
+    public void Record(
+        long instruction,
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        ReadOnlySpan<byte> vdp2Vram,
+        ReadOnlySpan<byte> vdp2Registers)
     {
         _captures++;
         var commands = ReadCommandChain(vram);
@@ -1866,6 +1882,8 @@ sealed class Vdp1CommandProbe
         _richestCommands = commands;
         _richestVram = vram.ToArray();
         _richestColorRam = colorRam.ToArray();
+        _richestVdp2Vram = vdp2Vram.ToArray();
+        _richestVdp2Registers = vdp2Registers.ToArray();
 
         static bool IsDrawable(Vdp1Command command) => command.CommandCode switch
         {

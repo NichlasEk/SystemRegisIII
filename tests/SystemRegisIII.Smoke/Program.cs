@@ -40,6 +40,7 @@ VerifyPageMappedBus();
 VerifySaturnSystemMap();
 VerifyVdp1CommandDecode();
 VerifyVdp1SoftwareRenderer();
+VerifyVdp2BackScreenRenderer();
 VerifySh2InternalRegisterBus();
 VerifySh2InterruptEntry();
 VerifySh2IndexedMoveDecoding();
@@ -590,6 +591,39 @@ static void VerifyVdp1SoftwareRenderer()
             0,
             0,
             0);
+}
+
+static void VerifyVdp2BackScreenRenderer()
+{
+    var vram = new byte[0x80000];
+    var registers = new byte[0x200];
+    WriteWord(registers, 0xAC, 0x0000);
+    WriteWord(registers, 0xAE, 0x0010);
+    WriteWord(vram, 0x20, 0x7FFF);
+
+    var rows = Vdp2BackScreenRenderer.CreateRows(vram, registers, height: 2);
+    Require(rows.SequenceEqual([0xFFFF_FFFFu, 0xFFFF_FFFFu]), "VDP2 solid back-screen lookup failed.");
+
+    WriteWord(registers, 0xAC, 0x8000);
+    WriteWord(vram, 0x22, 0x001F);
+    rows = Vdp2BackScreenRenderer.CreateRows(vram, registers, height: 2);
+    Require(rows[0] == 0xFFFF_FFFF && rows[1] == 0xFFFF_0000, "VDP2 per-line back-screen lookup failed.");
+
+    var rendered = Vdp1SoftwareRenderer.Render(
+        new byte[0x80000],
+        new byte[0x1000],
+        [],
+        rows,
+        width: 2,
+        height: 2);
+    Require(rendered.Frame.BgraPixels.Span[0] == 0xFFFF_FFFF, "VDP1 compositor ignored VDP2 back-screen row 0.");
+    Require(rendered.Frame.BgraPixels.Span[2] == 0xFFFF_0000, "VDP1 compositor ignored VDP2 back-screen row 1.");
+
+    static void WriteWord(Span<byte> destination, int offset, ushort value)
+    {
+        destination[offset] = (byte)(value >> 8);
+        destination[offset + 1] = (byte)value;
+    }
 }
 
 static void CreateTinyIsoImage(string path)
