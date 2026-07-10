@@ -61,6 +61,8 @@ public sealed class SaturnSystemMap
         }
 
         var vdp1Area = new DebugMemoryBusDevice("VDP1 Area", 1024 * 1024);
+        var vdp1Registers = new StubBusDevice("VDP1 Registers")
+            .AddReadOnlyWord(0x10, 0x0002);
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
         var vdp2Registers = new DebugMemoryBusDevice("VDP2 Registers", 0x40000);
@@ -75,6 +77,7 @@ public sealed class SaturnSystemMap
             cdBlockRegisterMirror,
             scspArea,
             vdp1Area,
+            vdp1Registers,
             vdp2Vram,
             vdp2Cram,
             vdp2Registers,
@@ -92,17 +95,17 @@ public sealed class SaturnSystemMap
             .Map(0x0200_0000, 0x020F_FFFF, stubs[3])
             .Map(0x0400_0000, 0x04FF_FFFF, stubs[4])
             .Map(0x0580_0000, 0x058F_FFFF, stubs[5])
-            .Map(0x05A0_0000, 0x05AF_FFFF, stubs[6])
-            .Map(0x05B0_0000, 0x05BF_FFFF, stubs[7])
-            .Map(0x05C0_0000, 0x05DF_FFFF, stubs[8])
+            .Map(0x05A0_0000, 0x05BF_FFFF, stubs[6])
+            .Map(0x05C0_0000, 0x05CF_FFFF, stubs[7])
+            .Map(0x05D0_0000, 0x05DF_FFFF, stubs[8])
             .Map(0x05E0_0000, 0x05EF_FFFF, stubs[9])
-            .Map(0x05F0_0000, 0x05F7_FFFF, stubs[9])
-            .Map(0x05F8_0000, 0x05FB_FFFF, stubs[10])
-            .Map(0x05FE_0000, 0x05FF_FFFF, stubs[11])
+            .Map(0x05F0_0000, 0x05F7_FFFF, stubs[10])
+            .Map(0x05F8_0000, 0x05FB_FFFF, stubs[11])
+            .Map(0x05FE_0000, 0x05FF_FFFF, stubs[12])
             .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
             .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
             .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
-            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[12]);
+            .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[13]);
 
         return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, vdp1Area, vdp2Vram, vdp2Cram, vdp2Registers, cdBlockRegisterMirror, stubs);
     }

@@ -1135,6 +1135,10 @@ public sealed class Sh2Cpu : ISh2Cpu
 
         switch (opcode)
         {
+            case 0x0008:
+                Registers.T = false;
+                Trace($"0x{pc:X8}: CLRT");
+                break;
             case 0x0019:
                 Registers.M = false;
                 Registers.Q = false;

@@ -96,6 +96,10 @@ Continue beyond 80M using the accelerated bringup command above and classify the
 
 A 100M run reaches `PC=0x060330D6`, performs about 4.85 million VDP2 VRAM reads, and exposed 16 executions of another missing SH-2 instruction: `0x4n1A` (`LDS Rn,MACL`), first at `0x060361A0` and last at `0x06036DAA`. Direct register-to-MACL loading is now implemented and smoke-covered. A clean CLI rebuild removes those hits and reveals the matching missing `0x4n0A` (`LDS Rn,MACH`) twice at `0x06036DA8`; direct register-to-MACH loading is now implemented and smoke-covered too. Re-run the 100M checkpoint before classifying the `0x060330D6..0x060330DC` tail because the corrected accumulator inputs may affect the path leading there.
 
+The clean accumulator run proved `0x060330D4..0x060330DC` polls VDP1 `EDSR` bit 1 at `0x25D00010`. The old system map incorrectly routed physical `0x05D00000` into VDP2 VRAM and also placed the surrounding VDP1/VDP2 regions one block too early. The map now separates SCSP `0x05A..0x05B`, VDP1 RAM/framebuffer `0x05C`, VDP1 registers `0x05D`, VDP2 VRAM `0x05E`, VDP2 CRAM `0x05F0..0x05F7`, and VDP2 registers `0x05F8..0x05FB`. The bringup VDP1 register stub reports `EDSR=0x0002`.
+
+With the corrected map, the 100M EDSR probe falls from 12,126,838 hits to 13, final PC advances to `0x0607157C`, and Work RAM High writes rise from about 25.2M to 28.0M. The next missing instruction is `0x0008` (`CLRT`) at `0x0607162C`; it is now implemented and smoke-covered. The next run should rebuild the CLI and classify the `0x0607157A..0x06071580` tail after CLRT is active.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

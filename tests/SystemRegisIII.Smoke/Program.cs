@@ -104,6 +104,31 @@ static void VerifySaturnSystemMap()
         systemMap.Bus.TryResolve(0x24FF_FFFF, out region, out _) &&
         region.Device.Name == "A-Bus Probe Area",
         "A-Bus probe area mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25B0_0400, out region, out _) &&
+        region.Device.Name == "SCSP Area",
+        "SCSP register mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25C0_0000, out region, out _) &&
+        region.Device.Name == "VDP1 Area",
+        "VDP1 VRAM/framebuffer mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25D0_0010, out region, out _) &&
+        region.Device.Name == "VDP1 Registers",
+        "VDP1 register mapping failed.");
+    Require(systemMap.Bus.ReadWord(0x25D0_0010) == 0x0002, "VDP1 EDSR transfer-end status failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25E0_0000, out region, out _) &&
+        region.Device.Name == "VDP2 VRAM",
+        "VDP2 VRAM mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25F0_0000, out region, out _) &&
+        region.Device.Name == "VDP2 CRAM",
+        "VDP2 CRAM mapping failed.");
+    Require(
+        systemMap.Bus.TryResolve(0x25F8_0000, out region, out _) &&
+        region.Device.Name == "VDP2 Registers",
+        "VDP2 register mapping failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0043, "CD Block ID word 0 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x4442, "CD Block ID word 1 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
@@ -733,6 +758,13 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(!cpu.Registers.T, "SH-2 TAS.B failed nonzero-byte test.");
     Require(data.ReadByte(0x20) == 0xC5, "SH-2 TAS.B did not preserve existing bits.");
+
+    WriteWord(code, 0x08, 0x0008);
+    cpu.Reset();
+    cpu.Registers.T = true;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.T, "SH-2 CLRT failed to clear T.");
+    Require(cpu.UnimplementedInstructionCount == 0, "SH-2 CLRT was recorded as unimplemented.");
 
     WriteWord(code, 0x08, 0x4122);
     cpu.Reset();
