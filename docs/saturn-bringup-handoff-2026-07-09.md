@@ -102,6 +102,8 @@ With the corrected map, the 100M EDSR probe falls from 12,126,838 hits to 13, fi
 
 The clean 100M run with `CLRT` active reports no further `CLRT` hits and remains active around `0x0607157A..0x06071580`. It exposes 69 executions of `0x4n05` (`ROTR Rn`), first at `0x0602B680` and last at `0x06071590`. `ROTR` is now implemented with bit 0 copied to both T and bit 31, smoke-covered, and recognized by the CLI decoder. A clean 100M A/B run with `ROTR` active has the same final `PC=0x0607157C`, tail counts, Work RAM High write count, and video-bus traffic. `ROTR` was a real CPU gap but is not the cause of this tail; classify the `0x0607157A..0x06071580` loop with a focused register and memory-read probe next.
 
+The focused gameplay-tail probe proves that `0x0607157A..0x06071580` is not a hardware wait. It is an often-called, finite bit-normalization loop: `SHLL R7`, `ROTCL R6`, `CMP/GE R0,R6`, then `BF/S` with a counter update in the delay slot. Here `R0=0x00100000`, and captured calls show `R6` growing from zero through `1`, `3`, `6`, and onward until the comparison succeeds. The probe records several hot caller PRs (`0x060710C6`, `0x06070FFA`, and `0x06071034`), further confirming repeated calls rather than one stuck invocation. Continue beyond 100M and classify the next phase boundary instead of treating the final sampled PC as a blocker.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

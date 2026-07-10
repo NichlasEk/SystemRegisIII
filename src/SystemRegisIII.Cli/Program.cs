@@ -201,6 +201,11 @@ static int RunBios(string[] args)
         0x0603_30B0,
         0x0603_30F0,
         capacity: 64);
+    var gameplayTailProbe = new PcWindowProbe(
+        "Master SH-2 gameplay tail probe",
+        0x0607_1560,
+        0x0607_15A0,
+        capacity: 96);
     var matrixBuilderProbe = new PcWindowProbe(
         "Master SH-2 matrix builder probe",
         0x0602_E3A0,
@@ -324,6 +329,7 @@ static int RunBios(string[] args)
         biosTailProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         postLoadWaitProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         vdp2ReadWaitProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        gameplayTailProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         matrixBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         matrixCallerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         transformNodeBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
@@ -409,6 +415,7 @@ static int RunBios(string[] args)
     }
 
     var pcProbeSampleLimit = summaryOnly ? 4 : int.MaxValue;
+    gameplayTailProbe.Print(summaryOnly ? 48 : int.MaxValue);
     vdp2ReadWaitProbe.Print(pcProbeSampleLimit);
     postLoadWaitProbe.Print(pcProbeSampleLimit);
     PrintMasterGbrLoopProbe(master, addressMap);
