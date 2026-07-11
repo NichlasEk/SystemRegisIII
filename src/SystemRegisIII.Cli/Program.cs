@@ -55,8 +55,11 @@ static int RunBios(string[] args)
     var finalVdp2StatePrefix = GetOption(args, "--dump-final-vdp2-state");
     var finalWorkRamHighPath = GetOption(args, "--dump-final-wram-high");
     var sh2DiffTracePath = GetOption(args, "--dump-sh2-diff-trace");
+    var preUnimplementedTracePath = GetOption(args, "--dump-pre-unimplemented-trace");
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
+    var preUnimplementedTrace = new Queue<string>(256);
+    string[]? capturedPreUnimplementedTrace = null;
     var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
     var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
@@ -356,6 +359,17 @@ static int RunBios(string[] args)
         }
 
         var masterPc = master.Registers.ProgramCounter;
+        if (capturedPreUnimplementedTrace is null
+            && systemMap.CdBlock.DataTransferWordCount == 0x00CC
+            && systemMap.CdBlock.DataTransferWordsRead >= 190)
+        {
+            if (preUnimplementedTrace.Count == 256)
+            {
+                preUnimplementedTrace.Dequeue();
+            }
+
+            preUnimplementedTrace.Enqueue(FormatSh2DiffState(master));
+        }
         if (simulateInitialProgramLoad && !initialProgramLoaded && masterPc == 0x0601_0000
             && systemMap.CdBlock.TryLoadInitialProgram(
                 systemMap.WorkRamHigh.Span,
@@ -418,6 +432,10 @@ static int RunBios(string[] args)
         if (!TryStep(master, trace, busFaults))
         {
             break;
+        }
+        if (capturedPreUnimplementedTrace is null && master.FirstUnimplementedOpcode is not null)
+        {
+            capturedPreUnimplementedTrace = preUnimplementedTrace.ToArray();
         }
         systemMap.CdBlock.AdvanceMasterInstructions(1);
 
@@ -608,6 +626,12 @@ static int RunBios(string[] args)
     {
         File.WriteAllLines(sh2DiffTracePath, sh2DiffTrace);
         Console.WriteLine($"SH-2 differential trace: {sh2DiffTracePath} entries={sh2DiffTrace.Count:N0}");
+    }
+    if (preUnimplementedTracePath is not null)
+    {
+        var entries = capturedPreUnimplementedTrace ?? preUnimplementedTrace.ToArray();
+        File.WriteAllLines(preUnimplementedTracePath, entries);
+        Console.WriteLine($"SH-2 pre-unimplemented trace: {preUnimplementedTracePath} entries={entries.Length:N0}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1938,7 +1962,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
