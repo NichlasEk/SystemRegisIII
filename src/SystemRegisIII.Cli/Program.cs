@@ -45,6 +45,7 @@ static int RunBios(string[] args)
     var traceEnabled = Has(args, "--trace");
     var simulateSlaveReady = Has(args, "--simulate-slave-ready");
     var simulateScspCommandAck = Has(args, "--simulate-scsp-command-ack");
+    var simulateInitialProgramLoad = Has(args, "--simulate-initial-program-load");
     var dualSh2 = Has(args, "--dual-sh2");
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
     var summaryOnly = Has(args, "--summary-only");
@@ -53,6 +54,10 @@ static int RunBios(string[] args)
     var vdp2StatePrefix = GetOption(args, "--dump-vdp2-state");
     var finalVdp2StatePrefix = GetOption(args, "--dump-final-vdp2-state");
     var finalWorkRamHighPath = GetOption(args, "--dump-final-wram-high");
+    var sh2DiffTracePath = GetOption(args, "--dump-sh2-diff-trace");
+    var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
+    var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
+    var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -259,6 +264,9 @@ static int RunBios(string[] args)
     var vblankOutDue = false;
     var deferredVblankInChecks = 0L;
     var deferredVblankOutChecks = 0L;
+    var sh2DiffTrace = new List<string>(Math.Min(sh2DiffTraceCount, 1_000_000));
+    var sh2DiffTraceArmed = false;
+    var initialProgramLoaded = false;
 
     for (var i = 0; i < instructionCount; i++)
     {
@@ -343,6 +351,35 @@ static int RunBios(string[] args)
         }
 
         var masterPc = master.Registers.ProgramCounter;
+        if (simulateInitialProgramLoad && !initialProgramLoaded && masterPc == 0x0601_0000
+            && systemMap.CdBlock.TryLoadInitialProgram(
+                systemMap.WorkRamHigh.Span,
+                out var initialProgramEntry,
+                out var initialProgramBytes))
+        {
+            ApplyInitialProgramHandoff(master, initialProgramEntry);
+            masterPc = master.Registers.ProgramCounter;
+            initialProgramLoaded = true;
+            if (initialWorkRamLowPath is not null)
+            {
+                File.WriteAllBytes(initialWorkRamLowPath, systemMap.WorkRamLow.Span.ToArray());
+            }
+            if (initialWorkRamHighPath is not null)
+            {
+                File.WriteAllBytes(initialWorkRamHighPath, systemMap.WorkRamHigh.Span.ToArray());
+            }
+            Console.WriteLine($"Initial program bridge: entry=0x{initialProgramEntry:X8} bytes={initialProgramBytes:N0}");
+        }
+        if (!sh2DiffTraceArmed && masterPc == 0x0600_4030)
+        {
+            sh2DiffTraceArmed = true;
+        }
+
+        if (sh2DiffTraceArmed && sh2DiffTrace.Count < sh2DiffTraceCount)
+        {
+            sh2DiffTrace.Add(FormatSh2DiffState(master));
+        }
+
         RecordPc(masterPcHits, masterPc);
         if (i >= instructionCount - 1_000_000)
         {
@@ -526,6 +563,12 @@ static int RunBios(string[] args)
     {
         File.WriteAllBytes(finalWorkRamHighPath, systemMap.WorkRamHigh.Span.ToArray());
         Console.WriteLine($"Final Work RAM High dump: {finalWorkRamHighPath}");
+    }
+
+    if (sh2DiffTracePath is not null)
+    {
+        File.WriteAllLines(sh2DiffTracePath, sh2DiffTrace);
+        Console.WriteLine($"SH-2 differential trace: {sh2DiffTracePath} entries={sh2DiffTrace.Count:N0}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1720,6 +1763,35 @@ static string? GetOption(string[] args, string name)
     return null;
 }
 
+static string FormatSh2DiffState(Sh2Cpu cpu)
+{
+    var registers = cpu.Registers;
+    var line = $"SRDIFF pc={registers.ProgramCounter:x8} sr={registers.StatusRegister:x8} pr={registers.ProcedureRegister:x8} gbr={registers.GlobalBaseRegister:x8} mach={registers.MacHigh:x8} macl={registers.MacLow:x8}";
+    for (var index = 0; index < registers.General.Length; index++)
+    {
+        line += $" r{index}={registers.General[index]:x8}";
+    }
+
+    return line;
+}
+
+static void ApplyInitialProgramHandoff(Sh2Cpu cpu, uint entryAddress)
+{
+    uint[] general =
+    [
+        0x0600_0900, 0x0000_0001, 0x0600_0300, entryAddress,
+        0x0000_0104, 0x0600_083C, 0x0000_0400, 0x0600_0D00,
+        0, 0, 0, 0, 0, 0, 0, 0x0600_1FFC,
+    ];
+    general.CopyTo(cpu.Registers.General, 0);
+    cpu.Registers.ProgramCounter = entryAddress;
+    cpu.Registers.StatusRegister = 0x0000_0001;
+    cpu.Registers.ProcedureRegister = 0x0600_2F6C;
+    cpu.Registers.GlobalBaseRegister = 0;
+    cpu.Registers.MacHigh = 0;
+    cpu.Registers.MacLow = 0;
+}
+
 static int GetIntOption(string[] args, string name, int defaultValue)
 {
     var value = GetOption(args, name);
@@ -1811,7 +1883,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

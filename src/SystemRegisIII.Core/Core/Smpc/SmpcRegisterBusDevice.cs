@@ -23,6 +23,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private const byte SystemStatus1Default = 0x34;
     private const byte SystemStatus2Default = 0x00;
     private const byte NoPeripheralPortStatus = 0xF0;
+    private const int CommandBusyStatusReads = 2;
     private static readonly byte[] DefaultRtc =
     [
         0x19, // Century, BCD.
@@ -44,6 +45,8 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private readonly byte[] _systemMemory = new byte[4];
     private bool _rtcValid = true;
     private bool _resetNmiEnabled;
+    private bool _statusFlag;
+    private int _busyStatusReadsRemaining;
 
     public SmpcRegisterBusDevice(
         SaturnInputState digitalPadState = SaturnInputState.None,
@@ -84,9 +87,20 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             return StatusRegisterValue;
         }
 
-        // The bringup model completes SMPC commands immediately.
         if (offset == StatusFlagRegister)
         {
+            if (!_statusFlag)
+            {
+                return 0;
+            }
+
+            if (_busyStatusReadsRemaining > 0)
+            {
+                _busyStatusReadsRemaining--;
+                return 1;
+            }
+
+            _statusFlag = false;
             return 0;
         }
 
@@ -113,6 +127,11 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
 
         if (offset == StatusFlagRegister)
         {
+            _statusFlag = (value & 1) != 0;
+            if (!_statusFlag)
+            {
+                _busyStatusReadsRemaining = 0;
+            }
             return;
         }
 
@@ -122,6 +141,10 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         }
 
         LastCommand = value;
+        if (_statusFlag)
+        {
+            _busyStatusReadsRemaining = CommandBusyStatusReads;
+        }
         _recentCommands.Enqueue(value);
         while (_recentCommands.Count > 16)
         {

@@ -26,6 +26,7 @@ public sealed class Sh2Cpu : ISh2Cpu
     public ushort? LastUnimplementedOpcode { get; private set; }
     public long UnimplementedInstructionCount { get; private set; }
     public uint? CurrentInstructionProgramCounter { get; private set; }
+    public bool IsSleeping { get; private set; }
 
     public void Reset()
     {
@@ -41,6 +42,7 @@ public sealed class Sh2Cpu : ISh2Cpu
         LastUnimplementedOpcode = null;
         UnimplementedInstructionCount = 0;
         CurrentInstructionProgramCounter = null;
+        IsSleeping = false;
         _cycles = 0;
         Trace($"reset pc=0x{Registers.ProgramCounter:X8} sr=0x{Registers.StatusRegister:X8}");
     }
@@ -63,6 +65,12 @@ public sealed class Sh2Cpu : ISh2Cpu
 
     public void StepInstruction()
     {
+        if (IsSleeping)
+        {
+            _cycles += 1;
+            return;
+        }
+
         var pc = Registers.ProgramCounter;
         CurrentInstructionProgramCounter = pc;
         var opcode = _bus.ReadWord(pc);
@@ -1162,6 +1170,10 @@ public sealed class Sh2Cpu : ISh2Cpu
             case 0x0009:
                 Trace($"0x{pc:X8}: NOP");
                 break;
+            case 0x001B:
+                IsSleeping = true;
+                Trace($"0x{pc:X8}: SLEEP");
+                break;
             case 0x000B:
                 ExecuteDelaySlot();
                 Registers.ProgramCounter = Registers.ProcedureRegister;
@@ -1201,6 +1213,7 @@ public sealed class Sh2Cpu : ISh2Cpu
         _bus.WriteLong(Registers.General[15], Registers.ProgramCounter);
         Registers.InterruptLevelMask = level;
         Registers.ProgramCounter = _bus.ReadLong(Registers.VectorBaseRegister + ((uint)vector * 4));
+        IsSleeping = false;
         Trace($"interrupt level={level:X1} vector=0x{vector:X2} -> pc=0x{Registers.ProgramCounter:X8}");
         return true;
     }

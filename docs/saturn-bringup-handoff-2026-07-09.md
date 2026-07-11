@@ -160,3 +160,15 @@ The `--summary-only` output now includes:
 The PC summaries also include `Master SH-2 matrix caller probe`, `Master SH-2 matrix builder probe`, and `Master SH-2 transform node builder probe`. Register context now includes `R8`, `R11`, and `R14` in addition to `MACH/MACL`.
 
 Those summaries include hot reads/writes, recent writes, first large writes, recent large writes, and expanded register context including `R1`, `R7`, `R8`, `R11`, and `R14`.
+
+## July 11 Differential Bootstrap Checkpoint
+
+The earlier apparent game path was not executing the disc initial program. The NiGHTS ISO root executable is `0NIGHTS` (447,900 bytes) with entry address `0x06004000`; the old run first reached `0x06010000` without that file anywhere in Work RAM High. The explicit diagnostic option `--simulate-initial-program-load` now loads the disc IP sectors at `0x06002000`, loads the first root file at its IP-header entry address, and applies the master SH-2 entry state captured from a local Mednafen run. This remains a diagnostic bridge and is not enabled by default or in WaylandForge.
+
+The CLI can emit an architectural trace with `--dump-sh2-diff-trace <path>` and `--sh2-diff-trace-count <N>`. It can also preserve both WRAM banks at the bridge with `--dump-initial-wram-low` and `--dump-initial-wram-high`. A 100,000-state comparison proved the early clear/copy path and subsequent BIOS service flow agree structurally with Mednafen once SMPC status-flag latency is modeled. The SMPC SF bit now remains busy for two BIOS-visible polls after a command instead of clearing synchronously.
+
+SH-2 opcode `0x001B` (`SLEEP`) is now implemented. The CPU stops fetching at the post-instruction resume PC, masked interrupts leave it asleep, and an accepted interrupt wakes and vectors it. Focused smoke coverage verifies all three cases.
+
+The direct bridge still returns to BIOS `SLEEP` at `0x0000052E`/resume `0x00000530`. This is not an unimplemented-opcode spin. Mednafen reaches the same sleep with `EPending=0` when forced through the equivalent captured entry, and does not wake during a 35-second reference probe. A byte-exact entry snapshot comparison showed Work RAM Low identical; Work RAM High was identical from `0x06004000` upward. Loading the four IP sectors reduced the remaining High-RAM difference to 1,725 bytes in `0x06000000..0x06001FFF` plus 29 BIOS-patched bytes in the IP area, but a full reference-WRAM diagnostic still returned to the same sleep. RAM content is therefore not the remaining cause.
+
+The next slice should replace the direct executable handoff with the real Saturn CD boot transaction/state transition. Trace the BIOS path that is supposed to transfer the IP and initial program, including CD HIRQ/data-transfer state and the SMPC/CD-on relationship, and stop at the first device-state divergence. Do not enable the explicit bridge in WaylandForge until that path reaches sustained game code or submits a post-logo VDP frame.

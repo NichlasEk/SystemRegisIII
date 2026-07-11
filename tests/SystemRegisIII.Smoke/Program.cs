@@ -44,6 +44,7 @@ VerifyVdp2BackScreenRenderer();
 VerifyVdp2TilemapRenderer();
 VerifySh2InternalRegisterBus();
 VerifySh2InterruptEntry();
+VerifySh2SleepAndInterruptWake();
 VerifySh2IndexedMoveDecoding();
 VerifySh2BiosBringupInstructions();
 VerifySh2BranchAndExceptionInstructions();
@@ -178,6 +179,11 @@ static void VerifySaturnSystemMap()
     var smpcRegisters = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     Require(smpcRegisters.LastCommand == 0x02, "SMPC command latch failed.");
     Require(smpcRegisters.SlaveSh2Enabled, "SMPC SSHON command failed.");
+    systemMap.Bus.WriteByte(0x0010_0063, 0x01);
+    systemMap.Bus.WriteByte(0x0010_001F, 0x0E);
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC command did not assert its busy flag.");
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC busy flag cleared too early.");
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x00, "SMPC busy flag did not clear after command latency.");
     systemMap.Bus.WriteByte(0x0010_0001, 0x01);
     systemMap.Bus.WriteByte(0x0010_0003, 0x00);
     systemMap.Bus.WriteByte(0x0010_0005, 0xF0);
@@ -869,6 +875,37 @@ static void VerifySh2InterruptEntry()
     Require(bus.ReadLong(0x0000_0FFC) == 0x0000_0000, "SH-2 interrupt stacked SR failed.");
     Require(cpu.Registers.InterruptLevelMask == 15, "SH-2 interrupt level mask failed.");
     Require(!cpu.RequestInterrupt(14, 0x40), "SH-2 interrupt mask accepted lower priority.");
+}
+
+static void VerifySh2SleepAndInterruptWake()
+{
+    var ram = new ByteArrayMemory("RAM", 0x2000);
+    var bus = new SaturnAddressMapBuilder()
+        .Map(0x0000_0000, 0x0000_1FFF, ram)
+        .Build();
+    bus.WriteLong(0x0000_0000, 0x0000_0100);
+    bus.WriteLong(0x0000_0004, 0x0000_0040);
+    bus.WriteWord(0x0000_0100, 0x001B);
+    bus.WriteWord(0x0000_0102, 0x0009);
+    bus.WriteLong(0x0000_0400 + (0x40 * 4), 0x0000_0800);
+
+    var cpu = new Sh2Cpu("Sleep SH-2", bus, 0x0000_0000);
+    cpu.Reset();
+    cpu.Registers.VectorBaseRegister = 0x0000_0400;
+    cpu.Registers.General[15] = 0x0000_1000;
+    cpu.StepInstruction();
+    Require(cpu.IsSleeping, "SH-2 SLEEP did not enter the sleep state.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_0102, "SH-2 SLEEP resume PC was incorrect.");
+
+    cpu.StepInstruction();
+    Require(cpu.Registers.ProgramCounter == 0x0000_0102, "Sleeping SH-2 continued executing instructions.");
+    Require(!cpu.RequestInterrupt(4, 0x40), "Masked SH-2 interrupt woke SLEEP.");
+    Require(cpu.IsSleeping, "Masked SH-2 interrupt cleared the sleep state.");
+
+    Require(cpu.RequestInterrupt(5, 0x40), "Unmasked SH-2 interrupt did not wake SLEEP.");
+    Require(!cpu.IsSleeping, "Accepted SH-2 interrupt left the CPU sleeping.");
+    Require(cpu.Registers.ProgramCounter == 0x0000_0800, "SH-2 SLEEP wake vector failed.");
+    Require(bus.ReadLong(0x0000_0FF8) == 0x0000_0102, "SH-2 SLEEP wake stacked the wrong resume PC.");
 }
 
 static void VerifySh2IndexedMoveDecoding()

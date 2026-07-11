@@ -107,6 +107,92 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort ResponseCr3 => _cr3;
     public ushort ResponseCr4 => _cr4;
 
+    public bool TryLoadInitialProgram(Span<byte> workRamHigh, out uint entryAddress, out int bytesLoaded)
+    {
+        entryAddress = 0;
+        bytesLoaded = 0;
+        if (_discImage is null)
+        {
+            return false;
+        }
+
+        var header = new byte[_discImage.SectorSize];
+        if (_discImage.ReadSector(0, header) < 0xF4)
+        {
+            return false;
+        }
+
+        entryAddress = ((uint)header[0xF0] << 24)
+            | ((uint)header[0xF1] << 16)
+            | ((uint)header[0xF2] << 8)
+            | header[0xF3];
+        if (entryAddress < 0x0600_0000 || entryAddress >= 0x0610_0000)
+        {
+            return false;
+        }
+
+        // The Saturn bootstrap leaves the disc IP area immediately below the
+        // initial program.  NiGHTS enters at 0x06004000 with the first four
+        // sectors mirrored at 0x06002000; several BIOS services still consult
+        // that header and boot code after handing control to the program.
+        const int ipDestinationOffset = 0x2000;
+        const int ipBytes = 0x2000;
+        if (workRamHigh.Length < ipDestinationOffset + ipBytes)
+        {
+            return false;
+        }
+
+        var ipSector = new byte[_discImage.SectorSize];
+        var ipCopied = 0;
+        for (var ipLba = 0L; ipCopied < ipBytes; ipLba++)
+        {
+            Array.Clear(ipSector);
+            var read = _discImage.ReadSector(ipLba, ipSector);
+            if (read <= 0)
+            {
+                return false;
+            }
+
+            var copyLength = Math.Min(ipBytes - ipCopied, read);
+            ipSector.AsSpan(0, copyLength).CopyTo(workRamHigh[(ipDestinationOffset + ipCopied)..]);
+            ipCopied += copyLength;
+        }
+
+        EnsureFileInfosLoaded();
+        var initialProgram = _fileInfos.FirstOrDefault(static file => (file.Attributes & 0x02) == 0);
+        if (initialProgram is null)
+        {
+            return false;
+        }
+
+        var destinationOffset = checked((int)(entryAddress - 0x0600_0000));
+        var remaining = Math.Min(checked((int)initialProgram.SizeBytes), workRamHigh.Length - destinationOffset);
+        if (remaining <= 0)
+        {
+            return false;
+        }
+
+        var sector = new byte[_discImage.SectorSize];
+        var lba = (long)initialProgram.Fad - FirstTrackFad;
+        while (remaining > 0)
+        {
+            Array.Clear(sector);
+            var read = _discImage.ReadSector(lba++, sector);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            var copyLength = Math.Min(remaining, read);
+            sector.AsSpan(0, copyLength).CopyTo(workRamHigh[destinationOffset..]);
+            destinationOffset += copyLength;
+            remaining -= copyLength;
+            bytesLoaded += copyLength;
+        }
+
+        return bytesLoaded > 0;
+    }
+
     public byte ReadByte(uint offset)
     {
         ReadCount++;
