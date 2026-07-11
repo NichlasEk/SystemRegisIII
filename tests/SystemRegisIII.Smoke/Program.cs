@@ -430,7 +430,25 @@ static void VerifySaturnSystemMap()
         startupIsoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         startupIsoMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(startupIsoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block startup hardware-info status failed.");
+        for (var commandPoll = 0; commandPoll < 7; commandPoll++)
+        {
+            Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0001) == 0, "CD Block startup CMOK completed too early.");
+        }
         Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block startup CMOK/EFLS HIRQ failed.");
+        for (var statusPoll = 0; statusPoll < 15; statusPoll++)
+        {
+            Require(startupIsoMap.Bus.ReadWord(0x2589_0024) == 0x0600, "CD Block startup hardware-info response changed too early.");
+        }
+        Require(startupIsoMap.Bus.ReadWord(0x2589_0024) == 0x0600, "CD Block startup hardware-info final response failed.");
+        Require(startupIsoMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block startup periodic pause status failed.");
+        Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) != 0, "CD Block startup periodic SCDQ HIRQ failed.");
+        startupIsoMap.Bus.WriteWord(0x2589_0008, 0xFBFF);
+        Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) == 0, "CD Block startup SCDQ acknowledgement failed.");
+        for (var statusPoll = 0; statusPoll < 16; statusPoll++)
+        {
+            startupIsoMap.Bus.ReadWord(0x2589_0024);
+        }
+        Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) != 0, "CD Block startup periodic SCDQ did not recur.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0xE100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);

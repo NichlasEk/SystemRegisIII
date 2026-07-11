@@ -267,7 +267,9 @@ static int RunBios(string[] args)
     var deferredVblankOutChecks = 0L;
     var sh2DiffTrace = new List<string>(Math.Min(sh2DiffTraceCount, 1_000_000));
     var cdCommandTrace = new List<string>();
+    var cdHirqTrace = new List<string>();
     long observedCdCommandCount = 0;
+    long observedCdHirqWriteCount = 0;
     var sh2DiffTraceArmed = false;
     var initialProgramLoaded = false;
 
@@ -427,6 +429,13 @@ static int RunBios(string[] args)
                 $"0x{systemMap.CdBlock.LastCommandCr3:X4},0x{systemMap.CdBlock.LastCommandCr4:X4}");
             observedCdCommandCount = cdCommandCount;
         }
+        if (systemMap.CdBlock.HirqWriteCount != observedCdHirqWriteCount)
+        {
+            cdHirqTrace.Add(
+                $"i={i:N0} pc=0x{masterPc:X8} write=0x{systemMap.CdBlock.LastHirqWrite:X4} " +
+                $"before=0x{systemMap.CdBlock.HirqBeforeLastWrite:X4} after=0x{systemMap.CdBlock.HirqValue:X4}");
+            observedCdHirqWriteCount = systemMap.CdBlock.HirqWriteCount;
+        }
 
         if (slave is not null && smpc.SlaveSh2Enabled)
         {
@@ -484,6 +493,14 @@ static int RunBios(string[] args)
         foreach (var command in cdCommandTrace.Take(128))
         {
             Console.WriteLine($"  {command}");
+        }
+    }
+    if (cdHirqTrace.Count > 0)
+    {
+        Console.WriteLine("CD HIRQ timeline:");
+        foreach (var write in cdHirqTrace.Take(128))
+        {
+            Console.WriteLine($"  {write}");
         }
     }
 

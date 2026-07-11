@@ -27,6 +27,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int PartitionCount = 0x18;
     private const int AuthStartupPollCount = 8;
     private const int InitializeTransitionPollCount = 8;
+    private const int StartupPauseResponsePollCount = 16;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
 
@@ -59,6 +60,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _authStartupPollsRemaining;
     private bool _authStartupCompleted;
     private int _initializeTransitionPollsRemaining;
+    private int _commandCompletionHirqReadsRemaining;
+    private int _startupPauseResponsePollsRemaining;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -103,6 +106,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
     public long TotalCommandCount { get; private set; }
+    public long HirqWriteCount { get; private set; }
+    public ushort LastHirqWrite { get; private set; }
+    public ushort HirqBeforeLastWrite { get; private set; }
+    public ushort HirqValue => _hirq;
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
@@ -208,6 +215,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         var word = ReadWordRegister(wordOffset);
+        if (offset == Cr4Offset + 1 && _startupPauseResponsePollsRemaining > 0)
+        {
+            _startupPauseResponsePollsRemaining--;
+            if (_startupPauseResponsePollsRemaining == 0)
+            {
+                PublishStartupPauseStatus();
+            }
+        }
+
         return (offset & 1) == 0 ? (byte)(word >> 8) : (byte)word;
     }
 
@@ -241,7 +257,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         offset switch
         {
             DataTransferOffset => ReadDataTransferWord(),
-            HirqOffset => _hirq,
+            HirqOffset => ReadHirq(),
             HirqMaskOffset => _hirqMask,
             Cr1Offset => _cr1,
             Cr2Offset => _cr2,
@@ -250,11 +266,28 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _ => 0,
         };
 
+    private ushort ReadHirq()
+    {
+        if (_commandCompletionHirqReadsRemaining > 0)
+        {
+            _commandCompletionHirqReadsRemaining--;
+            if (_commandCompletionHirqReadsRemaining == 0)
+            {
+                _hirq |= HirqCmok;
+            }
+        }
+
+        return _hirq;
+    }
+
     private void WriteWordRegister(uint offset, ushort value)
     {
         switch (offset)
         {
             case HirqOffset:
+                HirqWriteCount++;
+                LastHirqWrite = value;
+                HirqBeforeLastWrite = _hirq;
                 _hirq = _hirq == 0 ? HirqCmok : (ushort)(_hirq & value);
                 if (!_hasExecutedCommand)
                 {
@@ -288,6 +321,11 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void ExecuteCommand()
     {
+        _startupPauseResponsePollsRemaining = 0;
+        var delayStartupHardwareInfo = !_hasExecutedCommand
+            && _discImage is not null
+            && _authDiscType == 0x04
+            && LastCommandCode == 0x01;
         if (!_hasExecutedCommand && _discImage is not null)
         {
             _hirq |= 0x0BE0;
@@ -369,7 +407,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
         }
 
-        _hirq |= HirqCmok;
+        if (delayStartupHardwareInfo)
+        {
+            _hirq &= unchecked((ushort)~HirqCmok);
+            // The register device is byte-addressed, so one SH-2 word poll
+            // performs two reads here.  Sixteen byte reads model the eight
+            // BIOS-visible HIRQ polls seen in the reference trace.
+            _commandCompletionHirqReadsRemaining = 16;
+        }
+        else
+        {
+            _hirq |= HirqCmok;
+        }
         if (_discImage is not null && LastCommandCode == 0x00)
         {
             _hirq |= HirqMountedStatusReady;
@@ -377,10 +426,6 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         else if (_discImage is not null && LastCommandCode == 0x02)
         {
             _hirq |= HirqDataReady;
-        }
-        else if (_discImage is not null && LastCommandCode == 0x01 && _authStartupCompleted)
-        {
-            _hirq |= HirqEndFileSystem;
         }
         else if (_discImage is not null && LastCommandCode == 0x06 && _endHostIoCompleted)
         {
@@ -459,7 +504,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (_discImage is not null && _authStartupCompleted && _status == (byte)CdBlockDriveStatus.Busy)
         {
             _status = (byte)CdBlockDriveStatus.Pause;
+            _startupPauseResponsePollsRemaining = StartupPauseResponsePollCount;
         }
+    }
+
+    private void PublishStartupPauseStatus()
+    {
+        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+        _hirq = (ushort)((_hirq & ~HirqEndFileSystem) | 0x0400);
+        _startupPauseResponsePollsRemaining = StartupPauseResponsePollCount;
     }
 
     private void GetTableOfContents()
