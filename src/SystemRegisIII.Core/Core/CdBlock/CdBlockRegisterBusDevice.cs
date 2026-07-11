@@ -102,6 +102,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             .ToArray();
 
     public IReadOnlyList<byte> RecentCommands => _recentCommands.ToArray();
+    public long TotalCommandCount { get; private set; }
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
@@ -259,7 +260,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 {
                     EnterStatusMode();
                 }
-                else if ((_hirq & HirqCmok) == 0)
+                else if (_hasExecutedCommand && (_hirq & HirqCmok) == 0)
                 {
                     EnterPeriodicStatusMode();
                 }
@@ -287,6 +288,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void ExecuteCommand()
     {
+        if (!_hasExecutedCommand && _discImage is not null)
+        {
+            _hirq |= 0x0BE0;
+            if (_authDiscType == 0x04 && _authStartupPollsRemaining > 0 && LastCommandCode == 0x01)
+            {
+                _authStartupPollsRemaining = 0;
+                _authStartupCompleted = true;
+                _status = (byte)CdBlockDriveStatus.Busy;
+            }
+        }
         _hasExecutedCommand = true;
         _endHostIoCompleted = false;
         RecordRecentCommand(LastCommandCode);
@@ -367,6 +378,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqDataReady;
         }
+        else if (_discImage is not null && LastCommandCode == 0x01 && _authStartupCompleted)
+        {
+            _hirq |= HirqEndFileSystem;
+        }
         else if (_discImage is not null && LastCommandCode == 0x06 && _endHostIoCompleted)
         {
             _hirq |= HirqEndHostIo;
@@ -441,6 +456,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = 0x0002;
         _cr3 = 0x0000;
         _cr4 = 0x0600;
+        if (_discImage is not null && _authStartupCompleted && _status == (byte)CdBlockDriveStatus.Busy)
+        {
+            _status = (byte)CdBlockDriveStatus.Pause;
+        }
     }
 
     private void GetTableOfContents()
@@ -964,6 +983,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void RecordRecentCommand(byte command)
     {
+        TotalCommandCount++;
         _commandCounts.TryGetValue(command, out var count);
         _commandCounts[command] = count + 1;
 

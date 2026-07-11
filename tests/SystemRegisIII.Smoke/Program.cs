@@ -280,6 +280,7 @@ static void VerifySaturnSystemMap()
             new SaturnBringupOptions { DiscImage = discImage });
         var mountedCdRegisters = discMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
         Require(mountedCdRegisters.HasDisc, "CD Block mounted-disc flag failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0008) == 0x0000, "CD Block mounted-disc reset HIRQ failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x0000);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -290,7 +291,7 @@ static void VerifySaturnSystemMap()
         Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block mounted-disc FAD status failed.");
         discMap.Bus.WriteWord(0x2589_0008, 0xFFFE);
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block mounted-disc periodic status failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0008) == 0x4658, "CD Block mounted-disc HIRQ status-ready failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0008) == 0x4FF8, "CD Block mounted-disc HIRQ acknowledgement failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x0200);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -420,6 +421,16 @@ static void VerifySaturnSystemMap()
             bios,
             new SaturnBringupOptions { DiscImage = isoImage });
         var isoCdRegisters = isoMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+
+        var startupIsoMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = isoImage });
+        startupIsoMap.Bus.WriteWord(0x2589_0018, 0x0100);
+        startupIsoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        startupIsoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        startupIsoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(startupIsoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block startup hardware-info status failed.");
+        Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block startup CMOK/EFLS HIRQ failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0xE100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
