@@ -534,6 +534,7 @@ static void VerifySaturnSystemMap()
         Require(cueImage.Tracks[0] == new CdTrackInfo(1, 0x41, 150), "CUE first-track TOC failed.");
         Require(cueImage.Tracks[1] == new CdTrackInfo(2, 0x01, 192), "CUE audio-track TOC failed.");
         Require(cueImage.LeadoutFad == 200, "CUE leadout TOC failed.");
+        Require(cueImage.DiscType == 0x00, "CUE disc type failed.");
         Span<byte> cueSector = stackalloc byte[RawDiscImage.DefaultSectorSize];
         Require(cueImage.ReadSector(30, cueSector) == RawDiscImage.DefaultSectorSize, "CUE disc sector read length failed.");
         Require(cueSector[0] == 0xCA && cueSector[1] == 0xFE && cueSector[2] == 0xBA && cueSector[3] == 0xBE, "CUE disc user-data offset failed.");

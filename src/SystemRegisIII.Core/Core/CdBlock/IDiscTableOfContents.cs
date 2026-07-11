@@ -6,4 +6,5 @@ public interface IDiscTableOfContents
 {
     IReadOnlyList<CdTrackInfo> Tracks { get; }
     uint LeadoutFad { get; }
+    byte DiscType { get; }
 }

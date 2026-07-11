@@ -18,6 +18,7 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         _userDataOffset = dataTrack.UserDataOffset;
         Tracks = parsedCue.Tracks;
         LeadoutFad = parsedCue.LeadoutFad;
+        DiscType = parsedCue.DiscType;
         Name = Path.GetFileName(cuePath);
     }
 
@@ -27,6 +28,7 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
     public long SectorCount => _trackStream.Length / RawSectorSize;
     public IReadOnlyList<CdTrackInfo> Tracks { get; }
     public uint LeadoutFad { get; }
+    public byte DiscType { get; }
 
     public int ReadSector(long logicalBlockAddress, Span<byte> destination)
     {
@@ -51,6 +53,7 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         byte currentControlAdr = 0;
         DataTrack? dataTrack = null;
         var parsedTracks = new List<ParsedTrack>();
+        byte discType = 0;
         foreach (var rawLine in File.ReadLines(cuePath))
         {
             var line = rawLine.Trim();
@@ -72,6 +75,11 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
                 else if (dataTrack is null && line.Contains("MODE2/2352", StringComparison.OrdinalIgnoreCase))
                 {
                     dataTrack = new DataTrack(Path.Combine(cueDirectory, currentFile), Mode2UserDataOffset);
+                }
+
+                if (line.Contains("MODE2/2352", StringComparison.OrdinalIgnoreCase))
+                {
+                    discType = 0x20;
                 }
 
                 continue;
@@ -106,7 +114,7 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         var tracks = parsedTracks
             .Select(track => new CdTrackInfo(track.Number, track.ControlAdr, 150 + fileBases[track.Path] + track.IndexSectors))
             .ToArray();
-        return new ParsedCue(dataTrack.Value, tracks, 150 + nextFileBase);
+        return new ParsedCue(dataTrack.Value, tracks, 150 + nextFileBase, discType);
     }
 
     private static uint ParseMsf(string value)
@@ -138,5 +146,5 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
 
     private readonly record struct DataTrack(string Path, int UserDataOffset);
     private readonly record struct ParsedTrack(byte Number, byte ControlAdr, string Path, uint IndexSectors);
-    private readonly record struct ParsedCue(DataTrack DataTrack, IReadOnlyList<CdTrackInfo> Tracks, uint LeadoutFad);
+    private readonly record struct ParsedCue(DataTrack DataTrack, IReadOnlyList<CdTrackInfo> Tracks, uint LeadoutFad, byte DiscType);
 }

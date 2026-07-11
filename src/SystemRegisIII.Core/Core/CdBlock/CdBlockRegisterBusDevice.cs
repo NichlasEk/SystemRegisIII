@@ -943,7 +943,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         var firstTrack = tracks is { Count: > 0 } ? tracks[0] : new CdTrackInfo(FirstTrackNumber, DataTrackControlAdr, FirstTrackFad);
         var lastTrack = tracks is { Count: > 0 } ? tracks[^1] : firstTrack;
-        WriteTocPoint(words, entryIndex: 99, firstTrack.ControlAdr, firstTrack.Number, 0x00, 0x00);
+        WriteTocPoint(
+            words,
+            entryIndex: 99,
+            firstTrack.ControlAdr,
+            firstTrack.Number,
+            (_discImage as IDiscTableOfContents)?.DiscType ?? 0x00,
+            0x00);
         WriteTocPoint(words, entryIndex: 100, lastTrack.ControlAdr, lastTrack.Number, 0x00, 0x00);
         WriteTocEntry(
             words,
