@@ -41,6 +41,7 @@ VerifySaturnSystemMap();
 VerifyVdp1CommandDecode();
 VerifyVdp1SoftwareRenderer();
 VerifyVdp2BackScreenRenderer();
+VerifyVdp2TilemapRenderer();
 VerifySh2InternalRegisterBus();
 VerifySh2InterruptEntry();
 VerifySh2IndexedMoveDecoding();
@@ -618,6 +619,32 @@ static void VerifyVdp2BackScreenRenderer()
         height: 2);
     Require(rendered.Frame.BgraPixels.Span[0] == 0xFFFF_FFFF, "VDP1 compositor ignored VDP2 back-screen row 0.");
     Require(rendered.Frame.BgraPixels.Span[2] == 0xFFFF_0000, "VDP1 compositor ignored VDP2 back-screen row 1.");
+
+    static void WriteWord(Span<byte> destination, int offset, ushort value)
+    {
+        destination[offset] = (byte)(value >> 8);
+        destination[offset + 1] = (byte)value;
+    }
+}
+
+static void VerifyVdp2TilemapRenderer()
+{
+    var vram = new byte[0x80000];
+    var colorRam = new byte[0x1000];
+    var registers = new byte[0x200];
+    WriteWord(registers, 0x20, 0x0001);
+    WriteWord(registers, 0x28, 0x0010);
+    WriteWord(registers, 0x40, 0x0101);
+    WriteWord(registers, 0x42, 0x0101);
+    WriteWord(registers, 0xF8, 0x0001);
+    WriteWord(vram, 0x4000, 0x0000);
+    WriteWord(vram, 0x4002, 0x0002);
+    vram[0x40] = 0x01;
+    WriteWord(colorRam, 0x0002, 0x001F);
+
+    var frame = Vdp2TilemapRenderer.Render(vram, colorRam, registers, width: 8, height: 8);
+    Require(frame[0] == 0xFFFF_0000, "VDP2 NBG 8bpp tile pixel lookup failed.");
+    Require(frame[1] == 0xFF00_0000, "VDP2 transparent NBG dot overwrote the back screen.");
 
     static void WriteWord(Span<byte> destination, int offset, ushort value)
     {

@@ -50,6 +50,7 @@ static int RunBios(string[] args)
     var summaryOnly = Has(args, "--summary-only");
     var vdp1FramePath = GetOption(args, "--dump-vdp1-frame");
     var vdp1TexturePath = GetOption(args, "--dump-vdp1-texture");
+    var vdp2StatePrefix = GetOption(args, "--dump-vdp2-state");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -500,6 +501,14 @@ static int RunBios(string[] args)
     if (vdp1TexturePath is not null)
     {
         WriteLargestVdp1Texture(vdp1TexturePath, vdp1CommandProbe);
+    }
+
+    if (vdp2StatePrefix is not null)
+    {
+        File.WriteAllBytes(vdp2StatePrefix + ".registers.bin", vdp1CommandProbe.RichestVdp2Registers.ToArray());
+        File.WriteAllBytes(vdp2StatePrefix + ".vram.bin", vdp1CommandProbe.RichestVdp2Vram.ToArray());
+        File.WriteAllBytes(vdp2StatePrefix + ".cram.bin", vdp1CommandProbe.RichestColorRam.ToArray());
+        Console.WriteLine($"VDP2 state dump: {vdp2StatePrefix}.*.bin");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1785,7 +1794,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
