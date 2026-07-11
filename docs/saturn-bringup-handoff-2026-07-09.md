@@ -122,6 +122,8 @@ A captured 29M VDP2 state proved that `BKTA=0` and the black back-screen are int
 
 The same renderer now covers NBG0/NBG1 bitmap mode at 4bpp and 8bpp palette color, 16-bit palette/direct RGB, and 32-bit direct RGB, including bitmap-size wrapping, scroll, CRAM offsets, and transparency. This closes the next common VDP2 mode switch after the BIOS tilemap phase; rotation backgrounds, line scroll, mosaic, color calculation, and windows remain later slices.
 
+A clean 60M run after the live BIOS screen showed that the transient BIOS `0x000042F8` seen in WaylandForge is not a stable CD wait. The run ends at `PC=0x0602944C`, Work RAM High reaches 12,646,368 writes, and the tail hotspots remain the previously classified finite SCSP bank-initialization loops around `0x0602941E..0x06029422`. CPU/CD bringup is continuing beyond the last visible frame; choose the next checkpoint from missing VDP1/VDP2 presentation behavior rather than treating the black viewport as a CPU stall.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.
