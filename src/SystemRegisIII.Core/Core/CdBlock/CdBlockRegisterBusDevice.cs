@@ -65,6 +65,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _authStartupCompleted;
     private int _initializeTransitionPollsRemaining;
     private int _commandCompletionHirqReadsRemaining;
+    private ushort _commandCompletionHirqBits;
     private int _postAuthStatusInstructionsRemaining;
     private bool _startupPeriodicActive;
     private int _startupInstructionCount;
@@ -313,7 +314,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _commandCompletionHirqReadsRemaining--;
             if (_commandCompletionHirqReadsRemaining == 0)
             {
-                _hirq |= HirqCmok;
+                _hirq |= _commandCompletionHirqBits;
+                _commandCompletionHirqBits = 0;
             }
         }
 
@@ -366,6 +368,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             && _discImage is not null
             && _authDiscType == 0x04
             && LastCommandCode == 0x01;
+        var commandCompletionHirqByteReads = delayStartupHardwareInfo
+            ? 16
+            : LastCommandCode == 0x30 ? 16 : 0;
         if (!_hasExecutedCommand && _discImage is not null)
         {
             _hirq |= 0x0BE0;
@@ -450,13 +455,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
         }
 
-        if (delayStartupHardwareInfo)
+        if (commandCompletionHirqByteReads > 0)
         {
             _hirq &= unchecked((ushort)~HirqCmok);
             // The register device is byte-addressed, so one SH-2 word poll
-            // performs two reads here.  Sixteen byte reads model the eight
-            // BIOS-visible HIRQ polls seen in the reference trace.
-            _commandCompletionHirqReadsRemaining = 16;
+            // performs two reads here.
+            _commandCompletionHirqReadsRemaining = commandCompletionHirqByteReads;
+            _commandCompletionHirqBits = LastCommandCode == 0x30
+                ? (ushort)(HirqCmok | HirqEndSelector)
+                : HirqCmok;
         }
         else
         {
@@ -602,7 +609,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         else if (session == 1)
         {
-            fad = FirstTrackFad;
+            fad = 0;
             resultStatus = 0x01;
         }
         else
@@ -612,7 +619,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _statusMode = true;
-        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr1 = (ushort)((_status & 0x0F) << 8);
         _cr2 = 0;
         var sessionWord = ((uint)resultStatus << 8) | ((fad >> 16) & 0xFF);
         _cr3 = (ushort)sessionWord;

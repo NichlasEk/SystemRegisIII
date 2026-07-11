@@ -429,10 +429,21 @@ static void VerifySaturnSystemMap()
         pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
         pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
         pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        for (var commandPoll = 0; commandPoll < 7; commandPoll++)
+        {
+            Require((pauseDiscMap.Bus.ReadWord(0x2589_0008) & 0x0001) == 0, "CD Block device-connection CMOK completed too early.");
+        }
+        Require((pauseDiscMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0041, "CD Block device-connection CMOK/ESEL completion failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block device-connection status failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block device-connection track status failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block device-connection track index failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block device-connection FAD failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x0301);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block post-initialize session status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block session-one FAD failed.");
     }
     finally
     {

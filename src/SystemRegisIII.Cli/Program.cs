@@ -58,6 +58,7 @@ static int RunBios(string[] args)
     var sh2DiffTracePath = GetOption(args, "--dump-sh2-diff-trace");
     var preUnimplementedTracePath = GetOption(args, "--dump-pre-unimplemented-trace");
     var postAuthTracePath = GetOption(args, "--dump-post-auth-trace");
+    var postCommand30TracePath = GetOption(args, "--dump-post-command30-trace");
     var postAuthTraceCount = Math.Max(1, GetIntOption(args, "--post-auth-trace-count", defaultValue: 1024));
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
@@ -65,6 +66,8 @@ static int RunBios(string[] args)
     string[]? capturedPreUnimplementedTrace = null;
     var postAuthTrace = new List<string>(Math.Min(postAuthTraceCount, 1_000_000));
     var postAuthTraceArmed = false;
+    var postCommand30Trace = new List<string>(512);
+    var postCommand30TraceArmed = false;
     var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
     var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
@@ -415,6 +418,10 @@ static int RunBios(string[] args)
         {
             postAuthTrace.Add(FormatSh2DiffState(master));
         }
+        if (postCommand30TraceArmed && postCommand30Trace.Count < 512)
+        {
+            postCommand30Trace.Add(FormatSh2DiffState(master));
+        }
 
         RecordPc(masterPcHits, masterPc);
         if (i >= instructionCount - 1_000_000)
@@ -470,6 +477,10 @@ static int RunBios(string[] args)
             if (systemMap.CdBlock.LastCommandCode == 0xE1)
             {
                 postAuthTraceArmed = true;
+            }
+            else if (systemMap.CdBlock.LastCommandCode == 0x30)
+            {
+                postCommand30TraceArmed = true;
             }
         }
         if (systemMap.CdBlock.HirqWriteCount != observedCdHirqWriteCount)
@@ -668,6 +679,11 @@ static int RunBios(string[] args)
     {
         File.WriteAllLines(postAuthTracePath, postAuthTrace);
         Console.WriteLine($"SH-2 post-auth trace: {postAuthTracePath} entries={postAuthTrace.Count:N0}");
+    }
+    if (postCommand30TracePath is not null)
+    {
+        File.WriteAllLines(postCommand30TracePath, postCommand30Trace);
+        Console.WriteLine($"SH-2 post-command-30 trace: {postCommand30TracePath} entries={postCommand30Trace.Count:N0}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -2007,7 +2023,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--post-auth-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--post-auth-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
