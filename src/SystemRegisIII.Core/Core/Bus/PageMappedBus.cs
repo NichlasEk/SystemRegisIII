@@ -63,13 +63,31 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
 
     public ushort ReadWord(uint address)
     {
-        var high = ReadByte(address);
+        var (region, offset) = Resolve(address);
+        if (offset < region.EndInclusive - region.Start)
+        {
+            var regionHigh = region.Device.ReadByte(offset);
+            var regionLow = region.Device.ReadByte(offset + 1);
+            return (ushort)((regionHigh << 8) | regionLow);
+        }
+
+        var high = region.Device.ReadByte(offset);
         var low = ReadByte(address + 1);
         return (ushort)((high << 8) | low);
     }
 
     public uint ReadLong(uint address)
     {
+        var (region, offset) = Resolve(address);
+        var lastOffset = region.EndInclusive - region.Start;
+        if (lastOffset >= 3 && offset <= lastOffset - 3)
+        {
+            return ((uint)region.Device.ReadByte(offset) << 24)
+                | ((uint)region.Device.ReadByte(offset + 1) << 16)
+                | ((uint)region.Device.ReadByte(offset + 2) << 8)
+                | region.Device.ReadByte(offset + 3);
+        }
+
         var high = ReadWord(address);
         var low = ReadWord(address + 2);
         return ((uint)high << 16) | low;
@@ -83,12 +101,31 @@ public sealed class PageMappedBus : ISaturnBus, IAddressMap
 
     public void WriteWord(uint address, ushort value)
     {
-        WriteByte(address, (byte)(value >> 8));
+        var (region, offset) = Resolve(address);
+        if (offset < region.EndInclusive - region.Start)
+        {
+            region.Device.WriteByte(offset, (byte)(value >> 8));
+            region.Device.WriteByte(offset + 1, (byte)value);
+            return;
+        }
+
+        region.Device.WriteByte(offset, (byte)(value >> 8));
         WriteByte(address + 1, (byte)value);
     }
 
     public void WriteLong(uint address, uint value)
     {
+        var (region, offset) = Resolve(address);
+        var lastOffset = region.EndInclusive - region.Start;
+        if (lastOffset >= 3 && offset <= lastOffset - 3)
+        {
+            region.Device.WriteByte(offset, (byte)(value >> 24));
+            region.Device.WriteByte(offset + 1, (byte)(value >> 16));
+            region.Device.WriteByte(offset + 2, (byte)(value >> 8));
+            region.Device.WriteByte(offset + 3, (byte)value);
+            return;
+        }
+
         WriteWord(address, (ushort)(value >> 16));
         WriteWord(address + 2, (ushort)value);
     }

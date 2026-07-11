@@ -44,6 +44,11 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
 
     public ushort ReadWord(uint address)
     {
+        if (!IsInternal(address) && !IsInternal(address + 1))
+        {
+            return _externalBus.ReadWord(address);
+        }
+
         var high = ReadByte(address);
         var low = ReadByte(address + 1);
         return (ushort)((high << 8) | low);
@@ -51,6 +56,11 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
 
     public uint ReadLong(uint address)
     {
+        if (!IsInternal(address) && !IsInternal(address + 3))
+        {
+            return _externalBus.ReadLong(address);
+        }
+
         if (TryGetDivisionRegisterOffset(address, out var divisionOffset))
         {
             InternalReadCount += 4;
@@ -87,12 +97,24 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
 
     public void WriteWord(uint address, ushort value)
     {
+        if (!IsInternal(address) && !IsInternal(address + 1))
+        {
+            _externalBus.WriteWord(address, value);
+            return;
+        }
+
         WriteByte(address, (byte)(value >> 8));
         WriteByte(address + 1, (byte)value);
     }
 
     public void WriteLong(uint address, uint value)
     {
+        if (!IsInternal(address) && !IsInternal(address + 3))
+        {
+            _externalBus.WriteLong(address, value);
+            return;
+        }
+
         if (TryGetDivisionRegisterOffset(address, out var divisionOffset))
         {
             InternalWriteCount += 4;

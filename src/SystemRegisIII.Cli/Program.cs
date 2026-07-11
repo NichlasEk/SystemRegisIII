@@ -59,6 +59,7 @@ static int RunBios(string[] args)
     var bios = BiosImageLoader.Load(biosPath);
     using var discImage = discPath is null ? null : OpenDiscImage(discPath);
     var trace = new RingTraceEventSink(capacity: Math.Clamp(instructionCount * 8, 512, 8_192));
+    ITraceEventSink? traceSink = traceEnabled ? trace : null;
     var systemMap = SaturnSystemMap.CreateBringup(
         bios,
         new SaturnBringupOptions
@@ -172,8 +173,8 @@ static int RunBios(string[] args)
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
 
-    master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, trace);
-    slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, trace) : null;
+    master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, traceSink);
+    slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, traceSink) : null;
     var smpc = systemMap.Stubs.OfType<SmpcRegisterBusDevice>().Single();
     var scu = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
     master.Reset();
