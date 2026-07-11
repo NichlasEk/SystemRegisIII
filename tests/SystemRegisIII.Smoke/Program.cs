@@ -344,7 +344,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x04, "CD Block init command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2080, "CD Block init busy status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block init command status failed.");
         for (var poll = 0; poll < 8; poll++)
         {
             discMap.Bus.WriteWord(0x2589_0018, 0x0000);
@@ -400,8 +400,10 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x75, "CD Block abort-file command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block abort-file status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block abort-file status failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block abort-file EFLS HIRQ failed.");
+        mountedCdRegisters.AdvanceMasterInstructions(2_000);
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2000, "CD Block post-abort busy status failed.");
 
         var pauseDiscMap = SaturnSystemMap.CreateBringup(
             bios,
@@ -415,6 +417,22 @@ static void VerifySaturnSystemMap()
         pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
         pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block mounted-disc status override failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x0400);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x050F);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block initialize status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block initialize track status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block initialize track index failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block initialize FAD failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x3000);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block device-connection status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block device-connection track status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block device-connection track index failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block device-connection FAD failed.");
     }
     finally
     {
@@ -483,6 +501,16 @@ static void VerifySaturnSystemMap()
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block post-auth track status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block post-auth track index failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block post-auth FAD failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7000);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x17FF);
+        isoMap.Bus.WriteWord(0x2589_0024, 0xFFFF);
+        Require(isoCdRegisters.LastCommandCode == 0x70, "CD Block change-directory command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block change-directory status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block change-directory track status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block change-directory track index failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block change-directory FAD failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0x7100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);

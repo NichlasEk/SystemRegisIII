@@ -462,7 +462,10 @@ static int RunBios(string[] args)
             cdCommandTrace.Add(
                 $"i={i:N0} pc=0x{masterPc:X8} cmd=0x{systemMap.CdBlock.LastCommandCode:X2} " +
                 $"cr=0x{systemMap.CdBlock.LastCommandCr1:X4},0x{systemMap.CdBlock.LastCommandCr2:X4}," +
-                $"0x{systemMap.CdBlock.LastCommandCr3:X4},0x{systemMap.CdBlock.LastCommandCr4:X4}");
+                $"0x{systemMap.CdBlock.LastCommandCr3:X4},0x{systemMap.CdBlock.LastCommandCr4:X4} " +
+                $"result=0x{systemMap.CdBlock.ResponseCr1:X4},0x{systemMap.CdBlock.ResponseCr2:X4}," +
+                $"0x{systemMap.CdBlock.ResponseCr3:X4},0x{systemMap.CdBlock.ResponseCr4:X4} " +
+                $"hirq=0x{systemMap.CdBlock.HirqValue:X4}");
             observedCdCommandCount = cdCommandCount;
             if (systemMap.CdBlock.LastCommandCode == 0xE1)
             {

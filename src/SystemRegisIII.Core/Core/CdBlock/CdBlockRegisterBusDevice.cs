@@ -399,6 +399,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x06:
                 EndDataTransfer();
                 break;
+            case 0x30:
+                SetCdDeviceConnection();
+                break;
             case 0x40:
                 SetFilterRange();
                 break;
@@ -643,9 +646,21 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _status = (byte)CdBlockDriveStatus.Busy;
             _initializeTransitionPollsRemaining = InitializeTransitionPollCount;
+            _statusMode = true;
+            _cr1 = 0;
+            _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+            _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+            _cr4 = (ushort)(FirstTrackFad + 0x10);
+            return;
         }
 
-        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+        WriteStatusResponse(_status);
+    }
+
+    private void SetCdDeviceConnection()
+    {
+        _statusMode = true;
+        _cr1 = 0;
     }
 
     private void ResetSelector()
@@ -741,7 +756,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         EnsureFileInfosLoaded();
-        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+        WriteFileSystemPositionResponse();
     }
 
     private void ReadDirectory()
@@ -857,7 +872,24 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWordsRead = 0;
         _dataTransferWords = [];
         _dataTransferLowByteLatched = false;
-        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+        if (_discImage is null)
+        {
+            WriteStatusResponse(_status);
+        }
+        else
+        {
+            WriteFileSystemPositionResponse();
+            _postAuthStatusInstructionsRemaining = 2_000;
+        }
+    }
+
+    private void WriteFileSystemPositionResponse()
+    {
+        _statusMode = true;
+        _cr1 = 0;
+        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+        _cr4 = (ushort)FirstTrackFad;
     }
 
     private void GetCopyError()
