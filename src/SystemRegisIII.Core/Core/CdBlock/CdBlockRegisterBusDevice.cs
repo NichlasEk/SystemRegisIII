@@ -928,14 +928,29 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var words = new ushort[0x00CC];
         Array.Fill(words, (ushort)0xFFFF);
 
-        WriteTocEntry(words, entryIndex: 0, DataTrackControlAdr, FirstTrackFad);
-        WriteTocPoint(words, entryIndex: 99, DataTrackControlAdr, FirstTrackNumber, 0x00, 0x00);
-        WriteTocPoint(words, entryIndex: 100, DataTrackControlAdr, FirstTrackNumber, 0x00, 0x00);
+        var tracks = (_discImage as IDiscTableOfContents)?.Tracks;
+        if (tracks is { Count: > 0 })
+        {
+            foreach (var track in tracks)
+            {
+                WriteTocEntry(words, track.Number - 1, track.ControlAdr, track.Fad);
+            }
+        }
+        else
+        {
+            WriteTocEntry(words, entryIndex: 0, DataTrackControlAdr, FirstTrackFad);
+        }
+
+        var firstTrack = tracks is { Count: > 0 } ? tracks[0] : new CdTrackInfo(FirstTrackNumber, DataTrackControlAdr, FirstTrackFad);
+        var lastTrack = tracks is { Count: > 0 } ? tracks[^1] : firstTrack;
+        WriteTocPoint(words, entryIndex: 99, firstTrack.ControlAdr, firstTrack.Number, 0x00, 0x00);
+        WriteTocPoint(words, entryIndex: 100, lastTrack.ControlAdr, lastTrack.Number, 0x00, 0x00);
         WriteTocEntry(
             words,
             entryIndex: 101,
-            DataTrackControlAdr,
-            FirstTrackFad + (uint)Math.Min(_discImage?.SectorCount ?? 0, 0x7F_FFFF));
+            lastTrack.ControlAdr,
+            (_discImage as IDiscTableOfContents)?.LeadoutFad
+                ?? FirstTrackFad + (uint)Math.Min(_discImage?.SectorCount ?? 0, 0x7F_FFFF));
 
         return words;
     }

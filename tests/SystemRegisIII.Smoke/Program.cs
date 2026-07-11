@@ -530,6 +530,10 @@ static void VerifySaturnSystemMap()
         using var cueImage = new CueDiscImage(cuePath);
         Require(cueImage.SectorSize == RawDiscImage.DefaultSectorSize, "CUE disc logical sector size failed.");
         Require(cueImage.SectorCount == 40, "CUE disc sector count failed.");
+        Require(cueImage.Tracks.Count == 2, "CUE track count failed.");
+        Require(cueImage.Tracks[0] == new CdTrackInfo(1, 0x41, 150), "CUE first-track TOC failed.");
+        Require(cueImage.Tracks[1] == new CdTrackInfo(2, 0x01, 192), "CUE audio-track TOC failed.");
+        Require(cueImage.LeadoutFad == 200, "CUE leadout TOC failed.");
         Span<byte> cueSector = stackalloc byte[RawDiscImage.DefaultSectorSize];
         Require(cueImage.ReadSector(30, cueSector) == RawDiscImage.DefaultSectorSize, "CUE disc sector read length failed.");
         Require(cueSector[0] == 0xCA && cueSector[1] == 0xFE && cueSector[2] == 0xBA && cueSector[3] == 0xBE, "CUE disc user-data offset failed.");
@@ -777,6 +781,7 @@ static string CreateTinyCueImage(string directory)
 {
     var cuePath = Path.Combine(directory, "tiny.cue");
     var binPath = Path.Combine(directory, "tiny.bin");
+    var audioPath = Path.Combine(directory, "tiny-audio.bin");
     var isoPath = Path.Combine(directory, "tiny.iso");
     CreateTinyIsoImage(isoPath);
     var isoBytes = File.ReadAllBytes(isoPath);
@@ -792,12 +797,17 @@ static string CreateTinyCueImage(string directory)
     }
 
     File.WriteAllBytes(binPath, rawBytes);
+    File.WriteAllBytes(audioPath, new byte[10 * 2352]);
     File.WriteAllText(
         cuePath,
         """
         FILE "tiny.bin" BINARY
           TRACK 01 MODE1/2352
             INDEX 01 00:00:00
+        FILE "tiny-audio.bin" BINARY
+          TRACK 02 AUDIO
+            INDEX 00 00:00:00
+            INDEX 01 00:00:02
 
         """);
     return cuePath;
