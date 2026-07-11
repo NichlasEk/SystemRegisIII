@@ -126,6 +126,8 @@ A clean 60M run after the live BIOS screen showed that the transient BIOS `0x000
 
 VDP1 solid geometry now covers polygon, polyline, and line commands with local coordinates, system clipping, direct-RGB or CRAM color, mesh pixels, quad triangulation, and Bresenham line rasterization. WaylandForge treats every complete active VDP1 primitive type `0x0..0x7` as a framebuffer update instead of filtering for normal sprites only. Scaled and distorted textured sprites remain the next VDP1 geometry slice.
 
+Scaled and distorted textured sprites are now implemented as textured quads. Scaled sprites decode VDP1 zoom-point modes and display width/height or alternate coordinates; distorted sprites use all four command vertices. Both paths support local coordinates, system clipping, horizontal/vertical texture flip, mesh, transparent texels, the existing palette/LUT/direct-RGB fetch modes, and affine barycentric texture mapping across the two quad triangles. Focused smoke cases cover a scaled direct-RGB sprite and a skewed distorted sprite.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

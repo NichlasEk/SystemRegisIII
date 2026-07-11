@@ -71,6 +71,16 @@ public static class Vdp1SoftwareRenderer
                         clipRight,
                         clipBottom);
                     break;
+                case 0x1 when command.CharacterWidth > 0 && command.CharacterHeight > 0:
+                    drawnSprites++;
+                    drawnPixels += DrawScaledSprite(
+                        vram, colorRam, pixels, width, command, localX, localY, clipRight, clipBottom);
+                    break;
+                case 0x2 or 0x3 when command.CharacterWidth > 0 && command.CharacterHeight > 0:
+                    drawnSprites++;
+                    drawnPixels += DrawDistortedSprite(
+                        vram, colorRam, pixels, width, command, localX, localY, clipRight, clipBottom);
+                    break;
                 case 0x4:
                     drawnSprites++;
                     drawnPixels += DrawPolygon(
@@ -150,6 +160,195 @@ public static class Vdp1SoftwareRenderer
                 }
 
                 destination[(y * destinationWidth) + x] = bgra;
+                drawn++;
+            }
+        }
+
+        return drawn;
+    }
+
+    private static int DrawScaledSprite(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        Span<uint> destination,
+        int destinationWidth,
+        Vdp1Command command,
+        int localX,
+        int localY,
+        int clipRight,
+        int clipBottom)
+    {
+        var zoomPoint = (command.Control >> 8) & 0xF;
+        var x = SignExtend(command.Xa, 13);
+        var y = SignExtend(command.Ya, 13);
+        var displayWidth = SignExtend(command.Xb, 13);
+        var displayHeight = SignExtend(command.Yb, 13);
+        var alternateX = SignExtend(command.Xc, 13);
+        var alternateY = SignExtend(command.Yc, 13);
+        var left = x;
+        var right = x;
+        var top = y;
+        var bottom = y;
+
+        switch (zoomPoint >> 2)
+        {
+            case 0:
+                bottom = alternateY;
+                break;
+            case 1:
+                bottom += displayHeight;
+                break;
+            case 2:
+                top -= displayHeight >> 1;
+                bottom += (displayHeight + 1) >> 1;
+                break;
+            case 3:
+                top -= displayHeight;
+                break;
+        }
+
+        switch (zoomPoint & 0x3)
+        {
+            case 0:
+                right = alternateX;
+                break;
+            case 1:
+                right += displayWidth;
+                break;
+            case 2:
+                left -= displayWidth >> 1;
+                right += (displayWidth + 1) >> 1;
+                break;
+            case 3:
+                left -= displayWidth;
+                break;
+        }
+
+        return DrawTexturedQuad(
+            vram,
+            colorRam,
+            destination,
+            destinationWidth,
+            command,
+            (left + localX, top + localY),
+            (right + localX, top + localY),
+            (right + localX, bottom + localY),
+            (left + localX, bottom + localY),
+            clipRight,
+            clipBottom);
+    }
+
+    private static int DrawDistortedSprite(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        Span<uint> destination,
+        int destinationWidth,
+        Vdp1Command command,
+        int localX,
+        int localY,
+        int clipRight,
+        int clipBottom) =>
+        DrawTexturedQuad(
+            vram,
+            colorRam,
+            destination,
+            destinationWidth,
+            command,
+            Point(command.Xa, command.Ya, localX, localY),
+            Point(command.Xb, command.Yb, localX, localY),
+            Point(command.Xc, command.Yc, localX, localY),
+            Point(command.Xd, command.Yd, localX, localY),
+            clipRight,
+            clipBottom);
+
+    private static int DrawTexturedQuad(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        Span<uint> destination,
+        int destinationWidth,
+        Vdp1Command command,
+        (int X, int Y) a,
+        (int X, int Y) b,
+        (int X, int Y) c,
+        (int X, int Y) d,
+        int clipRight,
+        int clipBottom)
+    {
+        var maxU = Math.Max(0, command.CharacterWidth - 1);
+        var maxV = Math.Max(0, command.CharacterHeight - 1);
+        var horizontalFlip = (command.Control & 0x0010) != 0;
+        var verticalFlip = (command.Control & 0x0020) != 0;
+        var leftU = horizontalFlip ? maxU : 0;
+        var rightU = horizontalFlip ? 0 : maxU;
+        var topV = verticalFlip ? maxV : 0;
+        var bottomV = verticalFlip ? 0 : maxV;
+        var drawn = 0;
+        drawn += DrawTexturedTriangle(
+            vram, colorRam, destination, destinationWidth, command,
+            (a.X, a.Y, leftU, topV),
+            (b.X, b.Y, rightU, topV),
+            (c.X, c.Y, rightU, bottomV),
+            clipRight, clipBottom);
+        drawn += DrawTexturedTriangle(
+            vram, colorRam, destination, destinationWidth, command,
+            (a.X, a.Y, leftU, topV),
+            (c.X, c.Y, rightU, bottomV),
+            (d.X, d.Y, leftU, bottomV),
+            clipRight, clipBottom);
+        return drawn;
+    }
+
+    private static int DrawTexturedTriangle(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        Span<uint> destination,
+        int destinationWidth,
+        Vdp1Command command,
+        (int X, int Y, int U, int V) a,
+        (int X, int Y, int U, int V) b,
+        (int X, int Y, int U, int V) c,
+        int clipRight,
+        int clipBottom)
+    {
+        var pa = (a.X, a.Y);
+        var pb = (b.X, b.Y);
+        var pc = (c.X, c.Y);
+        var area = Edge(pa, pb, c.X, c.Y);
+        if (area == 0)
+        {
+            return 0;
+        }
+
+        var minX = Math.Max(0, Math.Min(a.X, Math.Min(b.X, c.X)));
+        var maxX = Math.Min(clipRight, Math.Max(a.X, Math.Max(b.X, c.X)));
+        var minY = Math.Max(0, Math.Min(a.Y, Math.Min(b.Y, c.Y)));
+        var maxY = Math.Min(clipBottom, Math.Max(a.Y, Math.Max(b.Y, c.Y)));
+        var colorMode = (command.DrawMode >> 3) & 0x7;
+        var showTransparentPixels = (command.DrawMode & 0x0040) != 0;
+        var drawn = 0;
+        for (var y = minY; y <= maxY; y++)
+        {
+            for (var x = minX; x <= maxX; x++)
+            {
+                var wa = Edge(pb, pc, x, y);
+                var wb = Edge(pc, pa, x, y);
+                var wc = Edge(pa, pb, x, y);
+                if ((area > 0 && (wa < 0 || wb < 0 || wc < 0)) ||
+                    (area < 0 && (wa > 0 || wb > 0 || wc > 0)) ||
+                    IsMeshPixel(command.DrawMode, x, y))
+                {
+                    continue;
+                }
+
+                var u = (int)Math.Clamp(((wa * a.U) + (wb * b.U) + (wc * c.U)) / area, 0, command.CharacterWidth - 1);
+                var v = (int)Math.Clamp(((wa * a.V) + (wb * b.V) + (wc * c.V)) / area, 0, command.CharacterHeight - 1);
+                var fetched = FetchColor(vram, colorRam, command, colorMode, u, v, showTransparentPixels);
+                if (fetched is not uint color)
+                {
+                    continue;
+                }
+
+                destination[(y * destinationWidth) + x] = color;
                 drawn++;
             }
         }

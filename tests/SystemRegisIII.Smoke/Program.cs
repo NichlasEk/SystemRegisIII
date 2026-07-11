@@ -575,6 +575,27 @@ static void VerifyVdp1SoftwareRenderer()
     Require(lineRendered.DrawnPixels == 4, "VDP1 line rasterization failed.");
     Require(lineRendered.Frame.BgraPixels.Span[10] == 0xFF00_FF00, "VDP1 line color conversion failed.");
 
+    var quadVram = new byte[0x80000];
+    for (var offset = 0x100; offset < 0x110; offset += 2)
+    {
+        quadVram[offset] = 0x80;
+        quadVram[offset + 1] = 0x1F;
+    }
+
+    var scaled = MakeCommand(
+        0x0501, drawMode: 0x0068, characterAddress: 0x0020, characterSize: 0x0101,
+        xa: 1, ya: 1, xb: 3, yb: 2);
+    var scaledRendered = Vdp1SoftwareRenderer.Render(quadVram, colorRam, [scaled, MakeCommand(0x8000)], width: 6, height: 5);
+    Require(scaledRendered.DrawnPixels > 0, "VDP1 scaled sprite renderer drew no pixels.");
+    Require(scaledRendered.Frame.BgraPixels.Span[14] == 0xFFFF_0000, "VDP1 scaled sprite texture mapping failed.");
+
+    var distorted = MakeCommand(
+        0x0002, drawMode: 0x0068, characterAddress: 0x0020, characterSize: 0x0101,
+        xa: 0, ya: 0, xb: 4, yb: 1, xc: 3, yc: 4, xd: 0, yd: 3);
+    var distortedRendered = Vdp1SoftwareRenderer.Render(quadVram, colorRam, [distorted, MakeCommand(0x8000)], width: 5, height: 5);
+    Require(distortedRendered.DrawnPixels > 0, "VDP1 distorted sprite renderer drew no pixels.");
+    Require(distortedRendered.Frame.BgraPixels.Span[12] == 0xFFFF_0000, "VDP1 distorted sprite texture mapping failed.");
+
     static Vdp1Command MakeCommand(
         ushort control,
         ushort drawMode = 0,
