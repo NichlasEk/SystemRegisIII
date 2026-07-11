@@ -661,6 +661,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _statusMode = true;
         _cr1 = 0;
+        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+        _cr4 = (ushort)(FirstTrackFad + 0x10);
     }
 
     private void ResetSelector()
