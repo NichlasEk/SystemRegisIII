@@ -65,6 +65,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _authStartupCompleted;
     private int _initializeTransitionPollsRemaining;
     private int _commandCompletionHirqReadsRemaining;
+    private int _postAuthStatusInstructionsRemaining;
     private bool _startupPeriodicActive;
     private int _startupInstructionCount;
     private int _startupNextPeriodicInstructionCount;
@@ -229,7 +230,21 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     public void AdvanceMasterInstructions(int instructionCount)
     {
-        if (!_startupPeriodicActive || instructionCount <= 0)
+        if (instructionCount <= 0)
+        {
+            return;
+        }
+
+        if (_postAuthStatusInstructionsRemaining > 0)
+        {
+            _postAuthStatusInstructionsRemaining -= instructionCount;
+            if (_postAuthStatusInstructionsRemaining <= 0)
+            {
+                PublishPostAuthBusyStatus();
+            }
+        }
+
+        if (!_startupPeriodicActive)
         {
             return;
         }
@@ -889,6 +904,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = _authDiscType;
         _cr3 = 0;
         _cr4 = 0;
+        _postAuthStatusInstructionsRemaining = 2_000;
+    }
+
+    private void PublishPostAuthBusyStatus()
+    {
+        _cr1 = (ushort)(CdStatusPeriodic << 8);
+        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+        _cr4 = (ushort)FirstTrackFad;
     }
 
     private byte ReadDataTransferByte(bool lowByte)

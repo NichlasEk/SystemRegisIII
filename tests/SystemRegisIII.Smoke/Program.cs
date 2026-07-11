@@ -476,6 +476,13 @@ static void VerifySaturnSystemMap()
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0004, "CD Block get-auth Saturn type failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-auth reserved word 1 failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block get-auth reserved word 2 failed.");
+        isoCdRegisters.AdvanceMasterInstructions(1_999);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block post-auth status changed too early.");
+        isoCdRegisters.AdvanceMasterInstructions(1);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x2000, "CD Block post-auth busy status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block post-auth track status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block post-auth track index failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0096, "CD Block post-auth FAD failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0x7100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
