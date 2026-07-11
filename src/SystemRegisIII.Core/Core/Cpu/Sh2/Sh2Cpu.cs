@@ -303,6 +303,30 @@ public sealed class Sh2Cpu : ISh2Cpu
 
         switch (opcode & 0xF00F)
         {
+            case 0x400F:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var sourceAddress = Registers.General[source];
+                    var destinationAddress = Registers.General[destination];
+                    var sourceValue = (short)_bus.ReadWord(sourceAddress);
+                    var destinationValue = (short)_bus.ReadWord(destinationAddress);
+                    Registers.General[source] += 2;
+                    Registers.General[destination] += 2;
+                    var accumulator = ((long)(int)Registers.MacHigh << 32) | Registers.MacLow;
+                    var product = (long)sourceValue * destinationValue;
+                    var result = unchecked(accumulator + product);
+                    if (Registers.S)
+                    {
+                        result = Math.Clamp(result, int.MinValue, int.MaxValue);
+                    }
+
+                    Registers.MacHigh = unchecked((uint)(result >> 32));
+                    Registers.MacLow = (uint)result;
+                    Trace(
+                        $"0x{pc:X8}: MAC.W @R{source}+,@R{destination}+ [0x{sourceAddress:X8}]=0x{(ushort)sourceValue:X4} [0x{destinationAddress:X8}]=0x{(ushort)destinationValue:X4} acc=0x{(ulong)accumulator:X16} product=0x{(ulong)product:X16} S={Registers.S} -> MACH=0x{Registers.MacHigh:X8} MACL=0x{Registers.MacLow:X8}");
+                    return;
+                }
             case 0x000F:
                 {
                     var destination = (opcode >> 8) & 0xF;
@@ -1155,6 +1179,10 @@ public sealed class Sh2Cpu : ISh2Cpu
             case 0x0008:
                 Registers.T = false;
                 Trace($"0x{pc:X8}: CLRT");
+                break;
+            case 0x0018:
+                Registers.T = true;
+                Trace($"0x{pc:X8}: SETT");
                 break;
             case 0x0019:
                 Registers.M = false;

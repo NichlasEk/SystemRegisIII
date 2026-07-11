@@ -87,7 +87,7 @@ public sealed class SaturnSystemMap
 
         var builder = new SaturnAddressMapBuilder()
             .Map(0x0000_0000, (uint)(biosRom.SizeBytes - 1), biosRom)
-            .Map(0x0010_0000, 0x0010_007F, stubs[0])
+            .Map(0x0010_0000, 0x0017_FFFF, stubs[0])
             .Map(0x0018_0000, 0x001F_FFFF, stubs[1])
             .Map(0x0020_0000, 0x002F_FFFF, workRamLow)
             .Map(0x0100_0000, 0x010F_FFFF, stubs[1])

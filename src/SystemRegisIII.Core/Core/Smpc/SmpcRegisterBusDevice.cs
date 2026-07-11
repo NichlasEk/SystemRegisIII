@@ -81,6 +81,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         FirstReadOffset ??= offset;
         LastReadOffset = offset;
         RecordOffset(_readOffsets, offset);
+        offset &= 0x7F;
 
         if (offset == StatusRegister)
         {
@@ -118,6 +119,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         FirstWriteOffset ??= offset;
         LastWriteOffset = offset;
         RecordOffset(_writeOffsets, offset);
+        offset &= 0x7F;
 
         if (TryGetRegisterIndex(offset, InputRegisterBase, _inputRegisters.Length, out var inputIndex))
         {

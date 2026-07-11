@@ -225,6 +225,8 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadByte(0x0010_0025) == 0xFF, "SMPC INTBACK port 1 digital pad data 1 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC INTBACK port 1 digital pad data 2 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0029) == 0xF0, "SMPC INTBACK port 2 status failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_1061) == systemMap.Bus.ReadByte(0x0010_0061), "SMPC mirrored status register failed.");
+    Require(systemMap.Bus.ReadLong(0x0010_11DC) == 0, "SMPC mirrored open register failed.");
     var pressedPadMap = SaturnSystemMap.CreateBringup(
         bios,
         new SaturnBringupOptions { DigitalPadState = SaturnInputState.Start | SaturnInputState.A });
@@ -1039,6 +1041,13 @@ static void VerifySh2BiosBringupInstructions()
     Require(!cpu.Registers.T, "SH-2 CLRT failed to clear T.");
     Require(cpu.UnimplementedInstructionCount == 0, "SH-2 CLRT was recorded as unimplemented.");
 
+    WriteWord(code, 0x08, 0x0018);
+    cpu.Reset();
+    cpu.Registers.T = false;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 SETT failed to set T.");
+    Require(cpu.UnimplementedInstructionCount == 0, "SH-2 SETT was recorded as unimplemented.");
+
     WriteWord(code, 0x08, 0x4122);
     cpu.Reset();
     cpu.Registers.General[1] = 0x0600_0008;
@@ -1250,6 +1259,32 @@ static void VerifySh2BiosBringupInstructions()
     cpu.StepInstruction();
     Require(cpu.Registers.MacHigh == 0xFFFF_8000, "SH-2 MAC.L negative saturation failed high word.");
     Require(cpu.Registers.MacLow == 0x0000_0000, "SH-2 MAC.L negative saturation failed low word.");
+
+    WriteWord(code, 0x08, 0x462F);
+    WriteWord(data, 0x10, 0xFFFE);
+    WriteWord(data, 0x20, 0x0003);
+    cpu.Reset();
+    cpu.Registers.General[2] = 0x0600_0010;
+    cpu.Registers.General[6] = 0x0600_0020;
+    cpu.Registers.MacHigh = 0;
+    cpu.Registers.MacLow = 1;
+    cpu.StepInstruction();
+    Require(cpu.Registers.General[2] == 0x0600_0012, "SH-2 MAC.W did not postincrement source.");
+    Require(cpu.Registers.General[6] == 0x0600_0022, "SH-2 MAC.W did not postincrement destination.");
+    Require(cpu.Registers.MacHigh == 0xFFFF_FFFF, $"SH-2 MAC.W failed high word: 0x{cpu.Registers.MacHigh:X8}.");
+    Require(cpu.Registers.MacLow == 0xFFFF_FFFB, "SH-2 MAC.W failed low word.");
+
+    WriteWord(data, 0x10, 0x0002);
+    WriteWord(data, 0x20, 0x0002);
+    cpu.Reset();
+    cpu.Registers.General[2] = 0x0600_0010;
+    cpu.Registers.General[6] = 0x0600_0020;
+    cpu.Registers.S = true;
+    cpu.Registers.MacHigh = 0;
+    cpu.Registers.MacLow = 0x7FFF_FFFE;
+    cpu.StepInstruction();
+    Require(cpu.Registers.MacHigh == 0, "SH-2 MAC.W saturation failed high word.");
+    Require(cpu.Registers.MacLow == 0x7FFF_FFFF, "SH-2 MAC.W saturation failed low word.");
 
     WriteWord(code, 0x08, 0x312A);
     cpu.Reset();
