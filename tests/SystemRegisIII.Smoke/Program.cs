@@ -565,6 +565,16 @@ static void VerifyVdp1SoftwareRenderer()
     Require(rgbRendered.Frame.BgraPixels.Span[0] == 0xFF00_0000, "VDP1 low direct-RGB value was not transparent.");
     Require(rgbRendered.Frame.BgraPixels.Span[1] == 0xFFFF_0000, "VDP1 direct-RGB visible pixel conversion failed.");
 
+    var polygon = MakeCommand(0x0004, drawMode: 0x0040, color: 0x801F, xa: 1, ya: 0, xb: 3, yb: 0, xc: 3, yc: 2, xd: 1, yd: 2);
+    var polygonRendered = Vdp1SoftwareRenderer.Render(vram, colorRam, [polygon, MakeCommand(0x8000)], width: 5, height: 4);
+    Require(polygonRendered.DrawnPixels > 0, "VDP1 polygon renderer drew no pixels.");
+    Require(polygonRendered.Frame.BgraPixels.Span[7] == 0xFFFF_0000, "VDP1 polygon fill failed.");
+
+    var line = MakeCommand(0x0006, drawMode: 0x0040, color: 0x83E0, xa: 0, ya: 0, xb: 3, yb: 3);
+    var lineRendered = Vdp1SoftwareRenderer.Render(vram, colorRam, [line, MakeCommand(0x8000)], width: 4, height: 4);
+    Require(lineRendered.DrawnPixels == 4, "VDP1 line rasterization failed.");
+    Require(lineRendered.Frame.BgraPixels.Span[10] == 0xFF00_FF00, "VDP1 line color conversion failed.");
+
     static Vdp1Command MakeCommand(
         ushort control,
         ushort drawMode = 0,
@@ -573,8 +583,12 @@ static void VerifyVdp1SoftwareRenderer()
         ushort characterSize = 0,
         short xa = 0,
         short ya = 0,
+        short xb = 0,
+        short yb = 0,
         short xc = 0,
-        short yc = 0) =>
+        short yc = 0,
+        short xd = 0,
+        short yd = 0) =>
         new(
             0,
             control,
@@ -585,12 +599,12 @@ static void VerifyVdp1SoftwareRenderer()
             characterSize,
             xa,
             ya,
-            0,
-            0,
+            xb,
+            yb,
             xc,
             yc,
-            0,
-            0,
+            xd,
+            yd,
             0);
 }
 

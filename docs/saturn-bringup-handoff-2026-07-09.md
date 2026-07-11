@@ -124,6 +124,8 @@ The same renderer now covers NBG0/NBG1 bitmap mode at 4bpp and 8bpp palette colo
 
 A clean 60M run after the live BIOS screen showed that the transient BIOS `0x000042F8` seen in WaylandForge is not a stable CD wait. The run ends at `PC=0x0602944C`, Work RAM High reaches 12,646,368 writes, and the tail hotspots remain the previously classified finite SCSP bank-initialization loops around `0x0602941E..0x06029422`. CPU/CD bringup is continuing beyond the last visible frame; choose the next checkpoint from missing VDP1/VDP2 presentation behavior rather than treating the black viewport as a CPU stall.
 
+VDP1 solid geometry now covers polygon, polyline, and line commands with local coordinates, system clipping, direct-RGB or CRAM color, mesh pixels, quad triangulation, and Bresenham line rasterization. WaylandForge treats every complete active VDP1 primitive type `0x0..0x7` as a framebuffer update instead of filtering for normal sprites only. Scaled and distorted textured sprites remain the next VDP1 geometry slice.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.
