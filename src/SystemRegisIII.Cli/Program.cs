@@ -54,12 +54,16 @@ static int RunBios(string[] args)
     var vdp2StatePrefix = GetOption(args, "--dump-vdp2-state");
     var finalVdp2StatePrefix = GetOption(args, "--dump-final-vdp2-state");
     var finalWorkRamHighPath = GetOption(args, "--dump-final-wram-high");
+    var finalWorkRamLowPath = GetOption(args, "--dump-final-wram-low");
     var sh2DiffTracePath = GetOption(args, "--dump-sh2-diff-trace");
     var preUnimplementedTracePath = GetOption(args, "--dump-pre-unimplemented-trace");
+    var postAuthTracePath = GetOption(args, "--dump-post-auth-trace");
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
     var preUnimplementedTrace = new Queue<string>(256);
     string[]? capturedPreUnimplementedTrace = null;
+    var postAuthTrace = new List<string>(1024);
+    var postAuthTraceArmed = false;
     var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
     var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
@@ -406,6 +410,10 @@ static int RunBios(string[] args)
         {
             sh2DiffTrace.Add(FormatSh2DiffState(master));
         }
+        if (postAuthTraceArmed && postAuthTrace.Count < 1024)
+        {
+            postAuthTrace.Add(FormatSh2DiffState(master));
+        }
 
         RecordPc(masterPcHits, masterPc);
         if (i >= instructionCount - 1_000_000)
@@ -455,6 +463,10 @@ static int RunBios(string[] args)
                 $"cr=0x{systemMap.CdBlock.LastCommandCr1:X4},0x{systemMap.CdBlock.LastCommandCr2:X4}," +
                 $"0x{systemMap.CdBlock.LastCommandCr3:X4},0x{systemMap.CdBlock.LastCommandCr4:X4}");
             observedCdCommandCount = cdCommandCount;
+            if (systemMap.CdBlock.LastCommandCode == 0xE1)
+            {
+                postAuthTraceArmed = true;
+            }
         }
         if (systemMap.CdBlock.HirqWriteCount != observedCdHirqWriteCount)
         {
@@ -631,6 +643,11 @@ static int RunBios(string[] args)
         File.WriteAllBytes(finalWorkRamHighPath, systemMap.WorkRamHigh.Span.ToArray());
         Console.WriteLine($"Final Work RAM High dump: {finalWorkRamHighPath}");
     }
+    if (finalWorkRamLowPath is not null)
+    {
+        File.WriteAllBytes(finalWorkRamLowPath, systemMap.WorkRamLow.Span.ToArray());
+        Console.WriteLine($"Final Work RAM Low dump: {finalWorkRamLowPath}");
+    }
 
     if (sh2DiffTracePath is not null)
     {
@@ -642,6 +659,11 @@ static int RunBios(string[] args)
         var entries = capturedPreUnimplementedTrace ?? preUnimplementedTrace.ToArray();
         File.WriteAllLines(preUnimplementedTracePath, entries);
         Console.WriteLine($"SH-2 pre-unimplemented trace: {preUnimplementedTracePath} entries={entries.Length:N0}");
+    }
+    if (postAuthTracePath is not null)
+    {
+        File.WriteAllLines(postAuthTracePath, postAuthTrace);
+        Console.WriteLine($"SH-2 post-auth trace: {postAuthTracePath} entries={postAuthTrace.Count:N0}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1981,7 +2003,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
