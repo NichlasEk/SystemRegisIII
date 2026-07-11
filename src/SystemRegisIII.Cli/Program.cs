@@ -1901,6 +1901,18 @@ sealed class Vdp1CommandProbe
     {
         Console.WriteLine(
             $"VDP1 VBlank command probe: captures={_captures:N0} richest-instruction={_richestInstruction:N0} drawables={_richestDrawableCount:N0} commands={_richestCommands.Count:N0}");
+        if (_richestVdp2Registers.Length >= 0xE2)
+        {
+            var tvmd = ReadWord(_richestVdp2Registers, 0x00);
+            var bgon = ReadWord(_richestVdp2Registers, 0x20);
+            var chctla = ReadWord(_richestVdp2Registers, 0x28);
+            var spctl = ReadWord(_richestVdp2Registers, 0xE0);
+            var bkUpper = ReadWord(_richestVdp2Registers, 0xAC);
+            var bkLower = ReadWord(_richestVdp2Registers, 0xAE);
+            Console.WriteLine(
+                $"  VDP2 TVMD=0x{tvmd:X4} BGON=0x{bgon:X4} CHCTLA=0x{chctla:X4} SPCTL=0x{spctl:X4} BKTA=0x{bkUpper:X4}:0x{bkLower:X4}");
+        }
+
         foreach (var command in _richestCommands)
         {
             Console.WriteLine(
@@ -1908,6 +1920,9 @@ sealed class Vdp1CommandProbe
                 $"src=0x{command.CharacterByteAddress:X5} size={command.CharacterWidth}x{command.CharacterHeight} " +
                 $"A=({command.Xa},{command.Ya}) B=({command.Xb},{command.Yb}) C=({command.Xc},{command.Yc}) D=({command.Xd},{command.Yd})");
         }
+
+        static ushort ReadWord(ReadOnlySpan<byte> memory, int offset) =>
+            (ushort)((memory[offset] << 8) | memory[offset + 1]);
     }
 
     private static IReadOnlyList<Vdp1Command> ReadCommandChain(ReadOnlySpan<byte> vram)
