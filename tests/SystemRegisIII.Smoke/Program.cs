@@ -646,6 +646,12 @@ static void VerifyVdp2TilemapRenderer()
     Require(frame[0] == 0xFFFF_0000, "VDP2 NBG 8bpp tile pixel lookup failed.");
     Require(frame[1] == 0xFF00_0000, "VDP2 transparent NBG dot overwrote the back screen.");
 
+    Array.Clear(vram);
+    WriteWord(registers, 0x28, 0x0012);
+    vram[0] = 0x01;
+    frame = Vdp2TilemapRenderer.Render(vram, colorRam, registers, width: 1, height: 1);
+    Require(frame[0] == 0xFFFF_0000, "VDP2 NBG 8bpp bitmap pixel lookup failed.");
+
     static void WriteWord(Span<byte> destination, int offset, ushort value)
     {
         destination[offset] = (byte)(value >> 8);

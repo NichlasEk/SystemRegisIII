@@ -120,6 +120,8 @@ The remaining live-host failure was presentation state rather than texture data:
 
 A captured 29M VDP2 state proved that `BKTA=0` and the black back-screen are intentional while `BGON=0x000F`: the visible white field and large Saturn logo come from the four normal-background tilemaps. `Vdp2TilemapRenderer` now implements the first NBG0-NBG3 cell path for 4bpp/8bpp, one- or two-word pattern names, map/plane/page addressing, character flips, scroll, CRAM offsets, transparency, and priority ordering. The Wayland host composes those live tilemaps with a persistent VDP1 framebuffer instead of treating the current command list as the framebuffer contents. The CLI can preserve a captured checkpoint offline with `--dump-vdp2-state <prefix>`.
 
+The same renderer now covers NBG0/NBG1 bitmap mode at 4bpp and 8bpp palette color, 16-bit palette/direct RGB, and 32-bit direct RGB, including bitmap-size wrapping, scroll, CRAM offsets, and transparency. This closes the next common VDP2 mode switch after the BIOS tilemap phase; rotation backgrounds, line scroll, mosaic, color calculation, and windows remain later slices.
+
 Recommended approach:
 
 1. Run beyond 80M and use the tail-hot-PC report plus the retained `0x06029400..0x06029440` post-load probe to distinguish forward-progressing sound initialization from a stable hardware wait.

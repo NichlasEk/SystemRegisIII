@@ -68,6 +68,22 @@ public static class Vdp2TilemapRenderer
             2 => (chctlb >> 1) & 1,
             _ => (chctlb >> 5) & 1,
         };
+        var bitmapEnabled = layer < 2 && ((chctla >> (1 + (layer * 8))) & 1) != 0;
+        if (bitmapEnabled)
+        {
+            DrawBitmapLayer(
+                vram,
+                colorRam,
+                registers,
+                destination,
+                width,
+                height,
+                layer,
+                colorMode,
+                transparencyDisabled);
+            return;
+        }
+
         if (colorMode > 1)
         {
             return;
@@ -124,6 +140,85 @@ public static class Vdp2TilemapRenderer
 
                 var paletteBase = (((palette << 4) & ~((1 << bitsPerPixel) - 1)) + (cramOffset << 8));
                 destination[(y * width) + x] = ReadColor(colorRam, paletteBase + dot);
+            }
+        }
+    }
+
+    private static void DrawBitmapLayer(
+        ReadOnlySpan<byte> vram,
+        ReadOnlySpan<byte> colorRam,
+        ReadOnlySpan<byte> registers,
+        Span<uint> destination,
+        int width,
+        int height,
+        int layer,
+        int colorMode,
+        bool transparencyDisabled)
+    {
+        if (colorMode > 4)
+        {
+            colorMode = 4;
+        }
+
+        var chctla = ReadWord(registers, 0x28);
+        var bitmapSize = (chctla >> (2 + (layer * 8))) & 0x3;
+        var bitmapWidth = (bitmapSize & 2) != 0 ? 1024 : 512;
+        var bitmapHeight = (bitmapSize & 1) != 0 ? 512 : 256;
+        var mapOffset = (ReadWord(registers, 0x3C) >> (layer * 4)) & 0x7;
+        var baseWordAddress = mapOffset << 16;
+        var bmpna = ReadWord(registers, 0x2C);
+        var paletteNumber = ((bmpna >> (layer * 8)) & 0x7) << 4;
+        var cramOffset = (ReadWord(registers, 0xE4) >> (layer * 4)) & 0x7;
+        var (scrollX, scrollY) = ReadScroll(registers, layer);
+
+        for (var y = 0; y < height; y++)
+        {
+            var sourceY = (y + scrollY) & (bitmapHeight - 1);
+            for (var x = 0; x < width; x++)
+            {
+                var sourceX = (x + scrollX) & (bitmapWidth - 1);
+                var pixelIndex = (sourceY * bitmapWidth) + sourceX;
+                uint color;
+                bool transparent;
+                switch (colorMode)
+                {
+                    case 0:
+                        var nibbleWord = ReadVramWord(vram, baseWordAddress + (pixelIndex >> 2));
+                        var nibble = (nibbleWord >> (((pixelIndex & 3) ^ 3) * 4)) & 0xF;
+                        transparent = nibble == 0;
+                        color = ReadColor(colorRam, (cramOffset << 8) + paletteNumber + nibble);
+                        break;
+                    case 1:
+                        var byteWord = ReadVramWord(vram, baseWordAddress + (pixelIndex >> 1));
+                        var value = (byteWord >> (((pixelIndex & 1) ^ 1) * 8)) & 0xFF;
+                        transparent = value == 0;
+                        color = ReadColor(colorRam, (cramOffset << 8) + (paletteNumber & ~0xFF) + value);
+                        break;
+                    case 2:
+                        var paletteIndex = ReadVramWord(vram, baseWordAddress + pixelIndex) & 0x7FF;
+                        transparent = paletteIndex == 0;
+                        color = ReadColor(colorRam, (cramOffset << 8) + paletteIndex);
+                        break;
+                    case 3:
+                        var rgb555 = ReadVramWord(vram, baseWordAddress + pixelIndex);
+                        transparent = (rgb555 & 0x8000) == 0;
+                        color = ConvertRgb555(rgb555);
+                        break;
+                    default:
+                        var high = ReadVramWord(vram, baseWordAddress + (pixelIndex * 2));
+                        var low = ReadVramWord(vram, baseWordAddress + (pixelIndex * 2) + 1);
+                        transparent = (high & 0x8000) == 0;
+                        color = 0xFF00_0000u |
+                            ((uint)(high & 0x00FF) << 16) |
+                            ((uint)(low >> 8) << 8) |
+                            (uint)(low & 0x00FF);
+                        break;
+                }
+
+                if (!transparent || transparencyDisabled)
+                {
+                    destination[(y * width) + x] = color;
+                }
             }
         }
     }
@@ -187,6 +282,11 @@ public static class Vdp2TilemapRenderer
     private static uint ReadColor(ReadOnlySpan<byte> colorRam, int index)
     {
         var color = ReadWord(colorRam, (index & 0x7FF) * 2);
+        return ConvertRgb555(color);
+    }
+
+    private static uint ConvertRgb555(ushort color)
+    {
         var red = Expand5(color & 0x1F);
         var green = Expand5((color >> 5) & 0x1F);
         var blue = Expand5((color >> 10) & 0x1F);
