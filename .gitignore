@@ -35,6 +35,9 @@ discs/
 captures/
 savestates/
 
+# Repo-local reference labs and external source trees
+local/
+
 # Logs and temporary files
 *.log
 *.tmp

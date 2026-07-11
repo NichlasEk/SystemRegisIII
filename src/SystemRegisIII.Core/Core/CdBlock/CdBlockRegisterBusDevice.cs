@@ -4,7 +4,7 @@ namespace SystemRegisIII.Core.Core.CdBlock;
 
 public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 {
-    private const uint DataTransferOffset = 0x090000;
+    private const uint DataTransferOffset = 0x098000;
     private const uint HirqOffset = 0x090008;
     private const uint HirqMaskOffset = 0x09000C;
     private const uint Cr1Offset = 0x090018;
@@ -118,6 +118,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
     public ushort ResponseCr4 => _cr4;
+    public bool DataTransferActive => _dataTransferActive;
+    public ushort DataTransferWordCount => _dataTransferWordCount;
+    public ushort DataTransferWordsRead => _dataTransferWordsRead;
 
     public bool TryLoadInitialProgram(Span<byte> workRamHigh, out uint entryAddress, out int bytesLoaded)
     {

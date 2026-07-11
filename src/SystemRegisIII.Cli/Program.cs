@@ -1742,6 +1742,8 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
             Console.WriteLine($"    recent commands: {string.Join(", ", cdRegisters.RecentCommands.Select(static command => $"0x{command:X2}"))}");
             Console.WriteLine(
                 $"    response CR: 0x{cdRegisters.ResponseCr1:X4} 0x{cdRegisters.ResponseCr2:X4} 0x{cdRegisters.ResponseCr3:X4} 0x{cdRegisters.ResponseCr4:X4}");
+            Console.WriteLine(
+                $"    host transfer: active={cdRegisters.DataTransferActive} words={cdRegisters.DataTransferWordsRead:N0}/{cdRegisters.DataTransferWordCount:N0}");
         }
         else if (stub is SmpcRegisterBusDevice smpcRegisters)
         {
