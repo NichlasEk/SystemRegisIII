@@ -67,6 +67,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _commandCompletionHirqReadsRemaining;
     private ushort _commandCompletionHirqBits;
     private int _postAuthStatusInstructionsRemaining;
+    private int _postSessionStatusInstructionsRemaining;
     private bool _startupPeriodicActive;
     private int _startupInstructionCount;
     private int _startupNextPeriodicInstructionCount;
@@ -242,6 +243,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_postAuthStatusInstructionsRemaining <= 0)
             {
                 PublishPostAuthBusyStatus();
+            }
+        }
+
+        if (_postSessionStatusInstructionsRemaining > 0)
+        {
+            _postSessionStatusInstructionsRemaining -= instructionCount;
+            if (_postSessionStatusInstructionsRemaining <= 0)
+            {
+                PublishPostSessionStatus();
             }
         }
 
@@ -624,6 +634,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var sessionWord = ((uint)resultStatus << 8) | ((fad >> 16) & 0xFF);
         _cr3 = (ushort)sessionWord;
         _cr4 = (ushort)fad;
+        if (session == 1 && _status == (byte)CdBlockDriveStatus.Busy)
+        {
+            _postSessionStatusInstructionsRemaining = 11_000;
+        }
+    }
+
+    private void PublishPostSessionStatus()
+    {
+        _cr1 = (ushort)((byte)CdBlockDriveStatus.Pause << 8);
+        _cr2 = (ushort)(FirstTrackFad + 0x10);
+        _cr3 = 0x0100;
+        _cr4 = 0;
     }
 
     private void SetFilterRange()

@@ -444,6 +444,14 @@ static void VerifySaturnSystemMap()
         pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block post-initialize session status failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block session-one FAD failed.");
+        var pauseCdRegisters = pauseDiscMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+        pauseCdRegisters.AdvanceMasterInstructions(10_999);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block post-session status changed too early.");
+        pauseCdRegisters.AdvanceMasterInstructions(1);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block post-session pause status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x00A6, "CD Block post-session FAD report failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block post-session count failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block post-session reserved word failed.");
     }
     finally
     {
