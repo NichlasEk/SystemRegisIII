@@ -51,6 +51,8 @@ static int RunBios(string[] args)
     var vdp1FramePath = GetOption(args, "--dump-vdp1-frame");
     var vdp1TexturePath = GetOption(args, "--dump-vdp1-texture");
     var vdp2StatePrefix = GetOption(args, "--dump-vdp2-state");
+    var finalVdp2StatePrefix = GetOption(args, "--dump-final-vdp2-state");
+    var finalWorkRamHighPath = GetOption(args, "--dump-final-wram-high");
     var digitalPadState = GetPadOption(args);
     var digitalPadPeripheralData = GetPadRawOption(args);
 
@@ -509,6 +511,20 @@ static int RunBios(string[] args)
         File.WriteAllBytes(vdp2StatePrefix + ".vram.bin", vdp1CommandProbe.RichestVdp2Vram.ToArray());
         File.WriteAllBytes(vdp2StatePrefix + ".cram.bin", vdp1CommandProbe.RichestColorRam.ToArray());
         Console.WriteLine($"VDP2 state dump: {vdp2StatePrefix}.*.bin");
+    }
+
+    if (finalVdp2StatePrefix is not null)
+    {
+        File.WriteAllBytes(finalVdp2StatePrefix + ".registers.bin", systemMap.Vdp2Registers.Snapshot.ToArray());
+        File.WriteAllBytes(finalVdp2StatePrefix + ".vram.bin", systemMap.Vdp2Vram.Snapshot.ToArray());
+        File.WriteAllBytes(finalVdp2StatePrefix + ".cram.bin", systemMap.Vdp2Cram.Snapshot.ToArray());
+        Console.WriteLine($"Final VDP2 state dump: {finalVdp2StatePrefix}.*.bin");
+    }
+
+    if (finalWorkRamHighPath is not null)
+    {
+        File.WriteAllBytes(finalWorkRamHighPath, systemMap.WorkRamHigh.Span.ToArray());
+        Console.WriteLine($"Final Work RAM High dump: {finalWorkRamHighPath}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1794,7 +1810,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-high output.bin] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
