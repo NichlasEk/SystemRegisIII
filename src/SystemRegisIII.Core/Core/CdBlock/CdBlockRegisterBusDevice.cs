@@ -26,6 +26,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const byte FirstTrackIndex = 0x01;
     private const int PartitionCount = 0x18;
     private const int AuthStartupPollCount = 8;
+    private const int InitializeTransitionPollCount = 8;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
 
@@ -57,6 +58,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private byte _authDiscType;
     private int _authStartupPollsRemaining;
     private bool _authStartupCompleted;
+    private int _initializeTransitionPollsRemaining;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -333,6 +335,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
+        if (_discImage is not null && _initializeTransitionPollsRemaining > 0)
+        {
+            _initializeTransitionPollsRemaining--;
+            if (_initializeTransitionPollsRemaining == 0)
+            {
+                _status = (byte)CdBlockDriveStatus.Pause;
+            }
+        }
+
         WriteStatusResponse(_status);
     }
 
@@ -416,6 +427,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferLowByteLatched = false;
         _getSectorLength = 0;
         _putSectorLength = 0;
+        if (_discImage is not null)
+        {
+            _status = (byte)CdBlockDriveStatus.Busy;
+            _initializeTransitionPollsRemaining = InitializeTransitionPollCount;
+        }
+
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 

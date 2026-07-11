@@ -328,7 +328,16 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x04, "CD Block init command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block init status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2080, "CD Block init busy status failed.");
+        for (var poll = 0; poll < 8; poll++)
+        {
+            discMap.Bus.WriteWord(0x2589_0018, 0x0000);
+            discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+            discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+            discMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        }
+
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block init pause transition failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x6000);
         discMap.Bus.WriteWord(0x2589_001C, 0xFF00);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -346,7 +355,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x67, "CD Block get-copy-error command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block get-copy-error status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block get-copy-error status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block get-copy-error CR2 failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x4000);
         discMap.Bus.WriteWord(0x2589_001C, 0x0096);
@@ -375,7 +384,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x75, "CD Block abort-file command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block abort-file status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block abort-file status failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block abort-file EFLS HIRQ failed.");
 
         var pauseDiscMap = SaturnSystemMap.CreateBringup(
