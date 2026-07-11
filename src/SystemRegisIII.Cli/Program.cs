@@ -419,6 +419,7 @@ static int RunBios(string[] args)
         {
             break;
         }
+        systemMap.CdBlock.AdvanceMasterInstructions(1);
 
         var cdCommandCount = systemMap.CdBlock.TotalCommandCount;
         if (cdCommandCount != observedCdCommandCount)

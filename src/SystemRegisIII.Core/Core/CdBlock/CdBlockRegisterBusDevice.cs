@@ -27,7 +27,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int PartitionCount = 0x18;
     private const int AuthStartupPollCount = 8;
     private const int InitializeTransitionPollCount = 8;
-    private const int StartupPauseResponsePollCount = 16;
+    private const int StartupFirstPeriodicInstructionCount = 50_000;
+    private const int StartupPeriodicInstructionCount = 200_000;
+    private const int StartupPauseInstructionCount = 8_600_000;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
 
@@ -61,7 +63,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _authStartupCompleted;
     private int _initializeTransitionPollsRemaining;
     private int _commandCompletionHirqReadsRemaining;
-    private int _startupPauseResponsePollsRemaining;
+    private bool _startupPeriodicActive;
+    private int _startupInstructionCount;
+    private int _startupNextPeriodicInstructionCount;
     private ushort _cr1 = 0x0043;
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
@@ -215,16 +219,28 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         var word = ReadWordRegister(wordOffset);
-        if (offset == Cr4Offset + 1 && _startupPauseResponsePollsRemaining > 0)
+        return (offset & 1) == 0 ? (byte)(word >> 8) : (byte)word;
+    }
+
+    public void AdvanceMasterInstructions(int instructionCount)
+    {
+        if (!_startupPeriodicActive || instructionCount <= 0)
         {
-            _startupPauseResponsePollsRemaining--;
-            if (_startupPauseResponsePollsRemaining == 0)
-            {
-                PublishStartupPauseStatus();
-            }
+            return;
         }
 
-        return (offset & 1) == 0 ? (byte)(word >> 8) : (byte)word;
+        _startupInstructionCount = checked(_startupInstructionCount + instructionCount);
+        if (_status == (byte)CdBlockDriveStatus.Busy
+            && _startupInstructionCount >= StartupPauseInstructionCount)
+        {
+            _status = (byte)CdBlockDriveStatus.Pause;
+        }
+
+        while (_startupInstructionCount >= _startupNextPeriodicInstructionCount)
+        {
+            PublishStartupPeriodicStatus();
+            _startupNextPeriodicInstructionCount += StartupPeriodicInstructionCount;
+        }
     }
 
     public void WriteByte(uint offset, byte value)
@@ -321,7 +337,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void ExecuteCommand()
     {
-        _startupPauseResponsePollsRemaining = 0;
+        _startupPeriodicActive = false;
         var delayStartupHardwareInfo = !_hasExecutedCommand
             && _discImage is not null
             && _authDiscType == 0x04
@@ -503,16 +519,30 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr4 = 0x0600;
         if (_discImage is not null && _authStartupCompleted && _status == (byte)CdBlockDriveStatus.Busy)
         {
-            _status = (byte)CdBlockDriveStatus.Pause;
-            _startupPauseResponsePollsRemaining = StartupPauseResponsePollCount;
+            _startupPeriodicActive = true;
+            _startupInstructionCount = 0;
+            _startupNextPeriodicInstructionCount = StartupFirstPeriodicInstructionCount;
         }
     }
 
-    private void PublishStartupPauseStatus()
+    private void PublishStartupPeriodicStatus()
     {
-        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
-        _hirq = (ushort)((_hirq & ~HirqEndFileSystem) | 0x0400);
-        _startupPauseResponsePollsRemaining = StartupPauseResponsePollCount;
+        if (_status == (byte)CdBlockDriveStatus.Busy)
+        {
+            _cr1 = (ushort)(CdStatusPeriodic << 8);
+            _cr2 = 0xFFFF;
+            _cr3 = 0xFFFF;
+            _cr4 = 0xFFFF;
+        }
+        else
+        {
+            _cr1 = (ushort)(((_status | CdStatusPeriodic) << 8));
+            _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+            _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+            _cr4 = (ushort)FirstTrackFad;
+        }
+
+        _hirq |= 0x0400;
     }
 
     private void GetTableOfContents()
