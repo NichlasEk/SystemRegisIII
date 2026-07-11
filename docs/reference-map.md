@@ -77,7 +77,7 @@ Reason: the most useful Sega Saturn PDFs found so far are marked "SEGA Confident
   - BIOS VBlank interrupt activity currently writes CD Block command `0x00`, which this repo models as current-status response.
   - Mounted dummy media currently reports a simple periodic data-track status response: `CR1=0x2280`, `CR2=0x4101`, `CR3=0x0100`, `CR4=0x0096`.
   - BIOS-observed command `0x75` is modeled as Abort File for bringup, returning mounted periodic status and raising `EFLS` (`0x0200`) with `CMOK`.
-  - Current clean-room CD coverage includes register-level `Get TOC`, `Get Session Info`, and `End Data Transfer`, plus a minimal TOC host data FIFO at `0x25898000`.
+  - Current clean-room CD coverage includes register-level `Get TOC`, `Get Session Info`, and `End Data Transfer`, plus a minimal TOC host data FIFO mirrored at addresses including `0x25818000` and `0x25898000`.
   - Current clean-room sector coverage includes `Set Filter Range` and `Get Sector Data` for raw disc images, with FAD `150` mapped to raw LBA `0`.
 
 ## Current BIOS Bringup Evidence

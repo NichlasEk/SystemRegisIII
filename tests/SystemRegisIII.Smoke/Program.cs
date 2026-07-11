@@ -309,7 +309,7 @@ static void VerifySaturnSystemMap()
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block TOC DTREQ status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x00CC, "CD Block TOC transfer length failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block TOC DRDY HIRQ failed.");
-        Require(discMap.Bus.ReadWord(0x2589_8000) == 0x4100, "CD Block TOC first track control/FAD high failed.");
+        Require(discMap.Bus.ReadWord(0x2581_8000) == 0x4100, "CD Block TOC boot mirror first track control/FAD high failed.");
         Require(discMap.Bus.ReadWord(0x2589_8000) == 0x0096, "CD Block TOC first track FAD low failed.");
         Require(discMap.Bus.ReadWord(0x2589_8000) == 0xFFFF, "CD Block TOC empty track marker failed.");
         Require(discMap.Bus.ReadWord(0x2589_8000) == 0xFFFF, "CD Block TOC empty track marker low failed.");

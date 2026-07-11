@@ -4,13 +4,13 @@ namespace SystemRegisIII.Core.Core.CdBlock;
 
 public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 {
-    private const uint DataTransferOffset = 0x098000;
-    private const uint HirqOffset = 0x090008;
-    private const uint HirqMaskOffset = 0x09000C;
-    private const uint Cr1Offset = 0x090018;
-    private const uint Cr2Offset = 0x09001C;
-    private const uint Cr3Offset = 0x090020;
-    private const uint Cr4Offset = 0x090024;
+    private const uint DataTransferOffset = 0x00;
+    private const uint HirqOffset = 0x08;
+    private const uint HirqMaskOffset = 0x0C;
+    private const uint Cr1Offset = 0x18;
+    private const uint Cr2Offset = 0x1C;
+    private const uint Cr3Offset = 0x20;
+    private const uint Cr4Offset = 0x24;
 
     private const ushort HirqCmok = 0x0001;
     private const ushort HirqDataReady = 0x0002;
@@ -215,7 +215,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         LastReadOffset = offset;
         RecordOffset(_readOffsets, offset);
 
-        var wordOffset = offset & ~1u;
+        var wordOffset = NormalizeRegisterOffset(offset & ~1u);
         if (wordOffset == DataTransferOffset)
         {
             return ReadDataTransferByte((offset & 1) != 0);
@@ -253,12 +253,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         LastWriteOffset = offset;
         RecordOffset(_writeOffsets, offset);
 
-        var wordOffset = offset & ~1u;
-        _writtenWords.TryGetValue(wordOffset, out var word);
+        var rawWordOffset = offset & ~1u;
+        var wordOffset = NormalizeRegisterOffset(rawWordOffset);
+        _writtenWords.TryGetValue(rawWordOffset, out var word);
         word = (offset & 1) == 0
             ? (ushort)((word & 0x00FF) | (value << 8))
             : (ushort)((word & 0xFF00) | value);
-        _writtenWords[wordOffset] = word;
+        _writtenWords[rawWordOffset] = word;
 
         if ((offset & 1) != 0)
         {
@@ -284,6 +285,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             Cr4Offset => _cr4,
             _ => 0,
         };
+
+    private static uint NormalizeRegisterOffset(uint offset) =>
+        (offset & 0x7FFF) < 0x1000 ? offset & 0x3F : uint.MaxValue;
 
     private ushort ReadHirq()
     {
