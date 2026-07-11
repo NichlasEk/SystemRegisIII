@@ -306,7 +306,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x02, "CD Block TOC command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block TOC DTREQ status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CD Block TOC DTREQ status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x00CC, "CD Block TOC transfer length failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block TOC DRDY HIRQ failed.");
         Require(discMap.Bus.ReadWord(0x2581_8000) == 0x4100, "CD Block TOC boot mirror first track control/FAD high failed.");
@@ -384,7 +384,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0001);
         Require(mountedCdRegisters.LastCommandCode == 0x61, "CD Block get-sector command latch failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block get-sector DTREQ status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CD Block get-sector DTREQ status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block get-sector transfer length failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block get-sector DRDY HIRQ failed.");
         Require(discMap.Bus.ReadWord(0x2589_8000) == 0x0001, "CD Block get-sector first word failed.");
@@ -490,7 +490,7 @@ static void VerifySaturnSystemMap()
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0002);
         Require(isoCdRegisters.LastCommandCode == 0x73, "CD Block get-file-info command latch failed.");
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block get-file-info DTREQ status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CD Block get-file-info DTREQ status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0006, "CD Block get-file-info transfer length failed.");
         Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block get-file-info DRDY HIRQ failed.");
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CD Block file-info FAD high failed.");
@@ -512,7 +512,7 @@ static void VerifySaturnSystemMap()
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0001);
         Require(isoCdRegisters.LastCommandCode == 0x61, "CD Block read-file get-sector command latch failed.");
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CD Block read-file get-sector DTREQ status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CD Block read-file get-sector DTREQ status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block read-file sector transfer length failed.");
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0xCAFE, "CD Block read-file first data word failed.");
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0xBABE, "CD Block read-file second data word failed.");
@@ -550,7 +550,7 @@ static void VerifySaturnSystemMap()
         cueMap.Bus.WriteWord(0x2589_001C, 0x0000);
         cueMap.Bus.WriteWord(0x2589_0020, 0x0000);
         cueMap.Bus.WriteWord(0x2589_0024, 0x0002);
-        Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4080, "CUE CD Block get-file-info DTREQ status failed.");
+        Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CUE CD Block get-file-info DTREQ status failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CUE CD Block file-info FAD high failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x00B4, "CUE CD Block file-info FAD low failed.");
     }

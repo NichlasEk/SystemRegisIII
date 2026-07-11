@@ -917,7 +917,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWordCount = (ushort)Math.Min(words.Length, ushort.MaxValue);
         _dataTransferWordsRead = 0;
         _dataTransferLowByteLatched = false;
-        _cr1 = (ushort)(CdStatusDataTransferRequest << 8 | CdRomStatusBit);
+        _cr1 = (ushort)(CdStatusDataTransferRequest << 8);
         _cr2 = _dataTransferWordCount;
         _cr3 = 0;
         _cr4 = 0;

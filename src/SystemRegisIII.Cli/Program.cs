@@ -170,6 +170,11 @@ static int RunBios(string[] args)
         0x0589_0000,
         0x0589_002F,
         () => GetWatchContext(master));
+    var masterVblankCallbackWatch = new WatchedBus(
+        masterCdBlockWatch,
+        0x0600_0A04,
+        0x0600_0A07,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -177,7 +182,7 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCdBlockWatch, trace) : masterCdBlockWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterVblankCallbackWatch, trace) : masterVblankCallbackWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
@@ -300,7 +305,10 @@ static int RunBios(string[] args)
 
         if (vblankInDue || vblankOutDue)
         {
-            if (deferVblankInCriticalWindows && IsUnsafeVBlankInjectionPoint(master))
+            var callbackTarget = ReadBigEndianUInt32(systemMap.WorkRamHigh.Span, 0x0A04);
+            var callbackTargetMissing = callbackTarget is >= 0x0600_0000 and < 0x0610_0000
+                && ReadBigEndianUInt16(systemMap.WorkRamHigh.Span, checked((int)(callbackTarget - 0x0600_0000))) == 0;
+            if (deferVblankInCriticalWindows && (IsUnsafeVBlankInjectionPoint(master) || callbackTargetMissing))
             {
                 if (vblankInDue)
                 {
@@ -569,6 +577,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
+        PrintWatchWindow("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         if (slaveFlagWatch is not null)
         {
             PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -586,6 +595,7 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchSummary("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
+        PrintWatchSummary("Master VBlank callback-slot watch", masterVblankCallbackWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);
@@ -1876,6 +1886,15 @@ static uint GetUIntOption(string[] args, string name, uint defaultValue)
         ? parsed
         : defaultValue;
 }
+
+static ushort ReadBigEndianUInt16(ReadOnlySpan<byte> bytes, int offset) =>
+    (ushort)((bytes[offset] << 8) | bytes[offset + 1]);
+
+static uint ReadBigEndianUInt32(ReadOnlySpan<byte> bytes, int offset) =>
+    ((uint)bytes[offset] << 24)
+    | ((uint)bytes[offset + 1] << 16)
+    | ((uint)bytes[offset + 2] << 8)
+    | bytes[offset + 3];
 
 static CdBlockDriveStatus? GetCdStatusOption(string[] args)
 {
