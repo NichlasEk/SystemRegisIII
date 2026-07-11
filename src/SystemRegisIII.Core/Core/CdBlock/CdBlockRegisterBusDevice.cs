@@ -14,6 +14,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private const ushort HirqCmok = 0x0001;
     private const ushort HirqDataReady = 0x0002;
+    private const ushort HirqSectorStored = 0x0004;
+    private const ushort HirqSubcodeReady = 0x0400;
     private const ushort HirqEndSelector = 0x0040;
     private const ushort HirqEndHostIo = 0x0080;
     private const ushort HirqEndFileSystem = 0x0200;
@@ -484,7 +486,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         else if (_discImage is not null && LastCommandCode == 0xE0)
         {
-            _hirq |= HirqEndFileSystem;
+            _hirq |= HirqEndFileSystem | HirqSectorStored | HirqSubcodeReady;
         }
     }
 
@@ -867,7 +869,11 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+        _statusMode = true;
+        _cr1 = (ushort)(_status << 8);
+        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+        _cr4 = (ushort)FirstTrackFad;
     }
 
     private void GetAuthenticationStatus()
@@ -879,7 +885,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _statusMode = true;
-        _cr1 = (ushort)(_status << 8);
+        _cr1 = 0;
         _cr2 = _authDiscType;
         _cr3 = 0;
         _cr4 = 0;

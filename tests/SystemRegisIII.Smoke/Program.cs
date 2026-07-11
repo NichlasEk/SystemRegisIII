@@ -458,12 +458,21 @@ static void VerifySaturnSystemMap()
         Require(startupIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block startup periodic pause report failed.");
         Require((startupIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) != 0, "CD Block startup periodic SCDQ did not recur.");
 
+        isoMap.Bus.WriteWord(0x2589_0018, 0xE000);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoCdRegisters.LastCommandCode == 0xE0, "CD Block authenticate command latch failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block authenticate status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block authenticate track status failed.");
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0604) == 0x0604, "CD Block authenticate completion HIRQ failed.");
+
         isoMap.Bus.WriteWord(0x2589_0018, 0xE100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(isoCdRegisters.LastCommandCode == 0xE1, "CD Block get-auth command latch failed.");
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block get-auth status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block get-auth status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0004, "CD Block get-auth Saturn type failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-auth reserved word 1 failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block get-auth reserved word 2 failed.");
