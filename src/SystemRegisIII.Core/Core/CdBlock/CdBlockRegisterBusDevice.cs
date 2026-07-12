@@ -414,6 +414,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x06:
                 EndDataTransfer();
                 break;
+            case 0x10:
+                PlayDisc();
+                break;
             case 0x30:
                 SetCdDeviceConnection();
                 break;
@@ -642,7 +645,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void PublishPostSessionStatus()
     {
-        _cr1 = (ushort)((byte)CdBlockDriveStatus.Pause << 8);
+        _cr1 = 0x2400;
+        _cr2 = 0x4101;
+        _cr3 = 0x0100;
+        _cr4 = (ushort)(FirstTrackFad + 0x10);
+    }
+
+    private void PlayDisc()
+    {
+        _statusMode = true;
+        _cr1 = 0x0000;
         _cr2 = 0x4101;
         _cr3 = 0x0100;
         _cr4 = (ushort)(FirstTrackFad + 0x10);
