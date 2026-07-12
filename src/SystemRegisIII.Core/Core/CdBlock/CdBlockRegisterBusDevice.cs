@@ -71,6 +71,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _postAuthStatusInstructionsRemaining;
     private int _postSessionStatusInstructionsRemaining;
     private int _playEndInstructionsRemaining;
+    private int _postSectorTransferStatusInstructionsRemaining;
+    private int _fileSystemScopeStatusInstructionsRemaining;
+    private int _readFileStatusInstructionsRemaining;
+    private uint _readFileEndFad;
+    private bool _rootDirectoryLoadPending;
+    private byte _dataTransferCommandCode;
     private bool _startupPeriodicActive;
     private int _startupInstructionCount;
     private int _startupNextPeriodicInstructionCount;
@@ -78,6 +84,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _cr2 = 0x4442;
     private ushort _cr3 = 0x4C4F;
     private ushort _cr4 = 0x434B;
+    private uint _currentFad = FirstTrackFad;
 
     public CdBlockRegisterBusDevice(
         IDiscImage? discImage = null,
@@ -267,6 +274,39 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
 
+        if (_postSectorTransferStatusInstructionsRemaining > 0)
+        {
+            _postSectorTransferStatusInstructionsRemaining -= instructionCount;
+            if (_postSectorTransferStatusInstructionsRemaining <= 0)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            }
+        }
+
+        if (_fileSystemScopeStatusInstructionsRemaining > 0)
+        {
+            _fileSystemScopeStatusInstructionsRemaining -= instructionCount;
+            if (_fileSystemScopeStatusInstructionsRemaining <= 0)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+                _hirq |= HirqEndFileSystem;
+            }
+        }
+
+        if (_readFileStatusInstructionsRemaining > 0)
+        {
+            _readFileStatusInstructionsRemaining -= instructionCount;
+            if (_readFileStatusInstructionsRemaining <= 0)
+            {
+                _cr1 = 0x2180;
+                _cr2 = 0x4101;
+                _cr3 = (ushort)(0x0100 | (_readFileEndFad >> 16));
+                _cr4 = (ushort)_readFileEndFad;
+                _currentFad = _readFileEndFad;
+                _hirq |= HirqEndFileSystem;
+            }
+        }
+
         if (!_startupPeriodicActive)
         {
             return;
@@ -392,7 +432,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             && LastCommandCode == 0x01;
         var commandCompletionHirqByteReads = delayStartupHardwareInfo
             ? 16
-            : LastCommandCode is 0x03 or 0x30 ? 16 : 0;
+            : LastCommandCode is 0x03 or 0x30 or 0x72 or 0x74 ? 16 : 0;
         if (!_hasExecutedCommand && _discImage is not null)
         {
             _hirq |= 0x0BE0;
@@ -525,7 +565,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqEndHostIo;
         }
-        else if (_discImage is not null && LastCommandCode is 0x70 or 0x71 or 0x74)
+        else if (_discImage is not null && LastCommandCode is 0x70 or 0x71)
         {
             _hirq |= HirqEndFileSystem;
         }
@@ -664,6 +704,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = 0x4101;
         _cr3 = 0x0100;
         _cr4 = (ushort)(FirstTrackFad + 0x10);
+        _currentFad = FirstTrackFad + 0x10;
     }
 
     private void PlayDisc()
@@ -721,6 +762,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
             _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
             _cr4 = (ushort)(FirstTrackFad + 0x10);
+            _currentFad = FirstTrackFad + 0x10;
             return;
         }
 
@@ -844,6 +886,17 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         EnsureFileInfosLoaded();
+        if (LastCommandCr3 == 0x00FF && LastCommandCr4 == 0xFFFF)
+        {
+            _rootDirectoryLoadPending = true;
+            _statusMode = true;
+            _cr1 = 0x0180;
+            _cr2 = 0x4101;
+            _cr3 = 0x0100;
+            _cr4 = (ushort)(FirstTrackFad + 0x10);
+            return;
+        }
+
         WriteFileSystemPositionResponse();
     }
 
@@ -875,10 +928,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _statusMode = true;
-        _cr1 = (ushort)((_status << 8) | CdRomStatusBit);
+        _cr1 = 0x0300;
         _cr2 = (ushort)Math.Min(_fileInfos.Count, ushort.MaxValue);
         _cr3 = 0x0100;
         _cr4 = 0x0002;
+        if (_rootDirectoryLoadPending)
+        {
+            _rootDirectoryLoadPending = false;
+            _fileSystemScopeStatusInstructionsRemaining = 2_000;
+        }
     }
 
     private void GetFileInfo()
@@ -931,13 +989,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var totalSectors = (fileInfo.SizeBytes + 2047) >> 11;
         var sectorCount = sectorOffset >= totalSectors ? 0 : totalSectors - sectorOffset;
         _partitionFads[partition] = fileInfo.Fad + sectorOffset;
-        _partitionSectorCounts[partition] = sectorCount;
-        WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+        _partitionSectorCounts[partition] = Math.Min(sectorCount, 200);
+        _readFileEndFad = _partitionFads[partition] + _partitionSectorCounts[partition];
+        _readFileStatusInstructionsRemaining = 2_000;
+        _statusMode = true;
+        _cr1 = 0x0080;
+        _cr2 = 0x4101;
+        _cr3 = 0x0100;
+        _cr4 = (ushort)(FirstTrackFad + 0x19);
     }
 
     private void EndDataTransfer()
     {
         _statusMode = true;
+        var transferCommandCode = _dataTransferCommandCode;
         var transferredWords = _dataTransferActive ? _dataTransferWordsRead : (ushort)0;
         _dataTransferActive = false;
         _endHostIoCompleted = transferredWords > 0;
@@ -945,10 +1010,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWordsRead = 0;
         _dataTransferWords = [];
         _dataTransferLowByteLatched = false;
+        _dataTransferCommandCode = 0;
         _cr1 = (ushort)((_status << 8) | ((transferredWords >> 16) & 0xFF));
         _cr2 = transferredWords;
         _cr3 = 0;
         _cr4 = 0;
+        if (transferCommandCode == 0x63 && transferredWords > 0)
+        {
+            _postSectorTransferStatusInstructionsRemaining = 2_000;
+        }
     }
 
     private void AbortFile()
@@ -975,8 +1045,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _statusMode = true;
         _cr1 = 0;
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
-        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
-        _cr4 = (ushort)FirstTrackFad;
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+        _cr4 = (ushort)_currentFad;
     }
 
     private void GetCopyError()
@@ -1066,6 +1136,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWordCount = (ushort)Math.Min(words.Length, ushort.MaxValue);
         _dataTransferWordsRead = 0;
         _dataTransferLowByteLatched = false;
+        _dataTransferCommandCode = LastCommandCode;
         _cr1 = (ushort)(CdStatusDataTransferRequest << 8);
         _cr2 = _dataTransferWordCount;
         _cr3 = 0;

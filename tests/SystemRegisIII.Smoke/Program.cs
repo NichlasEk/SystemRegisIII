@@ -495,6 +495,24 @@ static void VerifySaturnSystemMap()
             $"CD Block played-sector transfer length failed: 0x{pauseCdRegisters.DataTransferWordCount:X4}.");
         Require(pauseDiscMap.Bus.ReadLong(0x2589_8000) == 0x0001_0203, "CD Block long data-port read failed.");
         Require(pauseCdRegisters.DataTransferWordsRead == 2, "CD Block long data-port word consumption failed.");
+        while (pauseCdRegisters.DataTransferWordsRead < pauseCdRegisters.DataTransferWordCount)
+        {
+            pauseDiscMap.Bus.ReadLong(0x2589_8000);
+        }
+
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x0600);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block played-sector end-transfer status failed.");
+        var playedSectorTransferCount = pauseDiscMap.Bus.ReadWord(0x2589_001C);
+        Require(
+            playedSectorTransferCount == 0x0800,
+            $"CD Block played-sector end-transfer count failed: 0x{playedSectorTransferCount:X4}.");
+        pauseCdRegisters.AdvanceMasterInstructions(1_999);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block post-transfer status changed too early.");
+        pauseCdRegisters.AdvanceMasterInstructions(1);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block post-transfer periodic pause status failed.");
     }
     finally
     {
@@ -586,10 +604,33 @@ static void VerifySaturnSystemMap()
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(isoCdRegisters.LastCommandCode == 0x72, "CD Block filesystem-scope command latch failed.");
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0280, "CD Block filesystem-scope status failed.");
+        for (var commandPoll = 0; commandPoll < 7; commandPoll++)
+        {
+            Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0001) == 0, "CD Block filesystem-scope CMOK completed too early.");
+        }
+
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0001) != 0, "CD Block filesystem-scope CMOK completion failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block filesystem-scope status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0001, "CD Block filesystem-scope file count failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block filesystem-scope directory scope failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0002, "CD Block filesystem-scope file offset failed.");
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7000);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x00FF);
+        isoMap.Bus.WriteWord(0x2589_0024, 0xFFFF);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block root change-directory status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block root change-directory track status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block root change-directory track index failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block root change-directory FAD failed.");
+        isoMap.Bus.WriteWord(0x2589_0018, 0x7200);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block root filesystem-scope wait status failed.");
+        isoCdRegisters.AdvanceMasterInstructions(1_999);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block root filesystem status changed too early.");
+        isoCdRegisters.AdvanceMasterInstructions(1);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block root filesystem periodic status failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0x7300);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
@@ -606,12 +647,28 @@ static void VerifySaturnSystemMap()
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CD Block file-info unit/gap failed.");
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CD Block file-info number/attribute failed.");
 
+        isoMap.Bus.WriteWord(0x2589_0008, 0xFDFE);
         isoMap.Bus.WriteWord(0x2589_0018, 0x7400);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0002);
         Require(isoCdRegisters.LastCommandCode == 0x74, "CD Block read-file command latch failed.");
-        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0201, "CD Block read-file EFLS HIRQ failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block read-file status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block read-file track status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block read-file track index failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x00AF, "CD Block read-file FAD failed.");
+        for (var commandPoll = 0; commandPoll < 7; commandPoll++)
+        {
+            Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0001) == 0, "CD Block read-file CMOK completed too early.");
+        }
+
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0201) == 0x0001, "CD Block read-file CMOK/early EFLS HIRQ failed.");
+        isoCdRegisters.AdvanceMasterInstructions(1_999);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block read-file status changed too early.");
+        isoCdRegisters.AdvanceMasterInstructions(1);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block read-file periodic completion status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x00B5, "CD Block read-file completion FAD failed.");
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0200) != 0, "CD Block read-file deferred EFLS HIRQ failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0x6100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
