@@ -330,6 +330,7 @@ static void VerifySaturnSystemMap()
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0000);
         Require(mountedCdRegisters.LastCommandCode == 0x06, "CD Block end-transfer command latch failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0200, "CD Block end-transfer status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x00CC, "CD Block end-transfer count failed.");
         Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0081) == 0x0081, "CD Block end-transfer EHST HIRQ failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x0300);
@@ -395,6 +396,15 @@ static void VerifySaturnSystemMap()
         }
 
         Require(discMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CD Block get-sector FIFO exhausted failed.");
+        discMap.Bus.WriteWord(0x2589_0018, 0x6300);
+        discMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        discMap.Bus.WriteWord(0x2589_0024, 0x0001);
+        Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4180, "CD Block get-and-delete-sector DTREQ status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block get-and-delete-sector track status failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block get-and-delete-sector track index failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block get-and-delete-sector FAD failed.");
+        Require(mountedCdRegisters.DataTransferWordCount == 0x0400, "CD Block get-and-delete-sector transfer length failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x7500);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -474,6 +484,17 @@ static void VerifySaturnSystemMap()
         Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block get-sector-number offset failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-sector-number partition failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x0010, "CD Block get-sector-number count failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x6300);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0010);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x4180, "CD Block played-sector DTREQ status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block played-sector FAD failed.");
+        Require(
+            pauseCdRegisters.DataTransferWordCount == 0x0800,
+            $"CD Block played-sector transfer length failed: 0x{pauseCdRegisters.DataTransferWordCount:X4}.");
+        Require(pauseDiscMap.Bus.ReadLong(0x2589_8000) == 0x0001_0203, "CD Block long data-port read failed.");
+        Require(pauseCdRegisters.DataTransferWordsRead == 2, "CD Block long data-port word consumption failed.");
     }
     finally
     {

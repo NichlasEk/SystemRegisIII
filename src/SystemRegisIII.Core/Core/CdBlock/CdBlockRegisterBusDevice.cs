@@ -224,7 +224,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         RecordOffset(_readOffsets, offset);
 
         var wordOffset = NormalizeRegisterOffset(offset & ~1u);
-        if (wordOffset == DataTransferOffset)
+        if (wordOffset is DataTransferOffset or DataTransferOffset + 2)
         {
             return ReadDataTransferByte((offset & 1) != 0);
         }
@@ -671,6 +671,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _statusMode = true;
         var sectorCount = Math.Max(1, LastCommandCr4 & 0x00FF);
         _playEndInstructionsRemaining = checked(sectorCount * PlaySectorInstructionCount);
+        _partitionFads[0] = FirstTrackFad;
+        _partitionSectorCounts[0] = (uint)sectorCount;
         _cr1 = 0x0000;
         _cr2 = 0x4101;
         _cr3 = 0x0100;
@@ -819,6 +821,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         sectorCount = Math.Min(sectorCount, partitionSectorCount - sectorOffset);
         StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
+        if (LastCommandCode == 0x63)
+        {
+            _cr1 = 0x4180;
+            _cr2 = 0x4101;
+            _cr3 = 0x0100;
+            _cr4 = (ushort)(FirstTrackFad + 0x10);
+        }
     }
 
     private void DeleteSectorData()
@@ -936,8 +945,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWordsRead = 0;
         _dataTransferWords = [];
         _dataTransferLowByteLatched = false;
-        _cr1 = (ushort)(((_discImage is null ? _status : (byte)(_status | CdStatusPeriodic)) << 8)
-            | ((transferredWords >> 16) & 0xFF));
+        _cr1 = (ushort)((_status << 8) | ((transferredWords >> 16) & 0xFF));
         _cr2 = transferredWords;
         _cr3 = 0;
         _cr4 = 0;
