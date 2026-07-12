@@ -460,6 +460,20 @@ static void VerifySaturnSystemMap()
         Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block play-disc track status failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block play-disc track index failed.");
         Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block play-disc FAD failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0008, 0xFFEE);
+        pauseCdRegisters.AdvanceMasterInstructions(15_999);
+        Require((pauseDiscMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block play-end completed too early.");
+        pauseCdRegisters.AdvanceMasterInstructions(1);
+        Require((pauseDiscMap.Bus.ReadWord(0x2589_0008) & 0x0010) != 0, "CD Block play-end HIRQ failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x2100, "CD Block play-end periodic pause status failed.");
+        pauseDiscMap.Bus.WriteWord(0x2589_0018, 0x5100);
+        pauseDiscMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        pauseDiscMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block get-sector-number status failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block get-sector-number offset failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-sector-number partition failed.");
+        Require(pauseDiscMap.Bus.ReadWord(0x2589_0024) == 0x0010, "CD Block get-sector-number count failed.");
     }
     finally
     {

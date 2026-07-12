@@ -15,6 +15,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const ushort HirqCmok = 0x0001;
     private const ushort HirqDataReady = 0x0002;
     private const ushort HirqSectorStored = 0x0004;
+    private const ushort HirqPlayEnd = 0x0010;
     private const ushort HirqSubcodeReady = 0x0400;
     private const ushort HirqEndSelector = 0x0040;
     private const ushort HirqEndHostIo = 0x0080;
@@ -31,6 +32,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int InitializeTransitionPollCount = 8;
     private const int StartupFirstPeriodicInstructionCount = 50_000;
     private const int StartupPeriodicInstructionCount = 200_000;
+    private const int PlaySectorInstructionCount = 1_000;
     private const int StartupPauseInstructionCount = 8_600_000;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
@@ -68,6 +70,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _commandCompletionHirqBits;
     private int _postAuthStatusInstructionsRemaining;
     private int _postSessionStatusInstructionsRemaining;
+    private int _playEndInstructionsRemaining;
     private bool _startupPeriodicActive;
     private int _startupInstructionCount;
     private int _startupNextPeriodicInstructionCount;
@@ -255,6 +258,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
 
+        if (_playEndInstructionsRemaining > 0)
+        {
+            _playEndInstructionsRemaining -= instructionCount;
+            if (_playEndInstructionsRemaining <= 0)
+            {
+                PublishPlayEndStatus();
+            }
+        }
+
         if (!_startupPeriodicActive)
         {
             return;
@@ -425,6 +437,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
             case 0x48:
                 ResetSelector();
+                break;
+            case 0x51:
+                GetSectorNumber();
                 break;
             case 0x60:
                 SetSectorLength();
@@ -654,10 +669,22 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void PlayDisc()
     {
         _statusMode = true;
+        var sectorCount = Math.Max(1, LastCommandCr4 & 0x00FF);
+        _playEndInstructionsRemaining = checked(sectorCount * PlaySectorInstructionCount);
         _cr1 = 0x0000;
         _cr2 = 0x4101;
         _cr3 = 0x0100;
         _cr4 = (ushort)(FirstTrackFad + 0x10);
+    }
+
+    private void PublishPlayEndStatus()
+    {
+        _status = (byte)CdBlockDriveStatus.Pause;
+        _cr1 = 0x2100;
+        _cr2 = 0x4101;
+        _cr3 = 0x0100;
+        _cr4 = (ushort)(FirstTrackFad + 0x10);
+        _hirq |= HirqPlayEnd;
     }
 
     private void SetFilterRange()
@@ -752,6 +779,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void GetSectorNumber()
+    {
+        _cr1 = 0x0100;
+        _cr2 = 0x0000;
+        _cr3 = 0x0000;
+        _cr4 = 0x0010;
     }
 
     private void GetSectorData()
