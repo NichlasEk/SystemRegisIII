@@ -184,6 +184,11 @@ static int RunBios(string[] args)
         0x0600_0A04,
         0x0600_0A07,
         () => GetWatchContext(master));
+    var masterBiosResponseStackWatch = new WatchedBus(
+        masterVblankCallbackWatch,
+        0x0600_1EBC,
+        0x0600_1EDF,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -191,7 +196,7 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterVblankCallbackWatch, trace) : masterVblankCallbackWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterBiosResponseStackWatch, trace) : masterBiosResponseStackWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
@@ -606,6 +611,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
         PrintWatchWindow("Master VBlank callback-slot watch", masterVblankCallbackWatch);
+        PrintWatchWindow("Master BIOS response-stack watch", masterBiosResponseStackWatch);
         if (slaveFlagWatch is not null)
         {
             PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -624,6 +630,7 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
         PrintWatchSummary("Master VBlank callback-slot watch", masterVblankCallbackWatch);
+        PrintWatchSummary("Master BIOS response-stack watch", masterBiosResponseStackWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);

@@ -643,9 +643,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void PublishPostSessionStatus()
     {
         _cr1 = (ushort)((byte)CdBlockDriveStatus.Pause << 8);
-        _cr2 = (ushort)(FirstTrackFad + 0x10);
+        _cr2 = 0x4101;
         _cr3 = 0x0100;
-        _cr4 = 0;
+        _cr4 = (ushort)(FirstTrackFad + 0x10);
     }
 
     private void SetFilterRange()
