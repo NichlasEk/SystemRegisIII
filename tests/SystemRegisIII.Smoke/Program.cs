@@ -793,6 +793,11 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block late post-abort periodic pause status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x017D, "CD Block late post-abort FAD failed.");
 
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFFBF);
+        IssueCdCommand(largeIsoMap.Bus, 0x4401, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block set-filter-mode status failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0040) != 0, "CD Block set-filter-mode ESEL HIRQ failed.");
+
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
         {

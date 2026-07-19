@@ -526,6 +526,11 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x40:
                 SetFilterRange();
                 break;
+            case 0x42:
+            case 0x44:
+            case 0x46:
+                SetFilterControl();
+                break;
             case 0x48:
                 ResetSelector();
                 break;
@@ -600,7 +605,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqEndHostIo;
         }
-        else if (_discImage is not null && LastCommandCode == 0x40)
+        else if (_discImage is not null && LastCommandCode is 0x40 or 0x42 or 0x44 or 0x46)
         {
             _hirq |= HirqEndSelector;
         }
@@ -794,6 +799,22 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _partitionFads[partition] = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
         _partitionSectorCounts[partition] = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+    }
+
+    private void SetFilterControl()
+    {
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        // Subheader conditions, mode, and connector commands all complete
+        // with the ordinary drive report.  The current bringup data path owns
+        // partition routing directly, but BIOS still depends on this response
+        // shape and the ESEL completion raised by ExecuteCommand.
+        WriteStatusResponse(_status);
     }
 
     private void InitializeCdBlock()
