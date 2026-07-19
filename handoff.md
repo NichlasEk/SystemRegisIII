@@ -125,12 +125,19 @@ The next CDB boundary has also moved. Commands `52`/`53` now calculate and
 return the actual host-transfer size, with delayed ESEL and partition-aware
 sector accounting. For NiGHTS's one 2048-byte sector, `53` reports 1,024 words
 and `61` exposes exactly those words while returning the reference Seek/DTREQ
-position. Long Play completion remains in Seek; the earlier short bootstrap
-still completes in periodic Pause. A clean 126M automatic run advances through
-`52,53,61,06,62`, leaves the host transfer inactive, has no bus fault or
-unimplemented opcode, and ends at master/slave PCs `0606B35A`/`06005F9E`.
-Continue after Delete Sector Data command `62`, not at the resolved `52` or
-WRAM/cache boundaries.
+position. Post-delete drive phases now follow the reference Seek-to-Busy-to-
+Pause ordering, and command `50` reports the real 200-buffer geometry.
+
+The first continuation exposed missing SH-2 `CMP/STR` (`264C`), which is now
+implemented and smoke-tested. Late short Play requests also remain active until
+their partition is drained, advance FAD per deleted sector, and enter Busy at
+the final-sector boundary instead of completing on the old fixed timer. A clean
+128M run has no bus fault or unimplemented opcode, completes six
+`52,53,61,06,62` cycles, and ends at valid master/slave PCs
+`0606F252`/`06005FA2`. The current live tail repeatedly polls command `00` with
+`0080,4101,0100,00AF`; continue with the final Busy-to-Pause/event timing that
+should release `48,44,42,46`, not the resolved `52`, `62`, `CMP/STR`, or cache
+boundaries.
 
 ## Verification
 
@@ -150,7 +157,7 @@ dotnet run -c Release --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj
   --dual-sh2 \
   --simulate-scsp-command-ack \
   --vblank-interval 100000 \
-  --instructions 126000000 \
+  --instructions 128000000 \
   --summary-only
 ```
 

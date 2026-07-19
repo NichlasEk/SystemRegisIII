@@ -736,6 +736,19 @@ public sealed class Sh2Cpu : ISh2Cpu
                     Trace($"0x{pc:X8}: OR R{source},R{destination}");
                     return;
                 }
+            case 0x200C:
+                {
+                    var destination = (opcode >> 8) & 0xF;
+                    var source = (opcode >> 4) & 0xF;
+                    var difference = Registers.General[destination] ^ Registers.General[source];
+                    Registers.T = (difference & 0x0000_00FF) == 0
+                        || (difference & 0x0000_FF00) == 0
+                        || (difference & 0x00FF_0000) == 0
+                        || (difference & 0xFF00_0000) == 0;
+                    Trace(
+                        $"0x{pc:X8}: CMP/STR R{source}=0x{Registers.General[source]:X8},R{destination}=0x{Registers.General[destination]:X8} T={Registers.T}");
+                    return;
+                }
             case 0x200D:
                 {
                     var destination = (opcode >> 8) & 0xF;

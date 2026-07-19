@@ -811,7 +811,7 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block late play seek transition FAD failed.");
         Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block late play seek raised premature PEND.");
         largeIsoCd.AdvanceMasterInstructions(2_900_000);
-        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) != 0, "CD Block late play PEND failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block late play raised PEND before sector deletion.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0480, "CD Block late play final seek status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block late play final seek FAD failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
@@ -842,6 +842,78 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block seek-sector index failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block seek-sector FAD failed.");
         Require(largeIsoCd.DataTransferWordCount == 0x0400, "CD Block seek-sector transfer length failed.");
+        for (var word = 0; word < 0x0400; word++)
+        {
+            largeIsoMap.Bus.ReadWord(0x2589_8000);
+        }
+
+        IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block seek-sector end-transfer status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block seek-sector end-transfer count failed.");
+
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFBEF);
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0480, "CD Block delete-sector seek status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block delete-sector count failed.");
+        for (var seekPoll = 0; seekPoll < 12; seekPoll++)
+        {
+            IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+            var seekStatus = largeIsoMap.Bus.ReadWord(0x2589_0018);
+            Require(seekStatus == 0x0480, $"CD Block post-delete seek duration failed at poll {seekPoll}: 0x{seekStatus:X4}.");
+        }
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) != 0, "CD Block post-delete SCDQ transition failed.");
+        for (var busyPoll = 0; busyPoll < 188; busyPoll++)
+        {
+            IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block post-delete busy duration failed.");
+            Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block post-delete PEND completed too early.");
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block final post-delete busy status failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) != 0, "CD Block post-delete PEND transition failed.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x5000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block buffer-size pause status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x00C8, "CD Block buffer-size free count failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x1800, "CD Block buffer-size partition count failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00C8, "CD Block buffer-size total count failed.");
+
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFBEF);
+        IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00AA, 0x0080, 0x0005);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play initial busy status failed.");
+        largeIsoCd.AdvanceMasterInstructions(5_000);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block drained play raised premature PEND.");
+        for (var sector = 0; sector < 4; sector++)
+        {
+            IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+            Require(
+                largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380,
+                $"CD Block drained play sector {sector} status failed.");
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block drained play final-sector play status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block drained play final-sector count failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380, "CD Block drained play final play report failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block drained play final-sector busy status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play final deletion status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00AF, "CD Block drained play final FAD failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play pre-reset status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block drained play final sector count failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play pre-selector status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x4800, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play reset-selector status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play final busy report failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0410) == 0x0410, "CD Block drained play pause event failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x4401, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block drained play post-pause filter status failed.");
 
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
@@ -1570,6 +1642,18 @@ static void VerifySh2BiosBringupInstructions()
     cpu.Registers.General[2] = 0xFFFF_FFFE;
     cpu.StepInstruction();
     Require(cpu.Registers.T, "SH-2 CMP/GE Rm,Rn failed signed comparison.");
+
+    WriteWord(code, 0x08, 0x212C);
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x1122_3344;
+    cpu.Registers.General[2] = 0xAA22_BBCC;
+    cpu.StepInstruction();
+    Require(cpu.Registers.T, "SH-2 CMP/STR Rm,Rn failed matching-byte comparison.");
+    cpu.Reset();
+    cpu.Registers.General[1] = 0x1122_3344;
+    cpu.Registers.General[2] = 0xAABB_CCDD;
+    cpu.StepInstruction();
+    Require(!cpu.Registers.T, "SH-2 CMP/STR Rm,Rn failed nonmatching-byte comparison.");
 
     WriteWord(code, 0x08, 0x312E);
     cpu.Reset();
