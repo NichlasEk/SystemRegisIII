@@ -812,10 +812,36 @@ static void VerifySaturnSystemMap()
         Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block late play seek raised premature PEND.");
         largeIsoCd.AdvanceMasterInstructions(2_900_000);
         Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) != 0, "CD Block late play PEND failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2100, "CD Block late play periodic pause status failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block late play pause FAD failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0480, "CD Block late play final seek status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block late play final seek FAD failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block late play sector-count seek status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block late play completed sector was not published.");
+
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFFBF);
+        IssueCdCommand(largeIsoMap.Bus, 0x5200, 0x0000, 0x0000, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0480, "CD Block calculate-actual-size status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block calculate-actual-size track failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block calculate-actual-size index failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block calculate-actual-size FAD failed.");
+        for (var commandPoll = 0; commandPoll < 7; commandPoll++)
+        {
+            Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0040) == 0, "CD Block actual-size ESEL completed too early.");
+        }
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0040) != 0, "CD Block actual-size ESEL completion failed.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x5300, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block get-actual-size status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x0400, "CD Block get-actual-size word count failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0000, "CD Block get-actual-size CR3 failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block get-actual-size CR4 failed.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x4480, "CD Block seek-sector DTREQ status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block seek-sector track failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block seek-sector index failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block seek-sector FAD failed.");
+        Require(largeIsoCd.DataTransferWordCount == 0x0400, "CD Block seek-sector transfer length failed.");
 
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)

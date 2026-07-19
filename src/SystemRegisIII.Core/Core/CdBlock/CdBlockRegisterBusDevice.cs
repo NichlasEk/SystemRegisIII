@@ -55,6 +55,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly Queue<byte> _recentCommands = new();
     private byte _getSectorLength;
     private byte _putSectorLength;
+    private uint _calculatedActualSize;
     private IReadOnlyList<CdFileInfo> _fileInfos = [];
     private bool _fileInfosValid;
 
@@ -82,6 +83,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _playEndInstructionsRemaining;
     private int _playSeekStatusInstructionsRemaining;
     private bool _playSeekActive;
+    private bool _playLongSeek;
     private uint _playEndFad;
     private uint _playPendingSectorCount;
     private int _postSectorTransferStatusInstructionsRemaining;
@@ -552,6 +554,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             case 0x51:
                 GetSectorNumber();
                 break;
+            case 0x52:
+                CalculateActualSize();
+                break;
+            case 0x53:
+                GetActualSize();
+                break;
             case 0x60:
                 SetSectorLength();
                 break;
@@ -801,6 +809,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             : Math.Max(1, LastCommandCr4 & 0x00FF);
         var seekDistance = previousFad > startFad ? previousFad - startFad : startFad - previousFad;
         var longSeek = seekDistance > 0x20;
+        _playLongSeek = longSeek;
         _playEndInstructionsRemaining = longSeek
             ? LongPlaySeekEndInstructionCount
             : checked(sectorCount * PlaySectorInstructionCount);
@@ -838,8 +847,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _partitionSectorCounts[0] = _playPendingSectorCount;
             _playPendingSectorCount = 0;
         }
-        _status = (byte)CdBlockDriveStatus.Pause;
-        _cr1 = 0x2100;
+        _status = (byte)(_playLongSeek ? CdBlockDriveStatus.Seek : CdBlockDriveStatus.Pause);
+        _cr1 = _playLongSeek ? (ushort)0x0480 : (ushort)0x2100;
         _cr2 = 0x4101;
         _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
         _cr4 = (ushort)_currentFad;
@@ -885,6 +894,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferLowByteLatched = false;
         _getSectorLength = 0;
         _putSectorLength = 0;
+        _calculatedActualSize = 0;
         if (_discImage is not null)
         {
             var preserveFilePosition = _currentFad > FirstTrackFad + 0x10;
@@ -987,10 +997,64 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void GetSectorNumber()
     {
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | (byte)CdBlockDriveStatus.Wait));
+            return;
+        }
+
         _cr1 = (ushort)(_status << 8);
         _cr2 = 0x0000;
         _cr3 = 0x0000;
-        _cr4 = (ushort)Math.Min(_partitionSectorCounts[0], ushort.MaxValue);
+        _cr4 = (ushort)Math.Min(_partitionSectorCounts[partition], ushort.MaxValue);
+    }
+
+    private void CalculateActualSize()
+    {
+        var partition = LastCommandCr3 >> 8;
+        if (partition >= PartitionCount)
+        {
+            WriteStatusResponse((byte)(_status | (byte)CdBlockDriveStatus.Wait));
+            return;
+        }
+
+        var partitionSectorCount = _partitionSectorCounts[partition];
+        var sectorOffset = LastCommandCr2 == 0xFFFF
+            ? partitionSectorCount == 0 ? 0 : partitionSectorCount - 1
+            : (uint)LastCommandCr2;
+        var sectorCount = LastCommandCr4 == 0xFFFF
+            ? partitionSectorCount > sectorOffset ? partitionSectorCount - sectorOffset : 0
+            : (uint)LastCommandCr4;
+        if (sectorCount == 0 || sectorOffset >= partitionSectorCount || sectorCount > partitionSectorCount - sectorOffset)
+        {
+            WriteStatusResponse((byte)(_status | (byte)CdBlockDriveStatus.Wait));
+            return;
+        }
+
+        var wordsPerSector = _getSectorLength switch
+        {
+            1 => 1168u,
+            2 => 1170u,
+            3 => 1176u,
+            _ => 1024u,
+        };
+        _calculatedActualSize = checked(sectorCount * wordsPerSector);
+        WriteStatusResponse(_status);
+
+        // Actual-size calculation completes after the command result.  BIOS
+        // polls ESEL before issuing Get Actual Size; one word poll performs
+        // two byte reads through this register device.
+        _commandCompletionHirqReadsRemaining = 16;
+        _commandCompletionHirqBits = HirqEndSelector;
+    }
+
+    private void GetActualSize()
+    {
+        _cr1 = (ushort)(((uint)_status << 8) | (_calculatedActualSize >> 16));
+        _cr2 = (ushort)_calculatedActualSize;
+        _cr3 = 0;
+        _cr4 = 0;
     }
 
     private void GetSectorData()
@@ -1023,7 +1087,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         sectorCount = Math.Min(sectorCount, partitionSectorCount - sectorOffset);
         StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
-        if (LastCommandCode == 0x63)
+        if (LastCommandCode == 0x61 && _status == (byte)CdBlockDriveStatus.Seek)
+        {
+            _cr1 = 0x4480;
+            _cr2 = 0x4101;
+            _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+            _cr4 = (ushort)_currentFad;
+        }
+        else if (LastCommandCode == 0x63)
         {
             DeleteTransferredSectors(partition, sectorOffset, sectorCount);
             _cr1 = 0x4180;

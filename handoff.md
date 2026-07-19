@@ -118,15 +118,19 @@ the first relevant register transition and report its producing instruction.
 
 The later `060508F0` zero-opcode boundary is resolved. Slave BIOS, not the CD
 block, cleared the master executable because the slave role bit was modeled in
-the wrong internal-register byte. SH7095 BCR1 is now initialized at
-`FFFF FFE2` as `03F0`/`83F0`, with its MASTER bit read-only. Cache-control
-address spaces are also CPU-local: `40000000` performs associative purge,
-`60000000` accesses cache tags, and `C0000000` accesses cache data; they no
-longer alias Work RAM High. The cache now uses the documented six-bit
-pseudo-LRU policy. A 126M automatic run has no bus fault or unimplemented
-opcode, reaches master/slave PCs `0606E70A`/`06005F9E`, and advances the CD
-sequence to command `52` with response `2180,4101,0100,00A7`. Continue from
-that command rather than the resolved WRAM/cache boundary.
+the wrong internal-register byte. SH7095 BCR1 and the CPU-local cache-control
+spaces are now modeled at their real addresses, including six-bit pseudo-LRU.
+
+The next CDB boundary has also moved. Commands `52`/`53` now calculate and
+return the actual host-transfer size, with delayed ESEL and partition-aware
+sector accounting. For NiGHTS's one 2048-byte sector, `53` reports 1,024 words
+and `61` exposes exactly those words while returning the reference Seek/DTREQ
+position. Long Play completion remains in Seek; the earlier short bootstrap
+still completes in periodic Pause. A clean 126M automatic run advances through
+`52,53,61,06,62`, leaves the host transfer inactive, has no bus fault or
+unimplemented opcode, and ends at master/slave PCs `0606B35A`/`06005F9E`.
+Continue after Delete Sector Data command `62`, not at the resolved `52` or
+WRAM/cache boundaries.
 
 ## Verification
 
@@ -146,7 +150,7 @@ dotnet run -c Release --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj
   --dual-sh2 \
   --simulate-scsp-command-ack \
   --vblank-interval 100000 \
-  --instructions 125000000 \
+  --instructions 126000000 \
   --summary-only
 ```
 
