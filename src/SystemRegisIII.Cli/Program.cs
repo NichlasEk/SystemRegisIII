@@ -48,6 +48,10 @@ static int RunBios(string[] args)
     var simulateInitialProgramLoad = Has(args, "--simulate-initial-program-load");
     var dualSh2 = Has(args, "--dual-sh2");
     var deferVblankInCriticalWindows = Has(args, "--defer-vblank-in-critical-windows");
+    var probeSuspectStack = Has(args, "--probe-suspect-stack");
+    var probeR0Value = GetOption(args, "--probe-r0") is null
+        ? (uint?)null
+        : GetUIntOption(args, "--probe-r0", 0);
     var summaryOnly = Has(args, "--summary-only");
     var vdp1FramePath = GetOption(args, "--dump-vdp1-frame");
     var vdp1TexturePath = GetOption(args, "--dump-vdp1-texture");
@@ -249,6 +253,9 @@ static int RunBios(string[] args)
     var masterSetupPcHits = new Dictionary<uint, long>();
     var slavePcHits = dualSh2 ? new Dictionary<uint, long>() : null;
     var busFaults = new List<string>();
+    string? suspectStackTransition = null;
+    string? r0Transition = null;
+    var observedMasterStackPointer = master.Registers.General[15];
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
     var interruptProbe = new ScuInterruptProbe();
     var vdp1CommandProbe = new Vdp1CommandProbe();
@@ -421,6 +428,15 @@ static int RunBios(string[] args)
         }
 
         var masterPc = master.Registers.ProgramCounter;
+        if (probeSuspectStack
+            && master.Registers.General[15] != observedMasterStackPointer
+            && IsSuspectStackPointer(master.Registers.General[15]))
+        {
+            suspectStackTransition =
+                $"interrupt/host transition before i={i:N0}: R15 0x{observedMasterStackPointer:X8}->0x{master.Registers.General[15]:X8}; " +
+                FormatSh2DiffState(master);
+            break;
+        }
         if (!postReadFileTraceArmed
             && systemMap.CdBlock.ReadFileCompletionCount > 0
             && masterPc is >= 0x0000_3B60 and <= 0x0000_3C70)
@@ -513,10 +529,36 @@ static int RunBios(string[] args)
             RecordPc(masterSetupPcHits, masterPc);
         }
 
+        var stackPointerBeforeInstruction = master.Registers.General[15];
+        var r0BeforeInstruction = master.Registers.General[0];
+        var instructionBeforeStep = probeSuspectStack || probeR0Value is not null
+            ? addressMap.ReadWord(masterPc)
+            : (ushort)0;
         if (!TryStep(master, trace, busFaults))
         {
             break;
         }
+        if (probeSuspectStack
+            && master.Registers.General[15] != stackPointerBeforeInstruction
+            && IsSuspectStackPointer(master.Registers.General[15]))
+        {
+            suspectStackTransition =
+                $"instruction transition at i={i:N0}: pc=0x{masterPc:X8} opcode=0x{instructionBeforeStep:X4} " +
+                $"R15 0x{stackPointerBeforeInstruction:X8}->0x{master.Registers.General[15]:X8}; " +
+                FormatSh2DiffState(master);
+            break;
+        }
+        if (probeR0Value is not null
+            && master.Registers.General[0] != r0BeforeInstruction
+            && master.Registers.General[0] == probeR0Value.Value)
+        {
+            r0Transition =
+                $"instruction transition at i={i:N0}: pc=0x{masterPc:X8} opcode=0x{instructionBeforeStep:X4} " +
+                $"R0 0x{r0BeforeInstruction:X8}->0x{master.Registers.General[0]:X8}; " +
+                FormatSh2DiffState(master);
+            break;
+        }
+        observedMasterStackPointer = master.Registers.General[15];
         if (capturedPreUnimplementedTrace is null && master.FirstUnimplementedOpcode is not null)
         {
             capturedPreUnimplementedTrace = preUnimplementedTrace.ToArray();
@@ -592,6 +634,14 @@ static int RunBios(string[] args)
     Console.WriteLine($"BIOS bytes: {bios.Bytes.Length:N0}");
     Console.WriteLine($"Master SH-2 PC: 0x{master.Registers.ProgramCounter:X8}");
     Console.WriteLine($"Master SH-2 SR: 0x{master.Registers.StatusRegister:X8}");
+    if (suspectStackTransition is not null)
+    {
+        Console.WriteLine($"Master SH-2 suspect stack provenance: {suspectStackTransition}");
+    }
+    if (r0Transition is not null)
+    {
+        Console.WriteLine($"Master SH-2 R0 provenance: {r0Transition}");
+    }
     if (slave is not null)
     {
         Console.WriteLine($"Slave SH-2 PC: 0x{slave.Registers.ProgramCounter:X8}");
@@ -958,6 +1008,8 @@ static bool IsUnsafeVBlankInjectionPoint(Sh2Cpu cpu)
     return pc is >= 0x0602_E680 and <= 0x0602_EA90
         || pr is 0x0601_15BC or 0x0601_1690;
 }
+
+static bool IsSuspectStackPointer(uint stackPointer) => stackPointer is >= 0x05F0_0000 and < 0x0600_0100;
 
 static void PrintHotProgramCounters(string name, Dictionary<uint, long> hits)
 {
@@ -2139,7 +2191,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--probe-r0 HEX] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--probe-suspect-stack] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

@@ -103,6 +103,19 @@ unmapped `0x05FDFFFC`. The captured state also has `PR=0x060681F2`, so trace the
 provenance of R15/PR immediately before that handler rather than widening the
 SCU mapping. Bus-fault reports now include the full architectural CPU state.
 
+The follow-up provenance probes locate the actual stack drain. At instruction
+122,418,378, game code `MOV.L @(0x38,PC),R0` at `0x060040A6` deliberately loads
+`R0=0x060069CE` from literal `0x06004188`. That function uses `BSRF R1` at
+`0x060069D2` with `R1=0x00061818`, correctly targeting `0x060681EE`; the target
+starts with `JSR @R0` and therefore calls `0x060069CE` again. Each recursive
+entry saves PR and consumes four stack bytes until R15 crosses below Work RAM
+High. Renesas' SH-2 definition and Mednafen both confirm the current BSRF base
+(`instruction address + 4 + Rm`), so do not patch the branch by four bytes.
+Compare the reference contents/execution at `0x06004188`, `0x060069CE`, and
+`0x060681EE`, with cache/coherency or earlier relocation as the remaining
+hypotheses. CLI options `--probe-r0 HEX` and `--probe-suspect-stack` now stop at
+the first relevant register transition and report its producing instruction.
+
 ## Verification
 
 Focused validation:
