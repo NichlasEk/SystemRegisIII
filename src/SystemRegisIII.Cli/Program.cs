@@ -188,8 +188,13 @@ static int RunBios(string[] args)
         0x0606_81C0,
         0x0606_821F,
         () => GetWatchContext(master));
-    var masterMenuStateWatch = new WatchedBus(
+    var masterNightsReturnCodeWatch = new WatchedBus(
         masterNightsCodeWatch,
+        0x0605_08D0,
+        0x0605_094F,
+        () => GetWatchContext(master));
+    var masterMenuStateWatch = new WatchedBus(
+        masterNightsReturnCodeWatch,
         0x060B_3060,
         0x060B_307F,
         () => GetWatchContext(master));
@@ -240,10 +245,17 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
+    WatchedBus? slaveNightsReturnCodeWatch = slaveFlagWatch is null
+        ? null
+        : new WatchedBus(
+            slaveFlagWatch,
+            0x0605_08D0,
+            0x0605_094F,
+            () => GetWatchContext(slave));
     ISaturnBus masterBus = traceEnabled ? new TracingBus(masterNightsWaitWordWatch, trace) : masterNightsWaitWordWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
-        : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
+        : traceEnabled ? new TracingBus(slaveNightsReturnCodeWatch!, trace) : slaveNightsReturnCodeWatch!;
 
     master = new Sh2Cpu("Master SH-2", masterBus, resetVectorAddress: 0x0000_0000, traceSink);
     slave = slaveBus is not null ? new Sh2Cpu("Slave SH-2", slaveBus, resetVectorAddress: 0x0000_0008, traceSink) : null;
@@ -668,9 +680,11 @@ static int RunBios(string[] args)
     PrintInternalActivity("Master SH-2 internal", masterInternalBus);
     PrintDmaTransfers("Master SH-2 DMA", masterInternalBus);
     PrintWatchSummary("Master NiGHTS code watch", masterNightsCodeWatch);
+    PrintWatchSummary("Master NiGHTS return-code watch", masterNightsReturnCodeWatch);
     if (slaveInternalBus is not null)
     {
         PrintInternalActivity("Slave SH-2 internal", slaveInternalBus);
+        PrintWatchSummary("Slave NiGHTS return-code watch", slaveNightsReturnCodeWatch!);
     }
 
     PrintUnimplemented(master);

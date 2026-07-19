@@ -116,6 +116,18 @@ Compare the reference contents/execution at `0x06004188`, `0x060069CE`, and
 hypotheses. CLI options `--probe-r0 HEX` and `--probe-suspect-stack` now stop at
 the first relevant register transition and report its producing instruction.
 
+The later `060508F0` zero-opcode boundary is resolved. Slave BIOS, not the CD
+block, cleared the master executable because the slave role bit was modeled in
+the wrong internal-register byte. SH7095 BCR1 is now initialized at
+`FFFF FFE2` as `03F0`/`83F0`, with its MASTER bit read-only. Cache-control
+address spaces are also CPU-local: `40000000` performs associative purge,
+`60000000` accesses cache tags, and `C0000000` accesses cache data; they no
+longer alias Work RAM High. The cache now uses the documented six-bit
+pseudo-LRU policy. A 126M automatic run has no bus fault or unimplemented
+opcode, reaches master/slave PCs `0606E70A`/`06005F9E`, and advances the CD
+sequence to command `52` with response `2180,4101,0100,00A7`. Continue from
+that command rather than the resolved WRAM/cache boundary.
+
 ## Verification
 
 Focused validation:

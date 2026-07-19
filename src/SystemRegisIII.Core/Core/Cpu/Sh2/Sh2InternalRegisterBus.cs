@@ -9,7 +9,8 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
     private const uint DivisionRegisterStart = 0xFFFF_FF00;
     private const uint DmaRegisterStart = 0xFFFF_FF80;
     private const uint DmaOperationRegister = 0xFFFF_FFB0;
-    private const uint CpuIdRegister = 0xFFFF_FFE0;
+    private const uint BusControlRegister1 = 0xFFFF_FFE2;
+    private const byte BusControlMasterBit = 0x80;
     private const uint CacheControlRegister = 0xFFFF_FE92;
     private const int CacheSetCount = 64;
     private const int CacheWayCount = 4;
@@ -40,7 +41,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
     {
         _externalBus = externalBus;
         Role = role;
-        WriteLocalLong(CpuIdRegister, role == Sh2CpuRole.Slave ? 0x2000_0000u : 0u);
+        WriteLocalWord(BusControlRegister1, role == Sh2CpuRole.Slave ? (ushort)0x83F0 : (ushort)0x03F0);
     }
 
     public Sh2CpuRole Role { get; }
@@ -65,6 +66,16 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
 
     public byte ReadByte(uint address)
     {
+        if (IsDataArray(address))
+        {
+            return ReadDataArrayByte(address);
+        }
+
+        if (IsAddressArray(address) || IsAssociativePurge(address))
+        {
+            return 0;
+        }
+
         if (!IsInternal(address))
         {
             return ReadExternalByte(address, isInstruction: false);
@@ -81,6 +92,16 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
 
     public ushort ReadWord(uint address)
     {
+        if (IsDataArray(address))
+        {
+            return (ushort)((ReadDataArrayByte(address) << 8) | ReadDataArrayByte(address + 1));
+        }
+
+        if (IsAddressArray(address) || IsAssociativePurge(address))
+        {
+            return 0;
+        }
+
         if (!IsInternal(address) && !IsInternal(address + 1))
         {
             if (!ShouldUseCache(address, 2))
@@ -100,6 +121,24 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
 
     public uint ReadLong(uint address)
     {
+        if (IsAddressArray(address))
+        {
+            return ReadAddressArray(address);
+        }
+
+        if (IsDataArray(address))
+        {
+            return ((uint)ReadDataArrayByte(address) << 24)
+                | ((uint)ReadDataArrayByte(address + 1) << 16)
+                | ((uint)ReadDataArrayByte(address + 2) << 8)
+                | ReadDataArrayByte(address + 3);
+        }
+
+        if (IsAssociativePurge(address))
+        {
+            return 0;
+        }
+
         if (!IsInternal(address) && !IsInternal(address + 3))
         {
             if (!ShouldUseCache(address, 4))
@@ -148,6 +187,17 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
 
     public void WriteByte(uint address, byte value)
     {
+        if (IsDataArray(address))
+        {
+            WriteDataArrayByte(address, value);
+            return;
+        }
+
+        if (IsAddressArray(address) || IsAssociativePurge(address))
+        {
+            return;
+        }
+
         if (!IsInternal(address))
         {
             WriteExternalByte(address, value);
@@ -161,11 +211,30 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
             return;
         }
 
+        if (address == BusControlRegister1)
+        {
+            var roleBit = Role == Sh2CpuRole.Slave ? BusControlMasterBit : (byte)0;
+            _registers[address - InternalStart] = (byte)((value & ~BusControlMasterBit) | roleBit);
+            return;
+        }
+
         _registers[address - InternalStart] = value;
     }
 
     public void WriteWord(uint address, ushort value)
     {
+        if (IsDataArray(address))
+        {
+            WriteDataArrayByte(address, (byte)(value >> 8));
+            WriteDataArrayByte(address + 1, (byte)value);
+            return;
+        }
+
+        if (IsAddressArray(address) || IsAssociativePurge(address))
+        {
+            return;
+        }
+
         if (!IsInternal(address) && !IsInternal(address + 1))
         {
             if (!ShouldUseCache(address, 2))
@@ -185,6 +254,27 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
 
     public void WriteLong(uint address, uint value)
     {
+        if (IsAddressArray(address))
+        {
+            WriteAddressArray(address, value);
+            return;
+        }
+
+        if (IsDataArray(address))
+        {
+            WriteDataArrayByte(address, (byte)(value >> 24));
+            WriteDataArrayByte(address + 1, (byte)(value >> 16));
+            WriteDataArrayByte(address + 2, (byte)(value >> 8));
+            WriteDataArrayByte(address + 3, (byte)value);
+            return;
+        }
+
+        if (IsAssociativePurge(address))
+        {
+            PurgeAssociative(address);
+            return;
+        }
+
         if (!IsInternal(address) && !IsInternal(address + 3))
         {
             if (!ShouldUseCache(address, 4))
@@ -366,6 +456,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
             if (way.Valid && way.Tag == tag)
             {
                 CacheHits++;
+                UpdateLru(set, wayIndex);
                 return way.Data[address & (CacheLineSize - 1)];
             }
         }
@@ -380,8 +471,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
         }
 
         var activeWayCount = (_cacheControl & TwoWayMode) != 0 ? 2 : CacheWayCount;
-        var replacementWay = set.NextReplacementWay % activeWayCount;
-        set.NextReplacementWay = (replacementWay + 1) % activeWayCount;
+        var replacementWay = SelectReplacementWay(set, activeWayCount);
         var replacement = set.Ways[replacementWay];
         replacement.Tag = tag;
         replacement.Valid = true;
@@ -391,6 +481,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
             replacement.Data[byteIndex] = _externalBus.ReadByte(lineAddress + (uint)byteIndex);
         }
 
+        UpdateLru(set, replacementWay);
         return replacement.Data[address & (CacheLineSize - 1)];
     }
 
@@ -400,11 +491,13 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
         {
             var set = _cache[(address >> 4) & (CacheSetCount - 1)];
             var tag = address & 0x1FFF_FC00;
-            foreach (var way in set.Ways)
+            for (var wayIndex = 0; wayIndex < set.Ways.Length; wayIndex++)
             {
+                var way = set.Ways[wayIndex];
                 if (way.Valid && way.Tag == tag)
                 {
                     way.Data[address & (CacheLineSize - 1)] = value;
+                    UpdateLru(set, wayIndex);
                     break;
                 }
             }
@@ -419,7 +512,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
         {
             foreach (var set in _cache)
             {
-                set.NextReplacementWay = 0;
+                set.Lru = 0;
                 foreach (var way in set.Ways)
                 {
                     way.Valid = false;
@@ -430,6 +523,84 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
         _cacheControl = (byte)(value & ~CachePurge);
         _registers[CacheControlRegister - InternalStart] = _cacheControl;
     }
+
+    private uint ReadAddressArray(uint address)
+    {
+        var set = _cache[(address >> 4) & (CacheSetCount - 1)];
+        var way = set.Ways[(_cacheControl >> 6) & 3];
+        return way.Tag | ((uint)set.Lru << 4) | (way.Valid ? 4u : 0u);
+    }
+
+    private void WriteAddressArray(uint address, uint value)
+    {
+        var set = _cache[(address >> 4) & (CacheSetCount - 1)];
+        var way = set.Ways[(_cacheControl >> 6) & 3];
+        way.Tag = address & 0x1FFF_FC00;
+        way.Valid = (address & 4) != 0;
+        set.Lru = (byte)((value >> 4) & 0x3F);
+    }
+
+    private void PurgeAssociative(uint address)
+    {
+        var physicalAddress = address - 0x4000_0000;
+        var set = _cache[(physicalAddress >> 4) & (CacheSetCount - 1)];
+        var tag = physicalAddress & 0x1FFF_FC00;
+        foreach (var way in set.Ways)
+        {
+            if (way.Valid && way.Tag == tag)
+            {
+                way.Valid = false;
+            }
+        }
+    }
+
+    private byte ReadDataArrayByte(uint address)
+    {
+        var set = _cache[(address >> 4) & (CacheSetCount - 1)];
+        var way = set.Ways[(address >> 10) & 3];
+        return way.Data[address & (CacheLineSize - 1)];
+    }
+
+    private void WriteDataArrayByte(uint address, byte value)
+    {
+        var set = _cache[(address >> 4) & (CacheSetCount - 1)];
+        var way = set.Ways[(address >> 10) & 3];
+        way.Data[address & (CacheLineSize - 1)] = value;
+    }
+
+    private static int SelectReplacementWay(CacheSet set, int activeWayCount)
+    {
+        if (activeWayCount == 2)
+        {
+            return (set.Lru & 1) == 0 ? 3 : 2;
+        }
+
+        if ((set.Lru & 0x38) == 0x38)
+        {
+            return 0;
+        }
+
+        if ((set.Lru & 0x26) == 0x06)
+        {
+            return 1;
+        }
+
+        if ((set.Lru & 0x15) == 0x01)
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private static void UpdateLru(CacheSet set, int way) => set.Lru = way switch
+    {
+        0 => (byte)(set.Lru & ~0x38),
+        1 => (byte)((set.Lru | 0x20) & ~0x06),
+        2 => (byte)((set.Lru | 0x14) & ~0x01),
+        3 => (byte)(set.Lru | 0x0B),
+        _ => set.Lru,
+    };
 
     private void RunDma(int channelIndex, DmaChannel channel)
     {
@@ -502,17 +673,21 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
         _ => address,
     };
 
-    private void WriteLocalLong(uint address, uint value)
+    private void WriteLocalWord(uint address, ushort value)
     {
-        _registers[address - InternalStart] = (byte)(value >> 24);
-        _registers[address - InternalStart + 1] = (byte)(value >> 16);
-        _registers[address - InternalStart + 2] = (byte)(value >> 8);
-        _registers[address - InternalStart + 3] = (byte)value;
+        _registers[address - InternalStart] = (byte)(value >> 8);
+        _registers[address - InternalStart + 1] = (byte)value;
     }
 
     private static bool IsInternal(uint address) => address is >= InternalStart and <= InternalEnd;
 
     private static bool IsCacheable(uint address) => address < 0x2000_0000;
+
+    private static bool IsAssociativePurge(uint address) => address is >= 0x4000_0000 and <= 0x47FF_FFFF;
+
+    private static bool IsAddressArray(uint address) => address is >= 0x6000_0000 and <= 0x7FFF_FFFF;
+
+    private static bool IsDataArray(uint address) => address is >= 0xC000_0000 and <= 0xC000_0FFF;
 
     private bool ShouldUseCache(uint address, uint size) =>
         (_cacheControl & CacheEnable) != 0
@@ -559,7 +734,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
     private sealed class CacheSet
     {
         public CacheWay[] Ways { get; } = Enumerable.Range(0, CacheWayCount).Select(static _ => new CacheWay()).ToArray();
-        public int NextReplacementWay { get; set; }
+        public byte Lru { get; set; }
     }
 
     private sealed class CacheWay

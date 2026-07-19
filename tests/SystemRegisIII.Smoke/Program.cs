@@ -89,8 +89,7 @@ static void VerifySaturnSystemMap()
     var systemMap = SaturnSystemMap.CreateBringup(bios);
 
     Require(systemMap.Bus.ReadLong(0x0000_0000) == 0x2000_0200, "Bringup BIOS mapping failed.");
-    systemMap.Bus.WriteLong(0x6000_0000, 0xDEAD_BEEF);
-    Require(systemMap.Bus.ReadLong(0x0600_0000) == 0xDEAD_BEEF, "High RAM alias mapping failed.");
+    systemMap.Bus.WriteLong(0x0600_0000, 0xDEAD_BEEF);
     systemMap.Bus.WriteLong(0x0C00_0000, 0xFEED_FACE);
     Require(systemMap.Bus.ReadLong(0x0600_0000) == 0xFEED_FACE, "High RAM 0x0C mirror mapping failed.");
     Require(
@@ -1194,8 +1193,10 @@ static void VerifySh2InternalRegisterBus()
     var masterBus = new Sh2InternalRegisterBus(externalBus, Sh2CpuRole.Master);
     var slaveBus = new Sh2InternalRegisterBus(externalBus, Sh2CpuRole.Slave);
 
-    Require(masterBus.ReadLong(0xFFFF_FFE0) == 0, "Master SH-2 CPU-id register failed.");
-    Require(slaveBus.ReadLong(0xFFFF_FFE0) == 0x2000_0000, "Slave SH-2 CPU-id register failed.");
+    Require(masterBus.ReadWord(0xFFFF_FFE2) == 0x03F0, "Master SH-2 BCR1 identity failed.");
+    Require(slaveBus.ReadWord(0xFFFF_FFE2) == 0x83F0, "Slave SH-2 BCR1 identity failed.");
+    slaveBus.WriteByte(0xFFFF_FFE2, 0);
+    Require(slaveBus.ReadByte(0xFFFF_FFE2) == 0x80, "Slave SH-2 BCR1 MASTER bit was writable.");
 
     masterBus.WriteLong(0x0600_0000, 0x1122_3344);
     Require(slaveBus.ReadLong(0x0600_0000) == 0x1122_3344, "SH-2 internal bus did not share external RAM.");
@@ -1207,6 +1208,16 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteLong(0x0600_0010, 0x1234_5678);
     masterBus.WriteByte(0xFFFF_FE92, 0x01);
     Require(masterBus.ReadInstructionWord(0x0600_0010) == 0x1234, "SH-2 instruction-cache fill failed.");
+    masterBus.WriteByte(0xFFFF_FE92, 0xC1);
+    var addressArrayValue = masterBus.ReadLong(0x6000_0010);
+    Require((addressArrayValue & 0x1FFF_FC04) == 0x0600_0004, "SH-2 cache address-array read failed.");
+    Require(masterBus.ReadWord(0xC000_0C10) == 0x1234, "SH-2 cache data-array read failed.");
+    masterBus.WriteWord(0xC000_0C10, 0xBEEF);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0xBEEF, "SH-2 cache data-array write failed.");
+    masterBus.WriteLong(0x6600_0010, 0);
+    Require((masterBus.ReadLong(0x6000_0010) & 4) == 0, "SH-2 cache address-array write failed.");
+    masterBus.WriteByte(0xFFFF_FE92, 0x01);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0x1234, "SH-2 address-array invalidation failed.");
     slaveBus.WriteWord(0x0600_0010, 0xABCD);
     Require(masterBus.ReadInstructionWord(0x0600_0010) == 0x1234, "SH-2 instruction cache did not preserve a cached line.");
     masterBus.WriteWord(0x0600_0010, 0xBEEF);
@@ -1215,6 +1226,9 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteByte(0xFFFF_FE92, 0x11);
     Require(masterBus.CacheControl == 0x01, "SH-2 cache-purge bit did not self-clear.");
     Require(masterBus.ReadInstructionWord(0x0600_0010) == 0xCAFE, "SH-2 cache purge failed.");
+    slaveBus.WriteWord(0x0600_0010, 0xFACE);
+    masterBus.WriteLong(0x4600_0010, 0);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0xFACE, "SH-2 associative cache purge failed.");
 
     slaveBus.WriteWord(0x0600_0030, 0xE001);
     var cachedCpu = new Sh2Cpu("Cached SH-2", masterBus, 0x0600_0000);

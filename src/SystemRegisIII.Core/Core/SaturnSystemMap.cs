@@ -111,7 +111,6 @@ public sealed class SaturnSystemMap
             .Map(0x05FE_0000, 0x05FF_FFFF, stubs[12])
             .Map(0x0600_0000, 0x060F_FFFF, workRamHighDevice)
             .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
-            .Map(0x6000_0000, 0x600F_FFFF, workRamHighDevice)
             .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[13]);
 
         return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, vdp1Area, vdp2Vram, vdp2Cram, vdp2Registers, cdBlockRegisterMirror, stubs);
