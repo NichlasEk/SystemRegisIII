@@ -775,6 +775,10 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00C8, "CD Block 200-sector count failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x6300, 0x0000, 0x0000, 0x00C8);
         Require(largeIsoCd.DataTransferWordCount == 204_800, "CD Block 200-sector transfer was truncated.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block streamed read-file refill failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6300, 0x0000, 0x0000, 0x00C8);
+        Require(largeIsoCd.DataTransferWordCount == 1_024, "CD Block streamed read-file tail length failed.");
 
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
@@ -1191,6 +1195,8 @@ static void VerifySh2InternalRegisterBus()
     Require(masterBus.ReadLong(0x0600_0024) == 0x5566_7788, "SH-2 DMA channel 1 second transfer failed.");
     Require(masterBus.ReadLong(0xFFFF_FF98) == 0, "SH-2 DMA transfer count did not reach zero.");
     Require((masterBus.ReadLong(0xFFFF_FF9C) & 3) == 3, "SH-2 DMA transfer-end status failed.");
+    Require(masterBus.DmaTransfers.Count == 1, "SH-2 DMA transfer history failed.");
+    Require(masterBus.DmaTransfers[0].DestinationAddress == 0x0600_0020, "SH-2 DMA transfer destination history failed.");
 }
 
 static void VerifySh2InterruptEntry()

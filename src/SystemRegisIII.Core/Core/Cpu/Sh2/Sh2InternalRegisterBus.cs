@@ -22,6 +22,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
     private uint _dividendHighShadow;
     private uint _dividendLowShadow;
     private readonly DmaChannel[] _dmaChannels = [new(), new()];
+    private readonly List<Sh2DmaTransfer> _dmaTransfers = [];
     private uint _dmaOperation;
 
     public Sh2InternalRegisterBus(ISaturnBus externalBus, Sh2CpuRole role)
@@ -34,6 +35,7 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
     public Sh2CpuRole Role { get; }
     public long InternalReadCount { get; private set; }
     public long InternalWriteCount { get; private set; }
+    public IReadOnlyList<Sh2DmaTransfer> DmaTransfers => _dmaTransfers;
 
     public byte ReadByte(uint address)
     {
@@ -269,16 +271,17 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
             return;
         }
 
-        foreach (var channel in _dmaChannels)
+        for (var channelIndex = 0; channelIndex < _dmaChannels.Length; channelIndex++)
         {
+            var channel = _dmaChannels[channelIndex];
             if ((channel.Control & 0x03) == 1)
             {
-                RunDma(channel);
+                RunDma(channelIndex, channel);
             }
         }
     }
 
-    private void RunDma(DmaChannel channel)
+    private void RunDma(int channelIndex, DmaChannel channel)
     {
         var transferSize = (channel.Control >> 10) & 3;
         var sourceMode = (channel.Control >> 12) & 3;
@@ -286,6 +289,17 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
         var count = channel.TransferCount == 0 ? 0x0100_0000u : channel.TransferCount;
         var source = channel.SourceAddress;
         var destination = channel.DestinationAddress;
+
+        _dmaTransfers.Add(new Sh2DmaTransfer(
+            channelIndex,
+            source,
+            destination,
+            count,
+            channel.Control));
+        if (_dmaTransfers.Count > 256)
+        {
+            _dmaTransfers.RemoveAt(0);
+        }
 
         while (count > 0)
         {
@@ -383,3 +397,10 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus
         public uint Control { get; set; }
     }
 }
+
+public readonly record struct Sh2DmaTransfer(
+    int Channel,
+    uint SourceAddress,
+    uint DestinationAddress,
+    uint TransferCount,
+    uint Control);

@@ -183,8 +183,13 @@ static int RunBios(string[] args)
         0x0604_9E00,
         0x0604_A9FF,
         () => GetWatchContext(master));
-    var masterMenuStateWatch = new WatchedBus(
+    var masterNightsCodeWatch = new WatchedBus(
         masterGeometrySourceWatch,
+        0x0606_81C0,
+        0x0606_821F,
+        () => GetWatchContext(master));
+    var masterMenuStateWatch = new WatchedBus(
+        masterNightsCodeWatch,
         0x060B_3060,
         0x060B_307F,
         () => GetWatchContext(master));
@@ -661,6 +666,8 @@ static int RunBios(string[] args)
     PrintMemoryActivity("Work RAM Low", systemMap.WorkRamLow);
     PrintMemoryActivity("Work RAM High", systemMap.WorkRamHigh);
     PrintInternalActivity("Master SH-2 internal", masterInternalBus);
+    PrintDmaTransfers("Master SH-2 DMA", masterInternalBus);
+    PrintWatchSummary("Master NiGHTS code watch", masterNightsCodeWatch);
     if (slaveInternalBus is not null)
     {
         PrintInternalActivity("Slave SH-2 internal", slaveInternalBus);
@@ -1887,6 +1894,22 @@ static void PrintInternalActivity(string label, Sh2InternalRegisterBus bus)
     }
 
     Console.WriteLine($"{label}: reads={bus.InternalReadCount:N0} writes={bus.InternalWriteCount:N0}");
+}
+
+static void PrintDmaTransfers(string label, Sh2InternalRegisterBus bus)
+{
+    if (bus.DmaTransfers.Count == 0)
+    {
+        return;
+    }
+
+    Console.WriteLine($"{label}: completed={bus.DmaTransfers.Count:N0}");
+    foreach (var transfer in bus.DmaTransfers.TakeLast(32))
+    {
+        Console.WriteLine(
+            $"  ch={transfer.Channel} src=0x{transfer.SourceAddress:X8} dst=0x{transfer.DestinationAddress:X8} " +
+            $"count=0x{transfer.TransferCount:X6} chcr=0x{transfer.Control:X8}");
+    }
 }
 
 static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace, List<string> busFaults)

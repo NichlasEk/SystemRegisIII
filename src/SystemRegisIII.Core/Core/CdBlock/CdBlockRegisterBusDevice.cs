@@ -48,6 +48,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly Dictionary<uint, ushort> _writtenWords = [];
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
+    private readonly uint[] _partitionStreamEndFads = new uint[PartitionCount];
     private readonly Dictionary<byte, long> _commandCounts = [];
     private readonly Queue<byte> _recentCommands = new();
     private byte _getSectorLength;
@@ -764,6 +765,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playEndInstructionsRemaining = checked(sectorCount * PlaySectorInstructionCount);
         _partitionFads[0] = FirstTrackFad;
         _partitionSectorCounts[0] = (uint)sectorCount;
+        _partitionStreamEndFads[0] = 0;
         _cr1 = 0x0000;
         _cr2 = 0x4101;
         _cr3 = 0x0100;
@@ -851,11 +853,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
             _partitionFads[partition] = 0;
             _partitionSectorCounts[partition] = 0;
+            _partitionStreamEndFads[partition] = 0;
         }
         else if ((flags & 0x04) != 0)
         {
             Array.Clear(_partitionFads);
             Array.Clear(_partitionSectorCounts);
+            Array.Clear(_partitionStreamEndFads);
         }
 
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
@@ -924,6 +928,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
         if (LastCommandCode == 0x63)
         {
+            DeleteTransferredSectors(partition, sectorOffset, sectorCount);
             _cr1 = 0x4180;
             _cr2 = 0x4101;
             _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
@@ -1050,6 +1055,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var sectorCount = sectorOffset >= totalSectors ? 0 : totalSectors - sectorOffset;
         _partitionFads[partition] = fileInfo.Fad + sectorOffset;
         _partitionSectorCounts[partition] = Math.Min(sectorCount, 200);
+        _partitionStreamEndFads[partition] = fileInfo.Fad + totalSectors;
         _readFileEndFad = _partitionFads[partition] + _partitionSectorCounts[partition];
         _readFilePartition = partition;
         _readFileStatusInstructionsRemaining = 2_000;
@@ -1058,6 +1064,43 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = 0x4101;
         _cr3 = 0x0100;
         _cr4 = (ushort)(FirstTrackFad + 0x19);
+    }
+
+    private void DeleteTransferredSectors(int partition, uint sectorOffset, uint sectorCount)
+    {
+        var streamEndFad = _partitionStreamEndFads[partition];
+        if (streamEndFad == 0)
+        {
+            return;
+        }
+
+        var availableSectorCount = _partitionSectorCounts[partition];
+        if (sectorCount == 0 || sectorOffset >= availableSectorCount)
+        {
+            return;
+        }
+
+        sectorCount = Math.Min(sectorCount, availableSectorCount - sectorOffset);
+        _partitionSectorCounts[partition] -= sectorCount;
+        if (sectorOffset != 0)
+        {
+            return;
+        }
+
+        _partitionFads[partition] += sectorCount;
+        var availableEndFad = _partitionFads[partition] + _partitionSectorCounts[partition];
+        if (streamEndFad <= availableEndFad)
+        {
+            return;
+        }
+
+        var freeSectorCount = 200u - Math.Min(_partitionSectorCounts[partition], 200u);
+        var refillSectorCount = Math.Min(freeSectorCount, streamEndFad - availableEndFad);
+        _partitionSectorCounts[partition] += refillSectorCount;
+        if (availableEndFad + refillSectorCount >= streamEndFad)
+        {
+            _hirq |= HirqEndFileSystem;
+        }
     }
 
     private void EndDataTransfer()
