@@ -60,9 +60,16 @@ static int RunBios(string[] args)
     var postAuthTracePath = GetOption(args, "--dump-post-auth-trace");
     var postCommand30TracePath = GetOption(args, "--dump-post-command30-trace");
     var postReadFileTracePath = GetOption(args, "--dump-post-read-file-trace");
+    var postFileInfoTracePath = GetOption(args, "--dump-post-file-info-trace");
+    var postFileInfoWorkRamPath = GetOption(args, "--dump-post-file-info-wram-high");
+    var instructionWindowAddress = GetOption(args, "--instruction-window") is null
+        ? (uint?)null
+        : GetUIntOption(args, "--instruction-window", 0);
+    var instructionWindowCount = Math.Max(1, GetIntOption(args, "--instruction-window-count", defaultValue: 32));
     var postAuthTraceCount = Math.Max(1, GetIntOption(args, "--post-auth-trace-count", defaultValue: 1024));
     var postCommand30TraceCount = Math.Max(1, GetIntOption(args, "--post-command30-trace-count", defaultValue: 512));
     var postReadFileTraceCount = Math.Max(1, GetIntOption(args, "--post-read-file-trace-count", defaultValue: 1024));
+    var postFileInfoTraceCount = Math.Max(1, GetIntOption(args, "--post-file-info-trace-count", defaultValue: 2048));
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
     var preUnimplementedTrace = new Queue<string>(256);
@@ -73,6 +80,10 @@ static int RunBios(string[] args)
     var postCommand30TraceArmed = false;
     var postReadFileTrace = new List<string>(Math.Min(postReadFileTraceCount, 1_000_000));
     var postReadFileTraceArmed = false;
+    var postFileInfoTrace = new List<string>(Math.Min(postFileInfoTraceCount, 1_000_000));
+    var postFileInfoTraceArmed = false;
+    var postFileInfoSequenceState = 0;
+    byte[]? postFileInfoWorkRamSnapshot = null;
     var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
     var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
@@ -193,8 +204,13 @@ static int RunBios(string[] args)
         0x0600_1EBC,
         0x0600_1EDF,
         () => GetWatchContext(master));
-    var masterNightsWaitWordWatch = new WatchedBus(
+    var masterPostFileInfoReturnWatch = new WatchedBus(
         masterBiosResponseStackWatch,
+        0x0600_1F1C,
+        0x0600_1F1F,
+        () => GetWatchContext(master));
+    var masterNightsWaitWordWatch = new WatchedBus(
+        masterPostFileInfoReturnWatch,
         0x0603_48EC,
         0x0603_48ED,
         () => GetWatchContext(master));
@@ -447,6 +463,10 @@ static int RunBios(string[] args)
         {
             postReadFileTrace.Add(FormatSh2DiffState(master));
         }
+        if (postFileInfoTraceArmed && postFileInfoTrace.Count < postFileInfoTraceCount)
+        {
+            postFileInfoTrace.Add(FormatSh2DiffState(master));
+        }
 
         RecordPc(masterPcHits, masterPc);
         if (i >= instructionCount - 1_000_000)
@@ -506,6 +526,25 @@ static int RunBios(string[] args)
             else if (systemMap.CdBlock.LastCommandCode == 0x30)
             {
                 postCommand30TraceArmed = true;
+            }
+
+            if (!postFileInfoTraceArmed)
+            {
+                var command = systemMap.CdBlock.LastCommandCode;
+                postFileInfoSequenceState = (postFileInfoSequenceState, command) switch
+                {
+                    (_, 0x74) => 1,
+                    (1, 0x00) => 2,
+                    (2, 0x00) => 3,
+                    (3, 0x73) => 4,
+                    (4, 0x06) => 5,
+                    _ => 0,
+                };
+                postFileInfoTraceArmed = postFileInfoSequenceState == 5;
+                if (postFileInfoTraceArmed && postFileInfoWorkRamPath is not null)
+                {
+                    postFileInfoWorkRamSnapshot = systemMap.WorkRamHigh.Span.ToArray();
+                }
             }
         }
         if (systemMap.CdBlock.HirqWriteCount != observedCdHirqWriteCount)
@@ -631,6 +670,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
         PrintWatchWindow("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchWindow("Master BIOS response-stack watch", masterBiosResponseStackWatch);
+        PrintWatchWindow("Master post-file-info return-slot watch", masterPostFileInfoReturnWatch);
         PrintWatchWindow("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
         if (slaveFlagWatch is not null)
         {
@@ -651,10 +691,19 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
         PrintWatchSummary("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchSummary("Master BIOS response-stack watch", masterBiosResponseStackWatch);
+        PrintWatchSummary("Master post-file-info return-slot watch", masterPostFileInfoReturnWatch);
         PrintWatchSummary("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);
+    if (instructionWindowAddress is not null)
+    {
+        PrintInstructionWindow(
+            addressMap,
+            instructionWindowAddress.Value,
+            instructionWindowCount,
+            $"Requested instruction window 0x{instructionWindowAddress.Value:X8}");
+    }
     vdp1CommandProbe.Print();
     if (vdp1FramePath is not null)
     {
@@ -718,6 +767,16 @@ static int RunBios(string[] args)
     {
         File.WriteAllLines(postReadFileTracePath, postReadFileTrace);
         Console.WriteLine($"SH-2 post-read-file trace: {postReadFileTracePath} entries={postReadFileTrace.Count:N0}");
+    }
+    if (postFileInfoTracePath is not null)
+    {
+        File.WriteAllLines(postFileInfoTracePath, postFileInfoTrace);
+        Console.WriteLine($"SH-2 post-file-info trace: {postFileInfoTracePath} entries={postFileInfoTrace.Count:N0}");
+    }
+    if (postFileInfoWorkRamPath is not null && postFileInfoWorkRamSnapshot is not null)
+    {
+        File.WriteAllBytes(postFileInfoWorkRamPath, postFileInfoWorkRamSnapshot);
+        Console.WriteLine($"Post-file-info Work RAM High dump: {postFileInfoWorkRamPath}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -2058,7 +2117,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

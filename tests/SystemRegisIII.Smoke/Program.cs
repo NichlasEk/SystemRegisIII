@@ -722,6 +722,18 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00C8, "CD Block 200-sector count failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x6300, 0x0000, 0x0000, 0x00C8);
         Require(largeIsoCd.DataTransferWordCount == 204_800, "CD Block 200-sector transfer was truncated.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
+        for (var word = 0; word < 6; word++)
+        {
+            largeIsoMap.Bus.ReadWord(0x2589_8000);
+        }
+
+        IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+        largeIsoCd.AdvanceMasterInstructions(37_999);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0018) & 0x2000) == 0, "CD Block post-file-info periodic status completed too early.");
+        largeIsoCd.AdvanceMasterInstructions(1);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0018) & 0x2000) != 0, "CD Block post-file-info periodic status failed.");
     }
     finally
     {

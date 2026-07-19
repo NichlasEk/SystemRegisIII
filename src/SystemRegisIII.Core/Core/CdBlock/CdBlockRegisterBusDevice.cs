@@ -33,6 +33,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int InitializeTransitionPollCount = 8;
     private const int StartupFirstPeriodicInstructionCount = 50_000;
     private const int StartupPeriodicInstructionCount = 200_000;
+    private const int PostFileInfoPeriodicInstructionCount = 38_000;
     private const int PlaySectorInstructionCount = 1_000;
     private const int StartupPauseInstructionCount = 8_600_000;
     private const uint FirstTrackFad = 150;
@@ -75,6 +76,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _postSectorTransferStatusInstructionsRemaining;
     private int _fileSystemScopeStatusInstructionsRemaining;
     private int _readFileStatusInstructionsRemaining;
+    private int _postFileInfoPeriodicInstructionsRemaining;
     private uint _readFileEndFad;
     private int _readFilePartition;
     private bool _rootDirectoryLoadPending;
@@ -317,6 +319,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                     _hirq |= HirqEndFileSystem;
                 }
                 ReadFileCompletionCount++;
+            }
+        }
+
+        if (_postFileInfoPeriodicInstructionsRemaining > 0)
+        {
+            _postFileInfoPeriodicInstructionsRemaining -= instructionCount;
+            if (_postFileInfoPeriodicInstructionsRemaining <= 0)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
             }
         }
 
@@ -1034,6 +1045,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (transferCommandCode == 0x63 && transferredWords > 0)
         {
             _postSectorTransferStatusInstructionsRemaining = 2_000;
+        }
+        else if (transferCommandCode == 0x73 && transferredWords > 0 && ReadFileCompletionCount > 0)
+        {
+            // The CD block continues producing periodic idle reports after a
+            // completed file read.  NiGHTS waits for the 0x20 status flag
+            // before asking how many sectors remain in the partition.
+            _postFileInfoPeriodicInstructionsRemaining = PostFileInfoPeriodicInstructionCount;
         }
     }
 
