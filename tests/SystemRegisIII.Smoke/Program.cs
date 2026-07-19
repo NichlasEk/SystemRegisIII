@@ -781,6 +781,18 @@ static void VerifySaturnSystemMap()
         Require(largeIsoCd.DataTransferWordCount == 1_024, "CD Block streamed read-file tail length failed.");
         Require(largeIsoCd.ResponseCr4 == 0x017D, "CD Block streamed read-file tail FAD failed.");
 
+        IssueCdCommand(largeIsoMap.Bus, 0x7500, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(largeIsoMap.Bus, 0x0400, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(largeIsoMap.Bus, 0x6000, 0xFF00, 0x0000, 0x0000);
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFBFF);
+        largeIsoCd.AdvanceMasterInstructions(1_999);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) == 0, "CD Block late post-abort SCDQ completed too early.");
+        largeIsoCd.AdvanceMasterInstructions(1);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0400) != 0, "CD Block late post-abort SCDQ failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block late post-abort periodic pause status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x017D, "CD Block late post-abort FAD failed.");
+
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
         {

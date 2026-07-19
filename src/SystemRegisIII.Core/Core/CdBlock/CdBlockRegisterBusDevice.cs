@@ -1227,6 +1227,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void PublishPostAuthBusyStatus()
     {
+        if (_currentFad > FirstTrackFad + 0x10)
+        {
+            // Abort File shares this deferred status slot with the early
+            // authentication sequence.  Once file streaming has advanced the
+            // pickup, the drive settles into Pause and publishes the periodic
+            // position report that wakes the BIOS status poll through SCDQ.
+            _status = (byte)CdBlockDriveStatus.Pause;
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            _hirq |= HirqSubcodeReady;
+            return;
+        }
+
         _cr1 = (ushort)(CdStatusPeriodic << 8);
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
         _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
