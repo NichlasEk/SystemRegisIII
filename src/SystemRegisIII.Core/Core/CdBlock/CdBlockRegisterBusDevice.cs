@@ -15,6 +15,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const ushort HirqCmok = 0x0001;
     private const ushort HirqDataReady = 0x0002;
     private const ushort HirqSectorStored = 0x0004;
+    private const ushort HirqBufferFull = 0x0008;
     private const ushort HirqPlayEnd = 0x0010;
     private const ushort HirqSubcodeReady = 0x0400;
     private const ushort HirqEndSelector = 0x0040;
@@ -57,8 +58,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _hasExecutedCommand;
     private bool _dataTransferActive;
     private bool _endHostIoCompleted;
-    private ushort _dataTransferWordCount;
-    private ushort _dataTransferWordsRead;
+    private uint _dataTransferWordCount;
+    private uint _dataTransferWordsRead;
     private ushort[] _dataTransferWords = [];
     private bool _dataTransferLowByteLatched;
     private byte _dataTransferLowByte;
@@ -75,6 +76,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _fileSystemScopeStatusInstructionsRemaining;
     private int _readFileStatusInstructionsRemaining;
     private uint _readFileEndFad;
+    private int _readFilePartition;
     private bool _rootDirectoryLoadPending;
     private byte _dataTransferCommandCode;
     private bool _startupPeriodicActive;
@@ -129,13 +131,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort LastHirqWrite { get; private set; }
     public ushort HirqBeforeLastWrite { get; private set; }
     public ushort HirqValue => _hirq;
+    public ushort HirqMaskValue => _hirqMask;
+    public long HirqMaskWriteCount { get; private set; }
     public ushort ResponseCr1 => _cr1;
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
     public ushort ResponseCr4 => _cr4;
     public bool DataTransferActive => _dataTransferActive;
-    public ushort DataTransferWordCount => _dataTransferWordCount;
-    public ushort DataTransferWordsRead => _dataTransferWordsRead;
+    public uint DataTransferWordCount => _dataTransferWordCount;
+    public uint DataTransferWordsRead => _dataTransferWordsRead;
+    public long ReadFileCompletionCount { get; private set; }
 
     public bool TryLoadInitialProgram(Span<byte> workRamHigh, out uint entryAddress, out int bytesLoaded)
     {
@@ -298,12 +303,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _readFileStatusInstructionsRemaining -= instructionCount;
             if (_readFileStatusInstructionsRemaining <= 0)
             {
-                _cr1 = 0x2180;
+                _cr1 = 0x0180;
                 _cr2 = 0x4101;
                 _cr3 = (ushort)(0x0100 | (_readFileEndFad >> 16));
                 _cr4 = (ushort)_readFileEndFad;
                 _currentFad = _readFileEndFad;
-                _hirq |= HirqEndFileSystem;
+                if (_partitionSectorCounts[_readFilePartition] >= 200)
+                {
+                    _hirq |= HirqBufferFull;
+                }
+                else
+                {
+                    _hirq |= HirqEndFileSystem;
+                }
+                ReadFileCompletionCount++;
             }
         }
 
@@ -405,6 +418,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 break;
             case HirqMaskOffset:
                 _hirqMask = value;
+                HirqMaskWriteCount++;
                 break;
             case Cr1Offset:
                 LastCommandCr1 = value;
@@ -537,7 +551,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqCmok;
         }
-        if (_discImage is not null && LastCommandCode == 0x00)
+        if (_discImage is not null && LastCommandCode == 0x00 && ReadFileCompletionCount == 0)
         {
             _hirq |= HirqMountedStatusReady;
         }
@@ -830,7 +844,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr1 = 0x0100;
         _cr2 = 0x0000;
         _cr3 = 0x0000;
-        _cr4 = 0x0010;
+        _cr4 = (ushort)Math.Min(_partitionSectorCounts[0], ushort.MaxValue);
     }
 
     private void GetSectorData()
@@ -867,8 +881,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _cr1 = 0x4180;
             _cr2 = 0x4101;
-            _cr3 = 0x0100;
-            _cr4 = (ushort)(FirstTrackFad + 0x10);
+            _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+            _cr4 = (ushort)_currentFad;
         }
     }
 
@@ -965,6 +979,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         StartDataTransfer(words);
+        _cr1 = 0x4100;
     }
 
     private void ReadFile()
@@ -991,6 +1006,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _partitionFads[partition] = fileInfo.Fad + sectorOffset;
         _partitionSectorCounts[partition] = Math.Min(sectorCount, 200);
         _readFileEndFad = _partitionFads[partition] + _partitionSectorCounts[partition];
+        _readFilePartition = partition;
         _readFileStatusInstructionsRemaining = 2_000;
         _statusMode = true;
         _cr1 = 0x0080;
@@ -1003,7 +1019,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _statusMode = true;
         var transferCommandCode = _dataTransferCommandCode;
-        var transferredWords = _dataTransferActive ? _dataTransferWordsRead : (ushort)0;
+        var transferredWords = _dataTransferActive ? _dataTransferWordsRead : 0u;
         _dataTransferActive = false;
         _endHostIoCompleted = transferredWords > 0;
         _dataTransferWordCount = 0;
@@ -1011,8 +1027,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _dataTransferWords = [];
         _dataTransferLowByteLatched = false;
         _dataTransferCommandCode = 0;
-        _cr1 = (ushort)((_status << 8) | ((transferredWords >> 16) & 0xFF));
-        _cr2 = transferredWords;
+        _cr1 = (ushort)(((uint)_status << 8) | ((transferredWords >> 16) & 0xFF));
+        _cr2 = (ushort)transferredWords;
         _cr3 = 0;
         _cr4 = 0;
         if (transferCommandCode == 0x63 && transferredWords > 0)
@@ -1125,7 +1141,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return 0;
         }
 
-        return _dataTransferWords[_dataTransferWordsRead++];
+        return _dataTransferWords[checked((int)_dataTransferWordsRead++)];
     }
 
     private void StartDataTransfer(ushort[] words)
@@ -1133,12 +1149,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _statusMode = true;
         _dataTransferActive = true;
         _dataTransferWords = words;
-        _dataTransferWordCount = (ushort)Math.Min(words.Length, ushort.MaxValue);
+        _dataTransferWordCount = (uint)words.Length;
         _dataTransferWordsRead = 0;
         _dataTransferLowByteLatched = false;
         _dataTransferCommandCode = LastCommandCode;
         _cr1 = (ushort)(CdStatusDataTransferRequest << 8);
-        _cr2 = _dataTransferWordCount;
+        _cr2 = (ushort)_dataTransferWordCount;
         _cr3 = 0;
         _cr4 = 0;
     }
@@ -1189,7 +1205,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         var wordsPerSector = _discImage.SectorSize / 2;
-        var words = new ushort[Math.Min((long)sectorCount * wordsPerSector, ushort.MaxValue)];
+        var wordCount = Math.Min((long)sectorCount * wordsPerSector, int.MaxValue);
+        var words = new ushort[checked((int)wordCount)];
         var sectorBytes = new byte[_discImage.SectorSize];
         var wordIndex = 0;
         for (var sector = 0u; sector < sectorCount && wordIndex < words.Length; sector++)
@@ -1294,8 +1311,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         _cr1 = (ushort)((status << 8) | CdRomStatusBit);
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
-        _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
-        _cr4 = (ushort)FirstTrackFad;
+        _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+        _cr4 = (ushort)_currentFad;
     }
 
     private void WriteAuthenticationStartupResponse()

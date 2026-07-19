@@ -637,7 +637,7 @@ static void VerifySaturnSystemMap()
         isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
         isoMap.Bus.WriteWord(0x2589_0024, 0x0002);
         Require(isoCdRegisters.LastCommandCode == 0x73, "CD Block get-file-info command latch failed.");
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CD Block get-file-info DTREQ status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x4100, "CD Block get-file-info DTREQ status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_001C) == 0x0006, "CD Block get-file-info transfer length failed.");
         Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0003) == 0x0003, "CD Block get-file-info DRDY HIRQ failed.");
         Require(isoMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CD Block file-info FAD high failed.");
@@ -666,9 +666,25 @@ static void VerifySaturnSystemMap()
         isoCdRegisters.AdvanceMasterInstructions(1_999);
         Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block read-file status changed too early.");
         isoCdRegisters.AdvanceMasterInstructions(1);
-        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x2180, "CD Block read-file periodic completion status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block read-file completion status failed.");
         Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x00B5, "CD Block read-file completion FAD failed.");
         Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x0200) != 0, "CD Block read-file deferred EFLS HIRQ failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0008, 0xFDFE);
+        Require(isoMap.Bus.ReadWord(0x2589_0018) == 0x2280, "CD Block post-read periodic status failed.");
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x00B5, "CD Block post-read periodic FAD failed.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require((isoMap.Bus.ReadWord(0x2589_0008) & 0x4000) == 0, "CD Block post-read status raised startup HIRQ.");
+
+        isoMap.Bus.WriteWord(0x2589_0018, 0x5100);
+        isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        isoMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(isoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block read-file sector count failed.");
 
         isoMap.Bus.WriteWord(0x2589_0018, 0x6100);
         isoMap.Bus.WriteWord(0x2589_001C, 0x0000);
@@ -683,6 +699,33 @@ static void VerifySaturnSystemMap()
     finally
     {
         File.Delete(isoPath);
+    }
+
+    var largeIsoPath = Path.GetTempFileName();
+    try
+    {
+        CreateTinyIsoImage(largeIsoPath, bootFileSectors: 201);
+        using var largeIsoImage = new RawDiscImage(largeIsoPath);
+        var largeIsoMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = largeIsoImage });
+        var largeIsoCd = largeIsoMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+
+        IssueCdCommand(largeIsoMap.Bus, 0x7100, 0x0000, 0x0000, 0x0000);
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFDFF);
+        IssueCdCommand(largeIsoMap.Bus, 0x7400, 0x0000, 0x0000, 0x0002);
+        largeIsoCd.AdvanceMasterInstructions(2_000);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0008) != 0, "CD Block 200-sector read-file BFUL HIRQ failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0200) == 0, "CD Block 200-sector read-file raised premature EFLS.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00C8, "CD Block 200-sector count failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6300, 0x0000, 0x0000, 0x00C8);
+        Require(largeIsoCd.DataTransferWordCount == 204_800, "CD Block 200-sector transfer was truncated.");
+    }
+    finally
+    {
+        File.Delete(largeIsoPath);
     }
 
     var cueDirectory = Path.Combine(Path.GetTempPath(), $"systemregis-cue-{Guid.NewGuid():N}");
@@ -713,7 +756,7 @@ static void VerifySaturnSystemMap()
         cueMap.Bus.WriteWord(0x2589_001C, 0x0000);
         cueMap.Bus.WriteWord(0x2589_0020, 0x0000);
         cueMap.Bus.WriteWord(0x2589_0024, 0x0002);
-        Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4000, "CUE CD Block get-file-info DTREQ status failed.");
+        Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4100, "CUE CD Block get-file-info DTREQ status failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CUE CD Block file-info FAD high failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x00B4, "CUE CD Block file-info FAD low failed.");
     }
@@ -914,11 +957,21 @@ static void VerifyVdp2TilemapRenderer()
     }
 }
 
-static void CreateTinyIsoImage(string path)
+static void IssueCdCommand(ISaturnBus bus, ushort cr1, ushort cr2, ushort cr3, ushort cr4)
+{
+    bus.WriteWord(0x2589_0018, cr1);
+    bus.WriteWord(0x2589_001C, cr2);
+    bus.WriteWord(0x2589_0020, cr3);
+    bus.WriteWord(0x2589_0024, cr4);
+}
+
+static void CreateTinyIsoImage(string path, int bootFileSectors = 1)
 {
     const int rootDirectoryLba = 20;
     const int bootFileLba = 30;
-    var image = new byte[RawDiscImage.DefaultSectorSize * 40];
+    var imageSectorCount = Math.Max(40, bootFileLba + bootFileSectors);
+    var bootFileSize = checked(RawDiscImage.DefaultSectorSize * bootFileSectors);
+    var image = new byte[RawDiscImage.DefaultSectorSize * imageSectorCount];
     var primaryVolumeDescriptor = image.AsSpan(RawDiscImage.DefaultSectorSize * 16, RawDiscImage.DefaultSectorSize);
     WriteAscii(image.AsSpan(0, 16), "SEGA SEGASATURN ");
     primaryVolumeDescriptor[0] = 1;
@@ -930,7 +983,7 @@ static void CreateTinyIsoImage(string path)
     var offset = 0;
     offset += WriteDirectoryRecord(rootDirectory, offset, rootDirectoryLba, RawDiscImage.DefaultSectorSize, 0x02, [0]);
     offset += WriteDirectoryRecord(rootDirectory, offset, rootDirectoryLba, RawDiscImage.DefaultSectorSize, 0x02, [1]);
-    WriteDirectoryRecord(rootDirectory, offset, bootFileLba, RawDiscImage.DefaultSectorSize, 0x00, "BOOT.BIN;1"u8);
+    WriteDirectoryRecord(rootDirectory, offset, bootFileLba, (uint)bootFileSize, 0x00, "BOOT.BIN;1"u8);
 
     var bootFile = image.AsSpan(RawDiscImage.DefaultSectorSize * bootFileLba, RawDiscImage.DefaultSectorSize);
     bootFile[0] = 0xCA;

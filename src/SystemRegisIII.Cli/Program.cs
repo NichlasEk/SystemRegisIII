@@ -59,8 +59,10 @@ static int RunBios(string[] args)
     var preUnimplementedTracePath = GetOption(args, "--dump-pre-unimplemented-trace");
     var postAuthTracePath = GetOption(args, "--dump-post-auth-trace");
     var postCommand30TracePath = GetOption(args, "--dump-post-command30-trace");
+    var postReadFileTracePath = GetOption(args, "--dump-post-read-file-trace");
     var postAuthTraceCount = Math.Max(1, GetIntOption(args, "--post-auth-trace-count", defaultValue: 1024));
     var postCommand30TraceCount = Math.Max(1, GetIntOption(args, "--post-command30-trace-count", defaultValue: 512));
+    var postReadFileTraceCount = Math.Max(1, GetIntOption(args, "--post-read-file-trace-count", defaultValue: 1024));
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
     var preUnimplementedTrace = new Queue<string>(256);
@@ -69,6 +71,8 @@ static int RunBios(string[] args)
     var postAuthTraceArmed = false;
     var postCommand30Trace = new List<string>(Math.Min(postCommand30TraceCount, 1_000_000));
     var postCommand30TraceArmed = false;
+    var postReadFileTrace = new List<string>(Math.Min(postReadFileTraceCount, 1_000_000));
+    var postReadFileTraceArmed = false;
     var initialWorkRamLowPath = GetOption(args, "--dump-initial-wram-low");
     var initialWorkRamHighPath = GetOption(args, "--dump-initial-wram-high");
     var digitalPadState = GetPadOption(args);
@@ -189,6 +193,11 @@ static int RunBios(string[] args)
         0x0600_1EBC,
         0x0600_1EDF,
         () => GetWatchContext(master));
+    var masterNightsWaitWordWatch = new WatchedBus(
+        masterBiosResponseStackWatch,
+        0x0603_48EC,
+        0x0603_48ED,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -196,7 +205,7 @@ static int RunBios(string[] args)
             0x0602_0230,
             0x0602_024F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterBiosResponseStackWatch, trace) : masterBiosResponseStackWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterNightsWaitWordWatch, trace) : masterNightsWaitWordWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveFlagWatch!, trace) : slaveFlagWatch!;
@@ -381,6 +390,12 @@ static int RunBios(string[] args)
         }
 
         var masterPc = master.Registers.ProgramCounter;
+        if (!postReadFileTraceArmed
+            && systemMap.CdBlock.ReadFileCompletionCount > 0
+            && masterPc is >= 0x0000_3B60 and <= 0x0000_3C70)
+        {
+            postReadFileTraceArmed = true;
+        }
         if (capturedPreUnimplementedTrace is null
             && systemMap.CdBlock.DataTransferWordCount == 0x00CC
             && systemMap.CdBlock.DataTransferWordsRead >= 190)
@@ -427,6 +442,10 @@ static int RunBios(string[] args)
         if (postCommand30TraceArmed && postCommand30Trace.Count < postCommand30TraceCount)
         {
             postCommand30Trace.Add(FormatSh2DiffState(master));
+        }
+        if (postReadFileTraceArmed && postReadFileTrace.Count < postReadFileTraceCount)
+        {
+            postReadFileTrace.Add(FormatSh2DiffState(master));
         }
 
         RecordPc(masterPcHits, masterPc);
@@ -612,6 +631,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
         PrintWatchWindow("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchWindow("Master BIOS response-stack watch", masterBiosResponseStackWatch);
+        PrintWatchWindow("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
         if (slaveFlagWatch is not null)
         {
             PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -631,6 +651,7 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master geometry-source watch", masterGeometrySourceWatch);
         PrintWatchSummary("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchSummary("Master BIOS response-stack watch", masterBiosResponseStackWatch);
+        PrintWatchSummary("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);
@@ -692,6 +713,11 @@ static int RunBios(string[] args)
     {
         File.WriteAllLines(postCommand30TracePath, postCommand30Trace);
         Console.WriteLine($"SH-2 post-command-30 trace: {postCommand30TracePath} entries={postCommand30Trace.Count:N0}");
+    }
+    if (postReadFileTracePath is not null)
+    {
+        File.WriteAllLines(postReadFileTracePath, postReadFileTrace);
+        Console.WriteLine($"SH-2 post-read-file trace: {postReadFileTracePath} entries={postReadFileTrace.Count:N0}");
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
@@ -1819,6 +1845,7 @@ static void PrintTouchedStubs(SaturnSystemMap systemMap)
                 $"    mounted disc: {(cdRegisters.HasDisc ? $"{cdRegisters.DiscName} ({cdRegisters.DiscSectorCount:N0} sectors)" : "<none>")}");
             Console.WriteLine($"    auth type: 0x{cdRegisters.AuthenticationType:X2}");
             Console.WriteLine($"    auth startup completed: {cdRegisters.AuthStartupCompleted}");
+            Console.WriteLine($"    HIRQ: value=0x{cdRegisters.HirqValue:X4} mask=0x{cdRegisters.HirqMaskValue:X4} mask-writes={cdRegisters.HirqMaskWriteCount:N0}");
             Console.WriteLine(
                 $"    last command CR: 0x{cdRegisters.LastCommandCr1:X4} 0x{cdRegisters.LastCommandCr2:X4} 0x{cdRegisters.LastCommandCr3:X4} 0x{cdRegisters.LastCommandCr4:X4}");
             Console.WriteLine(
@@ -2031,7 +2058,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--post-auth-trace-count N] [--post-command30-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe
