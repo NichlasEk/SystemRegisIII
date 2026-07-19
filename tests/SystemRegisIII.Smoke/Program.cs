@@ -355,6 +355,32 @@ static void VerifySaturnSystemMap()
         }
 
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block init pause transition failed.");
+
+        var resetMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions
+            {
+                DiscImage = discImage,
+                MountedDiscInitialStatus = CdBlockDriveStatus.Pause,
+            });
+        var resetCdRegisters = resetMap.Stubs.OfType<CdBlockRegisterBusDevice>().Single();
+        resetMap.Bus.WriteWord(0x2589_0018, 0x0401);
+        resetMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_0008, 0x0000);
+        resetCdRegisters.AdvanceMasterInstructions(8_191);
+        Require(resetMap.Bus.ReadWord(0x2589_0008) == 0x0000, "CD Block software-reset completion arrived too early.");
+        resetCdRegisters.AdvanceMasterInstructions(1);
+        Require(
+            (resetMap.Bus.ReadWord(0x2589_0008) & 0x0BC1) == 0x0BC1,
+            "CD Block software-reset completion HIRQ failed.");
+        resetMap.Bus.WriteWord(0x2589_0018, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_001C, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_0020, 0x0000);
+        resetMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        Require(resetMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block software-reset pause transition failed.");
+
         discMap.Bus.WriteWord(0x2589_0018, 0x6000);
         discMap.Bus.WriteWord(0x2589_001C, 0xFF00);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);

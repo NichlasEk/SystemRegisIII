@@ -20,7 +20,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const ushort HirqSubcodeReady = 0x0400;
     private const ushort HirqEndSelector = 0x0040;
     private const ushort HirqEndHostIo = 0x0080;
+    private const ushort HirqEndCopy = 0x0100;
     private const ushort HirqEndFileSystem = 0x0200;
+    private const ushort HirqMpegEnd = 0x0800;
     private const ushort HirqMountedStatusReady = 0x4658;
     private const byte CdStatusPeriodic = 0x20;
     private const byte CdStatusDataTransferRequest = 0x40;
@@ -31,6 +33,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int PartitionCount = 0x18;
     private const int AuthStartupPollCount = 8;
     private const int InitializeTransitionPollCount = 8;
+    private const int SoftwareResetInstructionCount = 8_192;
     private const int StartupFirstPeriodicInstructionCount = 50_000;
     private const int StartupPeriodicInstructionCount = 200_000;
     private const int PostFileInfoPeriodicInstructionCount = 38_000;
@@ -68,6 +71,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _authStartupPollsRemaining;
     private bool _authStartupCompleted;
     private int _initializeTransitionPollsRemaining;
+    private int _softwareResetInstructionsRemaining;
     private int _commandCompletionHirqReadsRemaining;
     private ushort _commandCompletionHirqBits;
     private int _postAuthStatusInstructionsRemaining;
@@ -328,6 +332,24 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_postFileInfoPeriodicInstructionsRemaining <= 0)
             {
                 WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            }
+        }
+
+        if (_softwareResetInstructionsRemaining > 0)
+        {
+            _softwareResetInstructionsRemaining -= instructionCount;
+            if (_softwareResetInstructionsRemaining <= 0)
+            {
+                // A CD block software reset completes asynchronously.  The
+                // BIOS waits for this combined completion notification before
+                // issuing its next filesystem abort/initialize sequence.
+                _status = (byte)CdBlockDriveStatus.Pause;
+                _hirq |= HirqMpegEnd
+                    | HirqEndFileSystem
+                    | HirqEndCopy
+                    | HirqEndHostIo
+                    | HirqEndSelector
+                    | HirqCmok;
             }
         }
 
@@ -781,7 +803,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (_discImage is not null)
         {
             _status = (byte)CdBlockDriveStatus.Busy;
-            _initializeTransitionPollsRemaining = InitializeTransitionPollCount;
+            if ((LastCommandCr1 & 0x0001) != 0)
+            {
+                _initializeTransitionPollsRemaining = 0;
+                _softwareResetInstructionsRemaining = SoftwareResetInstructionCount;
+            }
+            else
+            {
+                _initializeTransitionPollsRemaining = InitializeTransitionPollCount;
+                _softwareResetInstructionsRemaining = 0;
+            }
             _statusMode = true;
             _cr1 = 0;
             _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
