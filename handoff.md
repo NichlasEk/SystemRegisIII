@@ -89,7 +89,19 @@ Mednafen then completes the `04 0401` software reset asynchronously and raises `
 - The normal boot path now hands control to the loaded Work RAM High executable.
 - SMPC clock change completes after three VBlanks and delivers the BIOS NMI through vector 11.
 - VDP2 `TVSTAT` exposes live HBlank/VBlank state from the raster counters.
+- Both SH-2 DMA channels expose SAR/DAR/TCR/CHCR plus DMAOR and perform completed
+  8/16/32/16-byte-unit transfers. NiGHTS now leaves its former `CHCR1=0x5601`
+  wait at `0x0602B52C..0x0602B532` with copied data, `TCR=0`, and `TE=1`.
 - The CLI can capture a post-file-info SH-2 trace, WRAM snapshot, focused return-slot activity, and an arbitrary instruction window.
+
+The 123M-instruction acceptance run now advances far into the executable: it
+services more than one thousand VBlank interrupts, writes VDP2 VRAM/CRAM, and
+produces a richest VDP1 list with 8 drawable sprites in 11 commands. The next
+deterministic blocker is later and separate from DMA: master SH-2 enters
+`0x060069CE` with `R15=0x05FE0000`; its `STS.L PR,@-R15` then faults at the
+unmapped `0x05FDFFFC`. The captured state also has `PR=0x060681F2`, so trace the
+provenance of R15/PR immediately before that handler rather than widening the
+SCU mapping. Bus-fault reports now include the full architectural CPU state.
 
 ## Verification
 

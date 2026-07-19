@@ -1850,7 +1850,9 @@ static bool TryStep(Sh2Cpu cpu, ITraceEventSink trace, List<string> busFaults)
         var message = pc is null
             ? $"{cpu.Name} fault at 0x{exception.Address:X8}"
             : $"{cpu.Name} fault at 0x{exception.Address:X8} while executing 0x{pc.Value:X8}";
+        message += $"; state: {FormatSh2DiffState(cpu)}";
         busFaults.Add(message);
+        Console.Error.WriteLine(message);
         trace.Write(new TraceEvent("Bus", 0, message));
         return false;
     }

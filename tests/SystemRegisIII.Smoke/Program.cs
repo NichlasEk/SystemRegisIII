@@ -1179,6 +1179,18 @@ static void VerifySh2InternalRegisterBus()
     masterBus.WriteLong(0xFFFF_FF04, 1);
     Require((masterBus.ReadLong(0xFFFF_FF08) & 1) != 0, "SH-2 DIVU divide-by-zero flag failed.");
     Require(masterBus.ReadLong(0xFFFF_FF04) == 0x7FFF_FFFF, "SH-2 DIVU divide-by-zero saturation failed.");
+
+    masterBus.WriteLong(0x0600_0000, 0x1122_3344);
+    masterBus.WriteLong(0x0600_0004, 0x5566_7788);
+    masterBus.WriteLong(0xFFFF_FF90, 0x0600_0000);
+    masterBus.WriteLong(0xFFFF_FF94, 0x0600_0020);
+    masterBus.WriteLong(0xFFFF_FF98, 4);
+    masterBus.WriteLong(0xFFFF_FFB0, 1);
+    masterBus.WriteLong(0xFFFF_FF9C, 0x0000_5601);
+    Require(masterBus.ReadLong(0x0600_0020) == 0x1122_3344, "SH-2 DMA channel 1 first transfer failed.");
+    Require(masterBus.ReadLong(0x0600_0024) == 0x5566_7788, "SH-2 DMA channel 1 second transfer failed.");
+    Require(masterBus.ReadLong(0xFFFF_FF98) == 0, "SH-2 DMA transfer count did not reach zero.");
+    Require((masterBus.ReadLong(0xFFFF_FF9C) & 3) == 3, "SH-2 DMA transfer-end status failed.");
 }
 
 static void VerifySh2InterruptEntry()
