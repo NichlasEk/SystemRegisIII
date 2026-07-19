@@ -2,14 +2,14 @@
 
 Date: 2026-07-19
 Branch: `main`  
-Implementation checkpoint: `ff10403` (`Advance Saturn post-read file bringup`)
+Implementation checkpoint: `04b5e7c` (`Advance Saturn post-file-info bringup`)
 
 ## Current outcome
 
-The automatic NiGHTS boot now passes the old apparent post-Read-File stall without the diagnostic initial-program-load shortcut. The CD command prefix matches the local Mednafen reference through:
+The automatic NiGHTS boot now passes the post-file-info status boundary without the diagnostic initial-program-load shortcut. The CD command prefix matches the local Mednafen reference through the full buffered executable transfer:
 
 ```text
-... 03,03,10,51,63,06,70,72,74,00,00,73,06
+... 70,72,74,00,00,73,06,51,63,06,51,63,06,75,04
 ```
 
 The latest 125M acceptance run reaches:
@@ -20,6 +20,14 @@ i=109,102,391  00 -> 0180,4101,0100,017D
 i=109,102,647  00 -> 0180,4101,0100,017D
 i=109,102,913  73 -> 4100,0006,0000,0000
 i=109,103,233  06 -> 0100,0006,0000,0000
+i=109,141,511  51 -> 0100,0000,0000,00C8
+i=109,141,790  63 -> 4180,4101,0100,017D
+i=109,654,434  06 -> 0103,2000,0000,0000
+i=109,656,763  51 -> 0100,0000,0000,00C8
+i=109,657,042  63 -> 4180,4101,0100,017D
+i=109,705,285  06 -> 0100,4ACE,0000,0000
+i=109,705,562  75 -> 0000,4101,0100,017D
+i=109,770,684  04 -> 0000,4101,0100,00A6
 ```
 
 The loop at `0x060111A8..0x060111B0` was not a deadlock. It compares the VBlank-maintained word at `0x060348EC` with the target `0x0082`; SystemRegis enters at `0x0001`, reaches `0x0083` at instruction 106,750,089, and exits normally. Mednafen enters the same wait at `0x0029`.
@@ -35,21 +43,17 @@ There is no new visible screen yet. The latest frame dump still contains the sam
 - 1,623 rendered pixels
 - richest capture remains at instruction 89,700,000
 
-The next visual milestone should follow the full 200-sector executable transfer. The remaining expected reference continuation is:
-
-```text
-51,63,06
-```
+The full 200-sector executable transfer now completes and NiGHTS continues into abort/reinitialize handling. The next visual milestone is beyond that new command boundary.
 
 ## Current blocker
 
-The CD-visible state now matches through the file-info End Data Transfer. The six transferred file-info words also match Mednafen exactly:
+The previous blocker was the missing periodic idle report after the file-info End Data Transfer. The six transferred file-info words already matched Mednafen exactly:
 
 ```text
 0000,00B5,0006,D59C,0000,0000
 ```
 
-At 115M the master is still at BIOS `0x000042FA`; by 125M it has advanced to `0x00001FD0`, so this is not the old stable wait. It has not yet issued the reference `51`. Continue longer first; if `51` still does not arrive, compare CPU/stack state after the file-info `06` rather than changing the now-matched CR, HIRQ, or payload.
+The BIOS compares the response successfully, then rejects its control byte until bit `0x20` appears. Mednafen changes the byte from `0x01` to periodic Pause `0x21` after 283 polls. SystemRegis previously left it at `0x01` forever. A delayed periodic status at 38,000 master instructions now reproduces that transition and releases the expected `51,63,06` sequence. The next blocker has not yet been isolated; continue from the post-`04` state and compare the next reference command boundary before changing CD payloads.
 
 ## Important fixes in the latest slices
 
@@ -68,6 +72,8 @@ At 115M the master is still at BIOS `0x000042FA`; by 125M it has advanced to `0x
 - File-info command `73` reports reference-shaped `4100` DTREQ status.
 - Host-transfer counts are 32-bit and a 200-sector FIFO retains all 204,800 words.
 - The CLI has a focused post-Read-File trace and a NiGHTS frame-wait word watch.
+- Post-file-info idle time now publishes periodic Pause (`0x21`) after the observed delay.
+- The CLI can capture a post-file-info SH-2 trace, WRAM snapshot, focused return-slot activity, and an arbitrary instruction window.
 
 ## Verification
 
