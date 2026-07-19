@@ -798,6 +798,26 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block set-filter-mode status failed.");
         Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0040) != 0, "CD Block set-filter-mode ESEL HIRQ failed.");
 
+        IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00A6, 0x0080, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block late play old-position status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x017D, "CD Block late play old-position FAD failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0000, "CD Block late play sector-count status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0000, "CD Block late play exposed sector before seek completion.");
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFFEF);
+        largeIsoCd.AdvanceMasterInstructions(999);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block late play PEND completed too early.");
+        largeIsoCd.AdvanceMasterInstructions(599_001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block late play seek transition failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block late play seek transition FAD failed.");
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) == 0, "CD Block late play seek raised premature PEND.");
+        largeIsoCd.AdvanceMasterInstructions(2_900_000);
+        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0010) != 0, "CD Block late play PEND failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2100, "CD Block late play periodic pause status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block late play pause FAD failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block late play completed sector was not published.");
+
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
         {

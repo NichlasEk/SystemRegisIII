@@ -6,6 +6,7 @@ public enum CdBlockDriveStatus : byte
     Pause = 0x01,
     Standby = 0x02,
     Play = 0x03,
+    Seek = 0x04,
     NoDisc = 0x07,
     Periodic = 0x20,
     Wait = 0x80,

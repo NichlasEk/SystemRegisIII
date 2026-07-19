@@ -38,6 +38,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int StartupPeriodicInstructionCount = 200_000;
     private const int PostFileInfoPeriodicInstructionCount = 38_000;
     private const int PlaySectorInstructionCount = 1_000;
+    private const int LongPlaySeekStatusInstructionCount = 600_000;
+    private const int LongPlaySeekEndInstructionCount = 3_500_000;
     private const int StartupPauseInstructionCount = 8_600_000;
     private const uint FirstTrackFad = 150;
     private static readonly byte[] SaturnSecurityHeader = "SEGA SEGASATURN "u8.ToArray();
@@ -78,6 +80,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _postAuthStatusInstructionsRemaining;
     private int _postSessionStatusInstructionsRemaining;
     private int _playEndInstructionsRemaining;
+    private int _playSeekStatusInstructionsRemaining;
+    private bool _playSeekActive;
+    private uint _playEndFad;
+    private uint _playPendingSectorCount;
     private int _postSectorTransferStatusInstructionsRemaining;
     private int _fileSystemScopeStatusInstructionsRemaining;
     private int _readFileStatusInstructionsRemaining;
@@ -283,6 +289,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_playEndInstructionsRemaining <= 0)
             {
                 PublishPlayEndStatus();
+            }
+        }
+
+        if (_playSeekStatusInstructionsRemaining > 0)
+        {
+            _playSeekStatusInstructionsRemaining -= instructionCount;
+            if (_playSeekStatusInstructionsRemaining <= 0)
+            {
+                PublishPlaySeekStatus();
             }
         }
 
@@ -664,6 +679,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
 
+        if (_discImage is not null && _playSeekActive)
+        {
+            _cr1 = (ushort)(_status << 8);
+            _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+            _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+            _cr4 = (ushort)_currentFad;
+            return;
+        }
+
         WriteStatusResponse(_status);
     }
 
@@ -766,24 +790,59 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void PlayDisc()
     {
         _statusMode = true;
-        var sectorCount = Math.Max(1, LastCommandCr4 & 0x00FF);
-        _playEndInstructionsRemaining = checked(sectorCount * PlaySectorInstructionCount);
-        _partitionFads[0] = FirstTrackFad;
-        _partitionSectorCounts[0] = (uint)sectorCount;
+        var previousFad = _currentFad;
+        var encodedStart = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
+        var startFad = (encodedStart & 0x80_0000) != 0
+            ? encodedStart & 0x7F_FFFF
+            : FirstTrackFad;
+        var encodedEnd = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        var sectorCount = (encodedStart & 0x80_0000) != 0 && (encodedEnd & 0x80_0000) != 0
+            ? Math.Max(1, (int)(encodedEnd & 0x7F_FFFF))
+            : Math.Max(1, LastCommandCr4 & 0x00FF);
+        var seekDistance = previousFad > startFad ? previousFad - startFad : startFad - previousFad;
+        var longSeek = seekDistance > 0x20;
+        _playEndInstructionsRemaining = longSeek
+            ? LongPlaySeekEndInstructionCount
+            : checked(sectorCount * PlaySectorInstructionCount);
+        _playSeekStatusInstructionsRemaining = longSeek ? LongPlaySeekStatusInstructionCount : 0;
+        _partitionFads[0] = startFad;
+        _partitionSectorCounts[0] = longSeek ? 0u : (uint)sectorCount;
+        _playPendingSectorCount = longSeek ? (uint)sectorCount : 0;
         _partitionStreamEndFads[0] = 0;
-        _cr1 = 0x0000;
+        _initializeTransitionPollsRemaining = 0;
+        _status = (byte)CdBlockDriveStatus.Busy;
+        _cr1 = _currentFad > FirstTrackFad + 0x10 ? (ushort)CdRomStatusBit : (ushort)0;
         _cr2 = 0x4101;
-        _cr3 = 0x0100;
-        _cr4 = (ushort)(FirstTrackFad + 0x10);
+        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
+        _cr4 = (ushort)_currentFad;
+        _currentFad = startFad;
+        _playEndFad = startFad + (uint)sectorCount;
+        _playSeekActive = true;
+    }
+
+    private void PublishPlaySeekStatus()
+    {
+        _status = (byte)CdBlockDriveStatus.Seek;
+        _cr1 = (ushort)(_status << 8);
+        _cr2 = 0x4101;
+        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
+        _cr4 = (ushort)_currentFad;
     }
 
     private void PublishPlayEndStatus()
     {
+        _playSeekActive = false;
+        _currentFad = _playEndFad;
+        if (_playPendingSectorCount > 0)
+        {
+            _partitionSectorCounts[0] = _playPendingSectorCount;
+            _playPendingSectorCount = 0;
+        }
         _status = (byte)CdBlockDriveStatus.Pause;
         _cr1 = 0x2100;
         _cr2 = 0x4101;
-        _cr3 = 0x0100;
-        _cr4 = (ushort)(FirstTrackFad + 0x10);
+        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
+        _cr4 = (ushort)_currentFad;
         _hirq |= HirqPlayEnd;
     }
 
@@ -928,7 +987,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void GetSectorNumber()
     {
-        _cr1 = 0x0100;
+        _cr1 = (ushort)(_status << 8);
         _cr2 = 0x0000;
         _cr3 = 0x0000;
         _cr4 = (ushort)Math.Min(_partitionSectorCounts[0], ushort.MaxValue);
