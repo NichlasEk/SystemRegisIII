@@ -3,11 +3,14 @@ using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
+using SystemRegisIII.Core.Core.Vdp2;
 
 namespace SystemRegisIII.Core.Core;
 
 public sealed class SaturnSystemMap
 {
+    private readonly Vdp2RegisterBusDevice _vdp2RegisterTiming;
+
     private SaturnSystemMap(
         PageMappedBus bus,
         IMainMemory workRamLow,
@@ -15,7 +18,7 @@ public sealed class SaturnSystemMap
         DebugMemoryBusDevice vdp1Area,
         DebugMemoryBusDevice vdp2Vram,
         DebugMemoryBusDevice vdp2Cram,
-        DebugMemoryBusDevice vdp2Registers,
+        Vdp2RegisterBusDevice vdp2Registers,
         CdBlockRegisterBusDevice cdBlock,
         IReadOnlyList<IInspectableBusDevice> stubs)
     {
@@ -26,6 +29,7 @@ public sealed class SaturnSystemMap
         Vdp2Vram = vdp2Vram;
         Vdp2Cram = vdp2Cram;
         Vdp2Registers = vdp2Registers;
+        _vdp2RegisterTiming = vdp2Registers;
         CdBlock = cdBlock;
         Stubs = stubs;
     }
@@ -39,6 +43,9 @@ public sealed class SaturnSystemMap
     public DebugMemoryBusDevice Vdp2Registers { get; }
     public CdBlockRegisterBusDevice CdBlock { get; }
     public IReadOnlyList<IInspectableBusDevice> Stubs { get; }
+
+    public void AdvanceVdp2MasterInstructions(int instructionCount) =>
+        _vdp2RegisterTiming.AdvanceMasterInstructions(instructionCount);
 
     public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
     {
@@ -65,7 +72,7 @@ public sealed class SaturnSystemMap
             .AddReadOnlyWord(0x10, 0x0002);
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
-        var vdp2Registers = new DebugMemoryBusDevice("VDP2 Registers", 0x40000);
+        var vdp2Registers = new Vdp2RegisterBusDevice();
 
         IInspectableBusDevice[] stubs =
         [

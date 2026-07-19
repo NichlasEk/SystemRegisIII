@@ -1,6 +1,6 @@
 namespace SystemRegisIII.Core.Core.Bus;
 
-public sealed class DebugMemoryBusDevice(string name, int sizeBytes, byte readValue = 0) : IInspectableBusDevice
+public class DebugMemoryBusDevice(string name, int sizeBytes, byte readValue = 0) : IInspectableBusDevice
 {
     private readonly byte[] _memory = new byte[ValidateSize(sizeBytes)];
     private readonly Dictionary<uint, long> _readOffsets = [];
@@ -17,7 +17,7 @@ public sealed class DebugMemoryBusDevice(string name, int sizeBytes, byte readVa
     public uint? FirstWriteOffset => WriteCount == 0 ? null : _firstWriteOffset;
     public uint? LastWriteOffset { get; private set; }
 
-    public byte ReadByte(uint offset)
+    public virtual byte ReadByte(uint offset)
     {
         ReadCount++;
         FirstReadOffset ??= offset;
@@ -26,7 +26,7 @@ public sealed class DebugMemoryBusDevice(string name, int sizeBytes, byte readVa
         return _memory.Length == 0 ? readValue : _memory[Wrap(offset)];
     }
 
-    public void WriteByte(uint offset, byte value)
+    public virtual void WriteByte(uint offset, byte value)
     {
         WriteCount++;
         _firstWriteOffset = Math.Min(_firstWriteOffset, offset);

@@ -2,7 +2,7 @@
 
 Date: 2026-07-19
 Branch: `main`  
-Implementation checkpoint: `6e9025b` (`Model Saturn CD software reset completion`)
+Baseline checkpoint: `6f3c329` (`Document Saturn software reset checkpoint`)
 
 ## Current outcome
 
@@ -31,6 +31,12 @@ i=109,770,684  04 -> 0000,4101,0100,00A6
 ```
 
 Command `04 0401` is a software reset. After its delayed combined completion HIRQ (`0x0BC1`), the focused 110M run leaves the BIOS wait and executes the loaded program in Work RAM High, ending at `PC=0x060023F6`. This is the first automatic handoff into the loaded executable on the normal path.
+
+The immediate CMOK response for `04 0401` now follows the Mednafen-observed eight BIOS word polls. This preserves `R7=7` through the loaded program entry instead of the old zero value. Smoke coverage checks all seven early polls, the eighth-poll completion, and the later asynchronous reset completion.
+
+The first loaded-program scan is no longer fed by a static VDP2 register stub. `EXTEN` reads latch a time-driven `HCNT`/`VCNT`, with the low-resolution 427-clock line length and Saturn horizontal-sync encoding used by the local Mednafen reference. The CLI and WaylandForge host both advance this timing once per interpreted master instruction. The 125M acceptance run performs the expected 256 `EXTEN`/`HCNT` reads and leaves the old `0x060030D4`-dominated path, but eventually still reaches BIOS `SLEEP` at `0x00000530`; the next differential should start after the completed counter-mixing loop.
+
+A byte-for-byte comparison also ruled out the transferred program image: `0x06002000..0x0600213F` and the scan accumulator `R1=0xE21B7685` match Mednafen. Do not return to CD transfer corruption or an SH-2 cache workaround without new contradictory evidence.
 
 The loop at `0x060111A8..0x060111B0` was not a deadlock. It compares the VBlank-maintained word at `0x060348EC` with the target `0x0082`; SystemRegis enters at `0x0001`, reaches `0x0083` at instruction 106,750,089, and exits normally. Mednafen enters the same wait at `0x0029`.
 

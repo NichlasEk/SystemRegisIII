@@ -479,7 +479,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             && LastCommandCode == 0x01;
         var commandCompletionHirqByteReads = delayStartupHardwareInfo
             ? 16
-            : LastCommandCode is 0x03 or 0x30 or 0x72 or 0x74 ? 16 : 0;
+            : LastCommandCode is 0x03 or 0x30 or 0x72 or 0x74
+                || (LastCommandCode == 0x04 && (LastCommandCr1 & 0x0001) != 0)
+                    ? 16
+                    : 0;
         if (!_hasExecutedCommand && _discImage is not null)
         {
             _hirq |= 0x0BE0;

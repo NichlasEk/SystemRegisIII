@@ -209,8 +209,18 @@ static int RunBios(string[] args)
         0x0600_1F1C,
         0x0600_1F1F,
         () => GetWatchContext(master));
-    var masterNightsWaitWordWatch = new WatchedBus(
+    var masterNightsEntryFlagWatch = new WatchedBus(
         masterPostFileInfoReturnWatch,
+        0x0600_2D84,
+        0x0600_2D87,
+        () => GetWatchContext(master));
+    var masterNightsHeaderWatch = new WatchedBus(
+        masterNightsEntryFlagWatch,
+        0x0600_2000,
+        0x0600_213F,
+        () => GetWatchContext(master));
+    var masterNightsWaitWordWatch = new WatchedBus(
+        masterNightsHeaderWatch,
         0x0603_48EC,
         0x0603_48ED,
         () => GetWatchContext(master));
@@ -507,6 +517,7 @@ static int RunBios(string[] args)
             capturedPreUnimplementedTrace = preUnimplementedTrace.ToArray();
         }
         systemMap.CdBlock.AdvanceMasterInstructions(1);
+        systemMap.AdvanceVdp2MasterInstructions(1);
 
         var cdCommandCount = systemMap.CdBlock.TotalCommandCount;
         if (cdCommandCount != observedCdCommandCount)
@@ -671,6 +682,8 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchWindow("Master BIOS response-stack watch", masterBiosResponseStackWatch);
         PrintWatchWindow("Master post-file-info return-slot watch", masterPostFileInfoReturnWatch);
+        PrintWatchWindow("Master NiGHTS entry-flag watch", masterNightsEntryFlagWatch);
+        PrintWatchWindow("Master NiGHTS header/code watch", masterNightsHeaderWatch);
         PrintWatchWindow("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
         if (slaveFlagWatch is not null)
         {
@@ -692,6 +705,8 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master VBlank callback-slot watch", masterVblankCallbackWatch);
         PrintWatchSummary("Master BIOS response-stack watch", masterBiosResponseStackWatch);
         PrintWatchSummary("Master post-file-info return-slot watch", masterPostFileInfoReturnWatch);
+        PrintWatchSummary("Master NiGHTS entry-flag watch", masterNightsEntryFlagWatch);
+        PrintWatchSummary("Master NiGHTS header/code watch", masterNightsHeaderWatch);
         PrintWatchSummary("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
     }
 

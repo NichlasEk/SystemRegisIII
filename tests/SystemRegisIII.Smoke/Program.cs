@@ -134,6 +134,13 @@ static void VerifySaturnSystemMap()
         systemMap.Bus.TryResolve(0x25F8_0000, out region, out _) &&
         region.Device.Name == "VDP2 Registers",
         "VDP2 register mapping failed.");
+    Require(systemMap.Bus.ReadWord(0x25F8_0008) == 0, "VDP2 HCNT did not power on latched at zero.");
+    systemMap.AdvanceVdp2MasterInstructions(24);
+    _ = systemMap.Bus.ReadWord(0x25F8_0002);
+    Require(systemMap.Bus.ReadWord(0x25F8_0008) == 58, "VDP2 HCNT latch or active-line timing failed.");
+    systemMap.AdvanceVdp2MasterInstructions(277);
+    _ = systemMap.Bus.ReadWord(0x25F8_0002);
+    Require(systemMap.Bus.ReadWord(0x25F8_0008) == 0x0380, "VDP2 HCNT horizontal-sync encoding failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0043, "CD Block ID word 0 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x4442, "CD Block ID word 1 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
@@ -368,6 +375,16 @@ static void VerifySaturnSystemMap()
         resetMap.Bus.WriteWord(0x2589_001C, 0x0000);
         resetMap.Bus.WriteWord(0x2589_0020, 0x0000);
         resetMap.Bus.WriteWord(0x2589_0024, 0x0000);
+        for (var poll = 0; poll < 7; poll++)
+        {
+            Require(
+                (resetMap.Bus.ReadWord(0x2589_0008) & 0x0001) == 0,
+                "CD Block software-reset command completed too early.");
+        }
+
+        Require(
+            (resetMap.Bus.ReadWord(0x2589_0008) & 0x0001) != 0,
+            "CD Block software-reset command did not complete on the eighth poll.");
         resetMap.Bus.WriteWord(0x2589_0008, 0x0000);
         resetCdRegisters.AdvanceMasterInstructions(8_191);
         Require(resetMap.Bus.ReadWord(0x2589_0008) == 0x0000, "CD Block software-reset completion arrived too early.");
