@@ -2,7 +2,7 @@
 
 Date: 2026-07-19
 Branch: `main`  
-Checkpoint: pending commit for the post-Read-File bringup slice
+Implementation checkpoint: `ff10403` (`Advance Saturn post-read file bringup`)
 
 ## Current outcome
 
