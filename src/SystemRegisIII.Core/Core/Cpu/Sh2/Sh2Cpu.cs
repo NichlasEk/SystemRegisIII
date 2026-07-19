@@ -1246,6 +1246,18 @@ public sealed class Sh2Cpu : ISh2Cpu
         return true;
     }
 
+    public void RequestNmi()
+    {
+        Registers.General[15] -= 4;
+        _bus.WriteLong(Registers.General[15], Registers.StatusRegister);
+        Registers.General[15] -= 4;
+        _bus.WriteLong(Registers.General[15], Registers.ProgramCounter);
+        Registers.InterruptLevelMask = 15;
+        Registers.ProgramCounter = _bus.ReadLong(Registers.VectorBaseRegister + (0x0Bu * 4));
+        IsSleeping = false;
+        Trace($"NMI -> pc=0x{Registers.ProgramCounter:X8}");
+    }
+
     private static uint BranchTarget(uint instructionAddress, int displacement)
     {
         if ((displacement & 0x800) != 0)

@@ -2,7 +2,7 @@
 
 Date: 2026-07-19
 Branch: `main`  
-Baseline checkpoint: `6f3c329` (`Document Saturn software reset checkpoint`)
+Baseline checkpoint: `24eba10` (`Record NiGHTS executable entry milestone`)
 
 ## Current outcome
 
@@ -34,7 +34,9 @@ Command `04 0401` is a software reset. After its delayed combined completion HIR
 
 The immediate CMOK response for `04 0401` now follows the Mednafen-observed eight BIOS word polls. This preserves `R7=7` through the loaded program entry instead of the old zero value. Smoke coverage checks all seven early polls, the eighth-poll completion, and the later asynchronous reset completion.
 
-The first loaded-program scan is no longer fed by a static VDP2 register stub. `EXTEN` reads latch a time-driven `HCNT`/`VCNT`, with the low-resolution 427-clock line length and Saturn horizontal-sync encoding used by the local Mednafen reference. The CLI and WaylandForge host both advance this timing once per interpreted master instruction. The run performs the expected 256 `EXTEN`/`HCNT` reads; after the final counter mix, SystemRegis and Mednafen follow the same structural path through `0x06002240`, `0x06002D8x`, BIOS `0x0000520x`, and the BIOS `0x000002Bx` poll. A 122M acceptance run reaches `PC=0x06004024`, inside the real NiGHTS executable whose entry is `0x06004000`. The later 125M snapshot at BIOS `SLEEP` (`0x00000530`) is therefore a later transition rather than a failed boot. Start the next differential at `0x06004000`.
+The first loaded-program scan is no longer fed by a static VDP2 register stub. `EXTEN` reads latch a time-driven `HCNT`/`VCNT`, with the low-resolution 427-clock line length and Saturn horizontal-sync encoding used by the local Mednafen reference. The CLI and WaylandForge host both advance this timing once per interpreted master instruction. The run performs the expected 256 `EXTEN`/`HCNT` reads; after the final counter mix, SystemRegis and Mednafen follow the same structural path through `0x06002240`, `0x06002D8x`, BIOS `0x0000520x`, and the BIOS `0x000002Bx` poll. A 122M acceptance run reaches `PC=0x06004024`, inside the real NiGHTS executable whose entry is `0x06004000`.
+
+The executable's large clear loop completes and issues SMPC clock-change command `0x0E`. That command now disables the slave SH-2, waits three VBlank entries, and sends the hardware NMI through vector 11 (`VBR+0x2C`); the BIOS vector is `0x20000534`, immediately after the old sleep resume PC `0x00000530`. The NMI handler's VDP2 `TVSTAT` HBlank poll is now driven by the live raster counter instead of a static zero. In the corrected 125M run the poll takes three reads rather than roughly 865,000, and execution advances to `PC=0x0602B532` in NiGHTS code.
 
 A byte-for-byte comparison also ruled out the transferred program image: `0x06002000..0x0600213F` and the scan accumulator `R1=0xE21B7685` match Mednafen. Do not return to CD transfer corruption or an SH-2 cache workaround without new contradictory evidence.
 
@@ -51,7 +53,7 @@ There is no new visible screen yet. The latest frame dump still contains the sam
 - 1,623 rendered pixels
 - richest capture remains at instruction 89,700,000
 
-The full 200-sector executable transfer now completes, the reset wait releases, and control reaches the loaded executable. The richest visible capture has not changed yet. By 125M the run eventually enters the BIOS stop loop at `0x00000530`, so the next visual milestone is beyond the new program-entry boundary.
+The full 200-sector executable transfer now completes, the reset wait releases, clock change returns through NMI, and control advances into NiGHTS code at `0x0602B532`. The richest visible capture has not changed yet.
 
 ## Current blocker
 
@@ -63,7 +65,7 @@ The previous blockers were the missing periodic idle report after the file-info 
 
 The BIOS compares the response successfully, then rejects its control byte until bit `0x20` appears. Mednafen changes the byte from `0x01` to periodic Pause `0x21` after 283 polls. SystemRegis previously left it at `0x01` forever. A delayed periodic status at 38,000 master instructions now reproduces that transition and releases the expected `51,63,06` sequence.
 
-Mednafen then completes the `04 0401` software reset asynchronously and raises `MPED|EFLS|ECPY|EHST|ESEL|CMOK` (`0x0BC1`). SystemRegis previously waited for eight explicit status polls that never occur on this path. The new delayed completion releases the BIOS into the loaded program. The current blocker is later: at 110M the program is active around `0x060023F0`, while the 125M run eventually reaches the BIOS stop loop at `0x00000530` after additional SMPC activity. Isolate the first divergence between those points; do not return to CD payload guessing unless a trace leads back there.
+Mednafen then completes the `04 0401` software reset asynchronously and raises `MPED|EFLS|ECPY|EHST|ESEL|CMOK` (`0x0BC1`). SystemRegis previously waited for eight explicit status polls that never occur on this path. The delayed completion releases the BIOS into the loaded program, and the clock-change NMI plus live `TVSTAT` now clears the later BIOS sleep. The current blocker is after `0x0602B532`; take the next focused trace there and determine whether it is finite initialization, a hardware wait, or the first new divergence.
 
 ## Important fixes in the latest slices
 
@@ -85,6 +87,8 @@ Mednafen then completes the `04 0401` software reset asynchronously and raises `
 - Post-file-info idle time now publishes periodic Pause (`0x21`) after the observed delay.
 - CD-block software reset completes asynchronously with the reference `0x0BC1` HIRQ bundle and Pause transition.
 - The normal boot path now hands control to the loaded Work RAM High executable.
+- SMPC clock change completes after three VBlanks and delivers the BIOS NMI through vector 11.
+- VDP2 `TVSTAT` exposes live HBlank/VBlank state from the raster counters.
 - The CLI can capture a post-file-info SH-2 trace, WRAM snapshot, focused return-slot activity, and an arbitrary instruction window.
 
 ## Verification

@@ -12,6 +12,8 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private const uint OutputRegisterBase = 0x21;
     private const uint RegisterStride = 2;
     private const byte IntbackCommand = 0x10;
+    private const byte ClockChange352Command = 0x0E;
+    private const byte ClockChange320Command = 0x0F;
     private const byte SetTimeCommand = 0x16;
     private const byte SetSystemMemoryCommand = 0x17;
     private const byte ResetEnableCommand = 0x19;
@@ -24,6 +26,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private const byte SystemStatus2Default = 0x00;
     private const byte NoPeripheralPortStatus = 0xF0;
     private const int CommandBusyStatusReads = 2;
+    private const int ClockChangeVBlankInCount = 3;
     private static readonly byte[] DefaultRtc =
     [
         0x19, // Century, BCD.
@@ -47,6 +50,8 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private bool _resetNmiEnabled;
     private bool _statusFlag;
     private int _busyStatusReadsRemaining;
+    private int _clockChangeVBlankInsRemaining;
+    private bool _clockChangeNmiPending;
 
     public SmpcRegisterBusDevice(
         SaturnInputState digitalPadState = SaturnInputState.None,
@@ -165,6 +170,12 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             case 0x03:
                 SlaveSh2Enabled = false;
                 break;
+            case ClockChange352Command:
+            case ClockChange320Command:
+                SlaveSh2Enabled = false;
+                _clockChangeVBlankInsRemaining = ClockChangeVBlankInCount;
+                _clockChangeNmiPending = false;
+                break;
             case SetTimeCommand:
                 Array.Copy(_inputRegisters, _rtc, _rtc.Length);
                 _rtcValid = true;
@@ -189,6 +200,31 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         }
 
         PendingInterrupts--;
+        return true;
+    }
+
+    public void NotifyVBlankIn()
+    {
+        if (_clockChangeVBlankInsRemaining <= 0)
+        {
+            return;
+        }
+
+        _clockChangeVBlankInsRemaining--;
+        if (_clockChangeVBlankInsRemaining == 0)
+        {
+            _clockChangeNmiPending = true;
+        }
+    }
+
+    public bool TryConsumeClockChangeNmi()
+    {
+        if (!_clockChangeNmiPending)
+        {
+            return false;
+        }
+
+        _clockChangeNmiPending = false;
         return true;
     }
 

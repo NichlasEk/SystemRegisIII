@@ -346,6 +346,7 @@ static int RunBios(string[] args)
                 systemMap.Vdp2Vram.Snapshot.Span,
                 systemMap.Vdp2Registers.Snapshot.Span);
             vblankInDue = true;
+            smpc.NotifyVBlankIn();
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
         {
@@ -384,7 +385,11 @@ static int RunBios(string[] args)
             }
         }
 
-        if (scu.HasPendingVBlankIn)
+        if (smpc.TryConsumeClockChangeNmi())
+        {
+            master.RequestNmi();
+        }
+        else if (scu.HasPendingVBlankIn)
         {
             var interruptedPc = master.Registers.ProgramCounter;
             var accepted = master.RequestInterrupt(15, 0x40);

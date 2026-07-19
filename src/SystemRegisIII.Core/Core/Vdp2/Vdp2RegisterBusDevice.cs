@@ -29,6 +29,10 @@ public sealed class Vdp2RegisterBusDevice : DebugMemoryBusDevice
             case 0x02:
                 LatchCounters();
                 return storedValue;
+            case 0x04:
+                return (byte)(CurrentTvStatus() >> 8);
+            case 0x05:
+                return (byte)CurrentTvStatus();
             case 0x08:
                 return (byte)(_latchedHorizontalCounter >> 8);
             case 0x09:
@@ -67,5 +71,16 @@ public sealed class Vdp2RegisterBusDevice : DebugMemoryBusDevice
             : _horizontalCounter;
         _latchedHorizontalCounter = (ushort)(encodedHorizontalCounter << 1);
         _latchedVerticalCounter = (ushort)_verticalCounter;
+    }
+
+    private ushort CurrentTvStatus()
+    {
+        var displayOn = (ReadBigEndianWord(0x00) & 0x8000) != 0;
+        var internalVBlank = !displayOn || _verticalCounter >= 0x0E0;
+        var horizontalBlank = _horizontalCounter >= 0x140;
+
+        return (ushort)((internalVBlank ? 1 << 3 : 0)
+            | (horizontalBlank ? 1 << 2 : 0)
+            | (1 << 1));
     }
 }

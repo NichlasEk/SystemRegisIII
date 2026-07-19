@@ -141,6 +141,9 @@ static void VerifySaturnSystemMap()
     systemMap.AdvanceVdp2MasterInstructions(277);
     _ = systemMap.Bus.ReadWord(0x25F8_0002);
     Require(systemMap.Bus.ReadWord(0x25F8_0008) == 0x0380, "VDP2 HCNT horizontal-sync encoding failed.");
+    Require((systemMap.Bus.ReadWord(0x25F8_0004) & 0x0004) != 0, "VDP2 TVSTAT did not report horizontal blanking.");
+    systemMap.AdvanceVdp2MasterInstructions(53);
+    Require((systemMap.Bus.ReadWord(0x25F8_0004) & 0x0004) == 0, "VDP2 TVSTAT horizontal blanking did not end on the next line.");
     Require(systemMap.Bus.ReadWord(0x2589_0018) == 0x0043, "CD Block ID word 0 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_001C) == 0x4442, "CD Block ID word 1 failed.");
     Require(systemMap.Bus.ReadWord(0x2589_0020) == 0x4C4F, "CD Block ID word 2 failed.");
@@ -188,6 +191,13 @@ static void VerifySaturnSystemMap()
     Require(smpcRegisters.SlaveSh2Enabled, "SMPC SSHON command failed.");
     systemMap.Bus.WriteByte(0x0010_0063, 0x01);
     systemMap.Bus.WriteByte(0x0010_001F, 0x0E);
+    Require(!smpcRegisters.SlaveSh2Enabled, "SMPC clock change did not disable the slave SH-2.");
+    smpcRegisters.NotifyVBlankIn();
+    smpcRegisters.NotifyVBlankIn();
+    Require(!smpcRegisters.TryConsumeClockChangeNmi(), "SMPC clock-change NMI arrived too early.");
+    smpcRegisters.NotifyVBlankIn();
+    Require(smpcRegisters.TryConsumeClockChangeNmi(), "SMPC clock-change NMI did not arrive after three VBlanks.");
+    Require(!smpcRegisters.TryConsumeClockChangeNmi(), "SMPC clock-change NMI was delivered more than once.");
     Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC command did not assert its busy flag.");
     Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC busy flag cleared too early.");
     Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x00, "SMPC busy flag did not clear after command latency.");
@@ -1225,6 +1235,16 @@ static void VerifySh2SleepAndInterruptWake()
     Require(!cpu.IsSleeping, "Accepted SH-2 interrupt left the CPU sleeping.");
     Require(cpu.Registers.ProgramCounter == 0x0000_0800, "SH-2 SLEEP wake vector failed.");
     Require(bus.ReadLong(0x0000_0FF8) == 0x0000_0102, "SH-2 SLEEP wake stacked the wrong resume PC.");
+
+    cpu.Registers.ProgramCounter = 0x0000_0102;
+    cpu.Registers.StatusRegister = 0x0000_00F0;
+    cpu.Registers.General[15] = 0x0000_1000;
+    bus.WriteLong(0x0000_0400 + (0x0B * 4), 0x0000_0900);
+    cpu.RequestNmi();
+    Require(cpu.Registers.ProgramCounter == 0x0000_0900, "SH-2 NMI vector failed.");
+    Require(cpu.Registers.General[15] == 0x0000_0FF8, "SH-2 NMI stack pointer failed.");
+    Require(bus.ReadLong(0x0000_0FF8) == 0x0000_0102, "SH-2 NMI stacked the wrong PC.");
+    Require(bus.ReadLong(0x0000_0FFC) == 0x0000_00F0, "SH-2 NMI stacked the wrong SR.");
 }
 
 static void VerifySh2IndexedMoveDecoding()
