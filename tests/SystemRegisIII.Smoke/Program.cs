@@ -779,6 +779,7 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block streamed read-file refill failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x6300, 0x0000, 0x0000, 0x00C8);
         Require(largeIsoCd.DataTransferWordCount == 1_024, "CD Block streamed read-file tail length failed.");
+        Require(largeIsoCd.ResponseCr4 == 0x017D, "CD Block streamed read-file tail FAD failed.");
 
         IssueCdCommand(largeIsoMap.Bus, 0x7300, 0x0000, 0x0000, 0x0002);
         for (var word = 0; word < 6; word++)
@@ -1163,8 +1164,30 @@ static void VerifySh2InternalRegisterBus()
     Require(slaveBus.ReadLong(0x0600_0000) == 0x1122_3344, "SH-2 internal bus did not share external RAM.");
 
     masterBus.WriteByte(0xFFFF_FE92, 0x40);
-    Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 internal latch failed.");
+    Require(masterBus.ReadByte(0xFFFF_FE92) == 0x40, "SH-2 cache-control register failed.");
     Require(slaveBus.ReadByte(0xFFFF_FE92) == 0, "SH-2 internal latch leaked across CPUs.");
+
+    masterBus.WriteLong(0x0600_0010, 0x1234_5678);
+    masterBus.WriteByte(0xFFFF_FE92, 0x01);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0x1234, "SH-2 instruction-cache fill failed.");
+    slaveBus.WriteWord(0x0600_0010, 0xABCD);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0x1234, "SH-2 instruction cache did not preserve a cached line.");
+    masterBus.WriteWord(0x0600_0010, 0xBEEF);
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0xBEEF, "SH-2 cache write-through update failed.");
+    slaveBus.WriteWord(0x0600_0010, 0xCAFE);
+    masterBus.WriteByte(0xFFFF_FE92, 0x11);
+    Require(masterBus.CacheControl == 0x01, "SH-2 cache-purge bit did not self-clear.");
+    Require(masterBus.ReadInstructionWord(0x0600_0010) == 0xCAFE, "SH-2 cache purge failed.");
+
+    slaveBus.WriteWord(0x0600_0030, 0xE001);
+    var cachedCpu = new Sh2Cpu("Cached SH-2", masterBus, 0x0600_0000);
+    cachedCpu.Registers.ProgramCounter = 0x0600_0030;
+    cachedCpu.StepInstruction();
+    Require(cachedCpu.Registers.General[0] == 1, "SH-2 CPU instruction-cache fill failed.");
+    slaveBus.WriteWord(0x0600_0030, 0xE002);
+    cachedCpu.Registers.ProgramCounter = 0x0600_0030;
+    cachedCpu.StepInstruction();
+    Require(cachedCpu.Registers.General[0] == 1, "SH-2 CPU bypassed its cached instruction.");
 
     masterBus.WriteLong(0xFFFF_FF00, 7);
     masterBus.WriteLong(0xFFFF_FF04, unchecked((uint)-100));

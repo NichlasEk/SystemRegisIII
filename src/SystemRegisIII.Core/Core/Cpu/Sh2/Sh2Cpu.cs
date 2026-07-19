@@ -6,6 +6,7 @@ namespace SystemRegisIII.Core.Core.Cpu.Sh2;
 public sealed class Sh2Cpu : ISh2Cpu
 {
     private readonly ISaturnBus _bus;
+    private readonly ISh2InstructionBus? _instructionBus;
     private readonly ITraceEventSink? _trace;
     private long _cycles;
 
@@ -13,6 +14,7 @@ public sealed class Sh2Cpu : ISh2Cpu
     {
         Name = name;
         _bus = bus;
+        _instructionBus = bus as ISh2InstructionBus;
         ResetVectorAddress = resetVectorAddress;
         _trace = trace;
     }
@@ -73,7 +75,7 @@ public sealed class Sh2Cpu : ISh2Cpu
 
         var pc = Registers.ProgramCounter;
         CurrentInstructionProgramCounter = pc;
-        var opcode = _bus.ReadWord(pc);
+        var opcode = _instructionBus?.ReadInstructionWord(pc) ?? _bus.ReadWord(pc);
         Registers.ProgramCounter += 2;
         _cycles += 1;
 

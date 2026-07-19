@@ -807,6 +807,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _putSectorLength = 0;
         if (_discImage is not null)
         {
+            var preserveFilePosition = _currentFad > FirstTrackFad + 0x10;
             _status = (byte)CdBlockDriveStatus.Busy;
             if ((LastCommandCr1 & 0x0001) != 0)
             {
@@ -819,11 +820,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 _softwareResetInstructionsRemaining = 0;
             }
             _statusMode = true;
-            _cr1 = 0;
+            _cr1 = preserveFilePosition ? (ushort)CdRomStatusBit : (ushort)0;
             _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
-            _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
-            _cr4 = (ushort)(FirstTrackFad + 0x10);
-            _currentFad = FirstTrackFad + 0x10;
+            if (preserveFilePosition)
+            {
+                _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
+                _cr4 = (ushort)_currentFad;
+                _hirq |= HirqSubcodeReady;
+            }
+            else
+            {
+                _cr3 = (ushort)((FirstTrackIndex << 8) | (FirstTrackFad >> 16));
+                _cr4 = (ushort)(FirstTrackFad + 0x10);
+                _currentFad = FirstTrackFad + 0x10;
+            }
             return;
         }
 
@@ -885,7 +895,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _putSectorLength = (byte)putSectorLength;
         }
 
-        WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+        if (_discImage is not null && _currentFad > FirstTrackFad + 0x10)
+        {
+            WriteFileSystemPositionResponse();
+        }
+        else
+        {
+            WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
+        }
     }
 
     private void GetSectorNumber()
@@ -1088,6 +1105,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _partitionFads[partition] += sectorCount;
+        _currentFad = _partitionFads[partition];
         var availableEndFad = _partitionFads[partition] + _partitionSectorCounts[partition];
         if (streamEndFad <= availableEndFad)
         {
@@ -1154,7 +1172,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void WriteFileSystemPositionResponse()
     {
         _statusMode = true;
-        _cr1 = 0;
+        _cr1 = _currentFad > FirstTrackFad + 0x10 ? (ushort)CdRomStatusBit : (ushort)0;
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
         _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
         _cr4 = (ushort)_currentFad;

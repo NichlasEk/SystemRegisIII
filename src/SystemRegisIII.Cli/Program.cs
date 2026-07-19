@@ -1893,7 +1893,9 @@ static void PrintInternalActivity(string label, Sh2InternalRegisterBus bus)
         return;
     }
 
-    Console.WriteLine($"{label}: reads={bus.InternalReadCount:N0} writes={bus.InternalWriteCount:N0}");
+    Console.WriteLine(
+        $"{label}: reads={bus.InternalReadCount:N0} writes={bus.InternalWriteCount:N0} " +
+        $"ccr=0x{bus.CacheControl:X2} cache-hits={bus.CacheHits:N0} cache-misses={bus.CacheMisses:N0}");
 }
 
 static void PrintDmaTransfers(string label, Sh2InternalRegisterBus bus)
