@@ -90,6 +90,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _playCompletesAfterSectorDrain;
     private bool _playFinalSectorBusyAfterStatus;
     private bool _longPlaySectorStored;
+    private bool _longPlayDeletedSectorStatus;
+    private int _longPlayDeletedSectorStatusCommandsRemaining;
     private bool _preserveFinalSectorStoredHirq;
     private bool _deferFinalSectorEndHostIo;
     private bool _postDrainPauseAfterStatus;
@@ -706,6 +708,32 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 _hirq &= unchecked((ushort)~HirqEndHostIo);
             }
         }
+        if (_longPlayDeletedSectorStatus && LastCommandCode == 0x00)
+        {
+            // Once BIOS has consumed the delayed completion edge from the
+            // final long-play deletion, status reports retain CSCT and expose
+            // EHST instead of publishing another CMOK completion.
+            _hirq &= unchecked((ushort)~HirqCmok);
+            _hirq |= HirqSectorStored | HirqEndHostIo;
+            _commandCompletionHirqReadsRemaining = _longPlayDeletedSectorStatusCommandsRemaining >= 2
+                ? 30
+                : 18;
+            _commandCompletionHirqBits = HirqCmok;
+            if (_longPlayDeletedSectorStatusCommandsRemaining > 0)
+            {
+                _longPlayDeletedSectorStatusCommandsRemaining--;
+            }
+        }
+        else if (_longPlayDeletedSectorStatus && LastCommandCode == 0x51)
+        {
+            // The zero-count sector query between the final status report and
+            // selector reset has the same immediate EHST/CSCT shape, then
+            // completes on BIOS's ninth word poll.
+            _hirq &= unchecked((ushort)~HirqCmok);
+            _hirq |= HirqSectorStored | HirqEndHostIo;
+            _commandCompletionHirqReadsRemaining = 18;
+            _commandCompletionHirqBits = HirqCmok;
+        }
     }
 
     private void GetCurrentStatus()
@@ -912,6 +940,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playCompletesAfterSectorDrain = !longSeek && previousFad > FirstTrackFad + 0x10;
         _playFinalSectorBusyAfterStatus = false;
         _longPlaySectorStored = false;
+        _longPlayDeletedSectorStatus = false;
+        _longPlayDeletedSectorStatusCommandsRemaining = 0;
         _postDrainPauseAfterStatus = false;
         _postDeleteSeekStatusPollsRemaining = 0;
         _postDeleteBusyStatusPollsRemaining = 0;
@@ -1086,6 +1116,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _partitionSectorCounts[partition] = 0;
             _partitionStreamEndFads[partition] = 0;
             _longPlaySectorStored = false;
+            _longPlayDeletedSectorStatus = false;
+            _longPlayDeletedSectorStatusCommandsRemaining = 0;
         }
         else if ((flags & 0x04) != 0)
         {
@@ -1294,18 +1326,20 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _partitionSectorCounts[partition] -= sectorCount;
-        var completedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
-        if (completedLongPlaySector)
+        var deletedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
+        if (deletedLongPlaySector)
         {
             // The final long-play deletion retains CSCT but does not publish
-            // EHST.  Its synchronous command completion publishes CMOK on the
-            // next HIRQ poll, matching the value BIOS keeps in its accumulator.
+            // EHST.  Its delayed completion publishes CMOK on BIOS's ninth
+            // HIRQ word poll, matching the value kept in its accumulator.
             _preserveFinalSectorStoredHirq = true;
             _deferFinalSectorEndHostIo = true;
-            // BIOS observes completion on its eighth word poll.  The device
+            // BIOS observes completion on its ninth word poll.  The device
             // is byte-addressed, so each SH-2 word poll performs two reads.
-            _commandCompletionHirqReadsRemaining = 16;
+            _commandCompletionHirqReadsRemaining = 18;
             _commandCompletionHirqBits = HirqCmok;
+            _longPlayDeletedSectorStatus = true;
+            _longPlayDeletedSectorStatusCommandsRemaining = 2;
         }
         if (_playCompletesAfterSectorDrain && sectorOffset == 0)
         {
@@ -1324,10 +1358,6 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
         WriteStatusResponse(_status);
-        if (completedLongPlaySector)
-        {
-            _status = (byte)CdBlockDriveStatus.Busy;
-        }
         if (_playLongSeek && _status == (byte)CdBlockDriveStatus.Seek)
         {
             _postDeleteSeekStatusPollsRemaining = PostDeleteSeekStatusPollCount;

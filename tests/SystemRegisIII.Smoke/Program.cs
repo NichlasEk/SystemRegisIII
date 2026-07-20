@@ -966,7 +966,7 @@ static void VerifySaturnSystemMap()
         Require(
             (largeIsoCd.HirqValue & 0x0085) == 0x0004,
             "CD Block multi-sector long play deletion did not retain CSCT without CMOK/EHST.");
-        for (var completionPoll = 0; completionPoll < 7; completionPoll++)
+        for (var completionPoll = 0; completionPoll < 8; completionPoll++)
         {
             Require(
                 (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0004,
@@ -974,13 +974,54 @@ static void VerifySaturnSystemMap()
         }
         Require(
             (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0005,
-            "CD Block multi-sector long play did not publish CMOK on its eighth poll.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380, "CD Block multi-sector long play deletion status failed.");
+            "CD Block multi-sector long play did not publish CMOK on its ninth poll.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(
+            (largeIsoCd.HirqValue & 0x0085) == 0x0084,
+            "CD Block multi-sector long play status did not replace CMOK with EHST while retaining CSCT.");
+        for (var statusCompletionPoll = 0; statusCompletionPoll < 14; statusCompletionPoll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0084,
+                $"CD Block first post-deletion status completed too early at poll {statusCompletionPoll}.");
+        }
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0085,
+            "CD Block first post-deletion status did not publish CMOK on its fifteenth poll.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        Require(
+            (largeIsoCd.HirqValue & 0x0085) == 0x0084,
+            "CD Block second post-deletion status did not retain its immediate EHST/CSCT state.");
+        for (var statusCompletionPoll = 0; statusCompletionPoll < 8; statusCompletionPoll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0084,
+                $"CD Block second post-deletion status completed too early at poll {statusCompletionPoll}.");
+        }
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0085,
+            "CD Block second post-deletion status did not publish CMOK on its ninth poll.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(
+            (largeIsoCd.HirqValue & 0x0085) == 0x0084,
+            "CD Block post-deletion sector count did not retain its immediate EHST/CSCT state.");
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_0024) == 0,
+            "CD Block post-deletion sector count was not zero.");
+        for (var sectorCountCompletionPoll = 0; sectorCountCompletionPoll < 8; sectorCountCompletionPoll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0084,
+                $"CD Block post-deletion sector count completed too early at poll {sectorCountCompletionPoll}.");
+        }
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0085,
+            "CD Block post-deletion sector count did not publish CMOK on its ninth poll.");
         IssueCdCommand(largeIsoMap.Bus, 0x5000, 0x0000, 0x0000, 0x0000);
         var postLongPlayDeletionStatus = largeIsoMap.Bus.ReadWord(0x2589_0018);
         Require(
-            postLongPlayDeletionStatus == 0x0000,
-            $"CD Block multi-sector long play did not enter its post-deletion busy status: 0x{postLongPlayDeletionStatus:X4}.");
+            postLongPlayDeletionStatus == 0x0300,
+            $"CD Block multi-sector long play did not retain its post-deletion play status: 0x{postLongPlayDeletionStatus:X4}.");
     }
     finally
     {
