@@ -76,6 +76,12 @@ static int RunBios(string[] args)
     var postFileInfoTraceCount = Math.Max(1, GetIntOption(args, "--post-file-info-trace-count", defaultValue: 2048));
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
+    var sh2DiffTraceCdCommand = GetOption(args, "--sh2-diff-trace-cd-command") is null
+        ? (byte?)null
+        : (byte)GetUIntOption(args, "--sh2-diff-trace-cd-command", 0);
+    var sh2DiffTraceCdOccurrence = Math.Max(
+        1,
+        GetIntOption(args, "--sh2-diff-trace-cd-occurrence", defaultValue: 1));
     var preUnimplementedTrace = new Queue<string>(256);
     string[]? capturedPreUnimplementedTrace = null;
     var postAuthTrace = new List<string>(Math.Min(postAuthTraceCount, 1_000_000));
@@ -183,8 +189,13 @@ static int RunBios(string[] args)
         0x0604_9E00,
         0x0604_A9FF,
         () => GetWatchContext(master));
-    var masterNightsCodeWatch = new WatchedBus(
+    var masterCdResponseControlWatch = new WatchedBus(
         masterGeometrySourceWatch,
+        0x0606_62E0,
+        0x0606_62EF,
+        () => GetWatchContext(master));
+    var masterNightsCodeWatch = new WatchedBus(
+        masterCdResponseControlWatch,
         0x0606_81C0,
         0x0606_821F,
         () => GetWatchContext(master));
@@ -349,6 +360,7 @@ static int RunBios(string[] args)
     var sh2DiffTrace = new List<string>(Math.Min(sh2DiffTraceCount, 1_000_000));
     var cdCommandTrace = new List<string>();
     var cdHirqTrace = new List<string>();
+    var cdCommandOccurrences = new long[256];
     long observedCdCommandCount = 0;
     long observedCdHirqWriteCount = 0;
     var sh2DiffTraceArmed = false;
@@ -490,7 +502,7 @@ static int RunBios(string[] args)
             }
             Console.WriteLine($"Initial program bridge: entry=0x{initialProgramEntry:X8} bytes={initialProgramBytes:N0}");
         }
-        if (!sh2DiffTraceArmed && masterPc == sh2DiffTraceTrigger)
+        if (sh2DiffTraceCdCommand is null && !sh2DiffTraceArmed && masterPc == sh2DiffTraceTrigger)
         {
             sh2DiffTraceArmed = true;
         }
@@ -586,6 +598,7 @@ static int RunBios(string[] args)
         var cdCommandCount = systemMap.CdBlock.TotalCommandCount;
         if (cdCommandCount != observedCdCommandCount)
         {
+            cdCommandOccurrences[systemMap.CdBlock.LastCommandCode]++;
             cdCommandTrace.Add(
                 $"i={i:N0} pc=0x{masterPc:X8} cmd=0x{systemMap.CdBlock.LastCommandCode:X2} " +
                 $"cr=0x{systemMap.CdBlock.LastCommandCr1:X4},0x{systemMap.CdBlock.LastCommandCr2:X4}," +
@@ -593,6 +606,12 @@ static int RunBios(string[] args)
                 $"result=0x{systemMap.CdBlock.ResponseCr1:X4},0x{systemMap.CdBlock.ResponseCr2:X4}," +
                 $"0x{systemMap.CdBlock.ResponseCr3:X4},0x{systemMap.CdBlock.ResponseCr4:X4} " +
                 $"hirq=0x{systemMap.CdBlock.HirqValue:X4}");
+            if (!sh2DiffTraceArmed
+                && sh2DiffTraceCdCommand == systemMap.CdBlock.LastCommandCode
+                && cdCommandOccurrences[systemMap.CdBlock.LastCommandCode] == sh2DiffTraceCdOccurrence)
+            {
+                sh2DiffTraceArmed = true;
+            }
             observedCdCommandCount = cdCommandCount;
             if (systemMap.CdBlock.LastCommandCode == 0xE1)
             {
@@ -769,6 +788,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master transform-key watch", masterTransformKeyWatch);
         PrintWatchWindow("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
+        PrintWatchWindow("Master CD response-control watch", masterCdResponseControlWatch);
         PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
@@ -789,6 +809,7 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master VDP1 BIOS texture watch", masterVdp1TextureWatch);
         PrintWatchSummary("Master VDP1 BIOS texture source watch", masterVdp1TextureSourceWatch);
         PrintWatchSummary("Master transform-matrix watch", masterTransformMatrixWatch);
+        PrintWatchSummary("Master CD response-control watch", masterCdResponseControlWatch);
         PrintWatchSummary("Master transform-node watch", masterTransformNodeWatch);
         PrintWatchSummary("Master transform-parent-node watch", masterTransformParentNodeWatch);
         PrintWatchSummary("Master transform-coefficient-source watch", masterTransformCoefficientSourceWatch);
@@ -2247,7 +2268,7 @@ static void PrintUsage()
     Console.WriteLine("SystemRegisIII CLI");
     Console.WriteLine();
     Console.WriteLine("Usage:");
-    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-count N] [--probe-r0 HEX] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--probe-suspect-stack] [--summary-only]");
+    Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-cd-command HEX] [--sh2-diff-trace-cd-occurrence N] [--sh2-diff-trace-count N] [--probe-r0 HEX] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--probe-suspect-stack] [--summary-only]");
 }
 
 sealed class ScuInterruptProbe

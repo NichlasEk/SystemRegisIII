@@ -38,6 +38,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int StartupPeriodicInstructionCount = 200_000;
     private const int PostFileInfoPeriodicInstructionCount = 38_000;
     private const int PlaySectorInstructionCount = 1_000;
+    private const int FinalDrainPeriodicInstructionCount = 1_000;
     private const int LongPlaySeekStatusInstructionCount = 600_000;
     private const int LongPlaySeekEndInstructionCount = 3_500_000;
     private const int PostDeleteSeekStatusPollCount = 12;
@@ -96,6 +97,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private uint _playEndFad;
     private uint _playPendingSectorCount;
     private int _postSectorTransferStatusInstructionsRemaining;
+    private int _finalDrainPeriodicInstructionsRemaining;
     private int _fileSystemScopeStatusInstructionsRemaining;
     private int _readFileStatusInstructionsRemaining;
     private int _postFileInfoPeriodicInstructionsRemaining;
@@ -318,6 +320,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_postSectorTransferStatusInstructionsRemaining <= 0)
             {
                 WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            }
+        }
+
+        if (_finalDrainPeriodicInstructionsRemaining > 0)
+        {
+            _finalDrainPeriodicInstructionsRemaining -= instructionCount;
+            if (_finalDrainPeriodicInstructionsRemaining <= 0)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+                _hirq |= HirqSubcodeReady;
             }
         }
 
@@ -1274,6 +1286,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 _deferFinalSectorEndHostIo = true;
                 _commandCompletionHirqReadsRemaining = 1;
                 _commandCompletionHirqBits = HirqCmok | HirqEndHostIo;
+                _finalDrainPeriodicInstructionsRemaining = FinalDrainPeriodicInstructionCount;
             }
         }
         WriteStatusResponse(_status);

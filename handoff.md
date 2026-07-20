@@ -140,13 +140,24 @@ phases seen in the local Mednafen trace. Final command `62` returns Busy/FAD
 `00AF` with HIRQ `0B44`; the first HIRQ poll then publishes deferred
 `CMOK|EHST`, allowing command `00` to run with HIRQ `0BC4`. A focused smoke
 assertion locks that ordering. The old master timeout at `060683AA` is gone;
-the current 126.72M tail is live BIOS work around `0606F2D0` issuing repeated
-Busy/FAD-`00AF` status commands. Adding `PEND` at that point was tested and
-rejected: it remained latched as `0BD4` and did not cause cleanup. The next
-differential is the scheduling/acknowledgement that makes the reference issue
-`51` with sector count zero after the first final status report, followed by
-`48,44,42,46`. Do not retune the now-matched `62 -> 00` HIRQ edge or revive the
-rejected early-PEND experiment.
+the first status command no longer falls into its dense Busy retry tail.
+
+A CD-command occurrence trigger for the SH-2 differential trace and a focused
+watch on `060662E0..060662EF` identified the missing event. BIOS routine
+`0606F240..0606F280` rejects the response with `R0=-8` while the response-
+control byte copied from CR1 is `00`; it accepts a periodic response whose
+control byte carries bit `20`. One thousand master instructions after the final
+sector drain, the CD block now publishes periodic Busy `2080,4101,0100,00AF`
+and raises SCDQ without the disproven early PEND assertion. A clean 128M run
+then stops issuing command `00` after the single reference-shaped poll, remains
+fault-free at valid master/slave PCs `0606B694`/`06005FA2`, and reaches
+32,211,122 Work RAM High writes.
+
+The reference cleanup commands `51` with count zero followed by
+`48,44,42,46` are still not visible in SystemRegis. The next differential is
+the callback or acknowledgement after the accepted periodic report; do not
+retune the matched `62 -> 00` edge, remove the periodic-control transition, or
+revive the rejected early-PEND experiment without new reference evidence.
 
 ## Verification
 
