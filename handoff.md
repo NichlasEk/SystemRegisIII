@@ -162,6 +162,17 @@ the matched final HIRQ edge or revive early PEND/SCDQ. The next differential is
 the task selection that adds that one `50`, followed by the long-seek completion
 near FAD `12C7`.
 
+The FAD-`12C7` differential has since isolated the first post-deletion status
+edge. Mednafen keeps HIRQ at `0B44` for six BIOS word polls, raises EHST to
+`0BC4` on poll seven, and raises CMOK to `0BC5` on poll fifteen. SystemRegis now
+models both delayed edges and smoke covers the exact 7/15 timing. The 130.27M
+run remains fault-free but still selects `62,00,00,51,...` instead of the
+reference `62,00,51,00,48`. The next proven divergence is the background-task
+countdown at `06066EDC`: the scheduler helper around `0606CC40` reads `3` in
+SystemRegis and `12` in Mednafen before the extra status task is selected.
+Continue by tracing the writers/timer source for `06066EDC`; do not retune the
+now matched HIRQ polling edges.
+
 ## Verification
 
 Focused validation:

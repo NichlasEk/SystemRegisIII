@@ -81,6 +81,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private int _softwareResetInstructionsRemaining;
     private int _commandCompletionHirqReadsRemaining;
     private ushort _commandCompletionHirqBits;
+    private int _commandMidpointHirqReadsRemaining;
+    private ushort _commandMidpointHirqBits;
     private int _postAuthStatusInstructionsRemaining;
     private int _postSessionStatusInstructionsRemaining;
     private int _playEndInstructionsRemaining;
@@ -459,6 +461,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private ushort ReadHirq()
     {
+        if (_commandMidpointHirqReadsRemaining > 0)
+        {
+            _commandMidpointHirqReadsRemaining--;
+            if (_commandMidpointHirqReadsRemaining == 0)
+            {
+                _hirq |= _commandMidpointHirqBits;
+                _commandMidpointHirqBits = 0;
+            }
+        }
+
         if (_commandCompletionHirqReadsRemaining > 0)
         {
             _commandCompletionHirqReadsRemaining--;
@@ -515,6 +527,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private void ExecuteCommand()
     {
         _startupPeriodicActive = false;
+        _commandMidpointHirqReadsRemaining = 0;
+        _commandMidpointHirqBits = 0;
         var delayStartupHardwareInfo = !_hasExecutedCommand
             && _discImage is not null
             && _authDiscType == 0x04
@@ -710,14 +724,23 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         if (_longPlayDeletedSectorStatus && LastCommandCode == 0x00)
         {
-            // Once BIOS has consumed the delayed completion edge from the
-            // final long-play deletion, status reports retain CSCT and expose
-            // EHST instead of publishing another CMOK completion.
-            _hirq &= unchecked((ushort)~HirqCmok);
-            _hirq |= HirqSectorStored | HirqEndHostIo;
-            _commandCompletionHirqReadsRemaining = _longPlayDeletedSectorStatusCommandsRemaining >= 2
-                ? 30
-                : 18;
+            var firstStatusAfterDeletion = _longPlayDeletedSectorStatusCommandsRemaining >= 2;
+            // The first status after the final long-play deletion retains
+            // CSCT alone for six BIOS word polls, exposes EHST on the seventh,
+            // and publishes CMOK on the fifteenth. Later status reports expose
+            // EHST immediately and complete on the ninth poll.
+            _hirq &= unchecked((ushort)~(HirqCmok | HirqEndHostIo));
+            _hirq |= HirqSectorStored;
+            if (firstStatusAfterDeletion)
+            {
+                _commandMidpointHirqReadsRemaining = 14;
+                _commandMidpointHirqBits = HirqEndHostIo;
+            }
+            else
+            {
+                _hirq |= HirqEndHostIo;
+            }
+            _commandCompletionHirqReadsRemaining = firstStatusAfterDeletion ? 30 : 18;
             _commandCompletionHirqBits = HirqCmok;
             if (_longPlayDeletedSectorStatusCommandsRemaining > 0)
             {

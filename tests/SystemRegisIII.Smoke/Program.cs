@@ -977,9 +977,18 @@ static void VerifySaturnSystemMap()
             "CD Block multi-sector long play did not publish CMOK on its ninth poll.");
         IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
         Require(
-            (largeIsoCd.HirqValue & 0x0085) == 0x0084,
-            "CD Block multi-sector long play status did not replace CMOK with EHST while retaining CSCT.");
-        for (var statusCompletionPoll = 0; statusCompletionPoll < 14; statusCompletionPoll++)
+            (largeIsoCd.HirqValue & 0x0085) == 0x0004,
+            "CD Block multi-sector long play status did not retain CSCT while deferring EHST/CMOK.");
+        for (var statusMidpointPoll = 0; statusMidpointPoll < 6; statusMidpointPoll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0004,
+                $"CD Block first post-deletion status exposed EHST too early at poll {statusMidpointPoll}.");
+        }
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0084,
+            "CD Block first post-deletion status did not expose EHST on its seventh poll.");
+        for (var statusCompletionPoll = 7; statusCompletionPoll < 14; statusCompletionPoll++)
         {
             Require(
                 (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0084,
