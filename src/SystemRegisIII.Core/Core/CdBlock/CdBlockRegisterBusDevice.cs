@@ -89,6 +89,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _playLongSeek;
     private bool _playCompletesAfterSectorDrain;
     private bool _playFinalSectorBusyAfterStatus;
+    private bool _longPlaySectorStored;
     private bool _preserveFinalSectorStoredHirq;
     private bool _deferFinalSectorEndHostIo;
     private bool _postDrainPauseAfterStatus;
@@ -910,6 +911,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playLongSeek = longSeek;
         _playCompletesAfterSectorDrain = !longSeek && previousFad > FirstTrackFad + 0x10;
         _playFinalSectorBusyAfterStatus = false;
+        _longPlaySectorStored = false;
         _postDrainPauseAfterStatus = false;
         _postDeleteSeekStatusPollsRemaining = 0;
         _postDeleteBusyStatusPollsRemaining = 0;
@@ -968,6 +970,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (!_playLongSeek)
         {
             _hirq |= HirqPlayEnd;
+        }
+        else if (entersPlay)
+        {
+            // The sector exposed when a long play reaches its pickup remains
+            // stored while BIOS calculates and transfers it.  Keep CSCT set
+            // through that command chain.  This register model completes
+            // commands synchronously, so CMOK remains available alongside it.
+            _longPlaySectorStored = true;
+            _hirq |= HirqSectorStored;
         }
     }
 
@@ -1074,6 +1085,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _partitionFads[partition] = 0;
             _partitionSectorCounts[partition] = 0;
             _partitionStreamEndFads[partition] = 0;
+            _longPlaySectorStored = false;
         }
         else if ((flags & 0x04) != 0)
         {
@@ -1282,6 +1294,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _partitionSectorCounts[partition] -= sectorCount;
+        var completedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
+        if (completedLongPlaySector)
+        {
+            // The final long-play deletion retains CSCT but does not publish
+            // EHST.  Its synchronous command completion publishes CMOK on the
+            // next HIRQ poll, matching the value BIOS keeps in its accumulator.
+            _preserveFinalSectorStoredHirq = true;
+            _deferFinalSectorEndHostIo = true;
+            // BIOS observes completion on its eighth word poll.  The device
+            // is byte-addressed, so each SH-2 word poll performs two reads.
+            _commandCompletionHirqReadsRemaining = 16;
+            _commandCompletionHirqBits = HirqCmok;
+        }
         if (_playCompletesAfterSectorDrain && sectorOffset == 0)
         {
             _partitionFads[partition] += sectorCount;
@@ -1299,6 +1324,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
         WriteStatusResponse(_status);
+        if (completedLongPlaySector)
+        {
+            _status = (byte)CdBlockDriveStatus.Busy;
+        }
         if (_playLongSeek && _status == (byte)CdBlockDriveStatus.Seek)
         {
             _postDeleteSeekStatusPollsRemaining = PostDeleteSeekStatusPollCount;

@@ -951,11 +951,36 @@ static void VerifySaturnSystemMap()
         IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block multi-sector long play sector-count status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block multi-sector long play sector count failed.");
+        Require((largeIsoCd.HirqValue & 0x0005) == 0x0005, "CD Block multi-sector long play CMOK/CSCT status failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x4380, "CD Block multi-sector long play DTREQ status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block multi-sector long play track failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block multi-sector long play index failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12C7, "CD Block multi-sector long play transfer FAD failed.");
+        while (largeIsoCd.DataTransferWordsRead < largeIsoCd.DataTransferWordCount)
+        {
+            largeIsoMap.Bus.ReadLong(0x2589_8000);
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+        Require(
+            (largeIsoCd.HirqValue & 0x0085) == 0x0004,
+            "CD Block multi-sector long play deletion did not retain CSCT without CMOK/EHST.");
+        for (var completionPoll = 0; completionPoll < 7; completionPoll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0004,
+                $"CD Block multi-sector long play completed too early at poll {completionPoll}.");
+        }
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0005,
+            "CD Block multi-sector long play did not publish CMOK on its eighth poll.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380, "CD Block multi-sector long play deletion status failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5000, 0x0000, 0x0000, 0x0000);
+        var postLongPlayDeletionStatus = largeIsoMap.Bus.ReadWord(0x2589_0018);
+        Require(
+            postLongPlayDeletionStatus == 0x0000,
+            $"CD Block multi-sector long play did not enter its post-deletion busy status: 0x{postLongPlayDeletionStatus:X4}.");
     }
     finally
     {
