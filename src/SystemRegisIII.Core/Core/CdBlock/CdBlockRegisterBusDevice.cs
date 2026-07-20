@@ -328,8 +328,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _finalDrainPeriodicInstructionsRemaining -= instructionCount;
             if (_finalDrainPeriodicInstructionsRemaining <= 0)
             {
-                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
-                _hirq |= HirqSubcodeReady;
+                WriteStatusResponse((byte)((byte)CdBlockDriveStatus.Pause | CdStatusPeriodic));
+                _cr1 &= 0xFF00;
             }
         }
 

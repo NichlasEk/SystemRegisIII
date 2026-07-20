@@ -314,3 +314,11 @@ The final sector drain now schedules periodic Busy `2080,4101,0100,00AF` with SC
 A clean 128M automatic run issues only one final command `00` at instruction 126,667,265, then returns to active game code without another CD command. It has no bus fault or unimplemented opcode, ends at master/slave PCs `0606B694`/`06005FA2`, and records 32,211,122 Work RAM High writes. The final response remains `2080,4101,0100,00AF`, with HIRQ reflecting the still-unacknowledged event bundle.
 
 This removes the dense Busy polling tail but does not yet reproduce the reference cleanup chain `51(count=0),00,48,00,44,42,46`. Continue by differentially tracing the callback or acknowledgement after BIOS accepts the periodic response. Preserve both the matched final `62 -> 00` HIRQ ordering and the newly proven periodic-control transition.
+
+## July 20 Periodic Pause Cleanup Release
+
+The accepted periodic report must describe Play end rather than remain Busy. Publishing the Mednafen-shaped periodic Pause response `2100,4101,0100,00AF` 1,000 master instructions after final command `62` releases the missing task path without adding an early PEND or SCDQ assertion. The already-latched SCDQ bit is preserved. The low byte is deliberately `00`: the earlier post-Play differential captured this exact form, and the local command trace still has HIRQ `0BC4` before its first post-drain `51`.
+
+SystemRegis now advances from `62,00` through `50,51(count=0),00,48,00,44,42,46`, then issues the exact next reference Play request `1080,12BB,0080,000C`. Its following Busy/FAD-`12BB` polling pattern `51,00,00` also matches Mednafen while the modeled long seek is in flight. The earlier apparent runaway is therefore normal game streaming activity, not another final-drain stall.
+
+One narrow ordering difference remains: SystemRegis asks for buffer size with command `50` before the first zero-count `51`, whereas the reference goes directly from the final `00` to `51`. Continue by comparing the BIOS task selection immediately after the `2100` descriptor is accepted, then validate the long-seek completion toward FAD `12C7`. Preserve the matched `62 -> 00`, periodic Pause, filter cleanup, and `12BB` Play request.

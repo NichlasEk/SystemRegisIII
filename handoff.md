@@ -147,17 +147,20 @@ watch on `060662E0..060662EF` identified the missing event. BIOS routine
 `0606F240..0606F280` rejects the response with `R0=-8` while the response-
 control byte copied from CR1 is `00`; it accepts a periodic response whose
 control byte carries bit `20`. One thousand master instructions after the final
-sector drain, the CD block now publishes periodic Busy `2080,4101,0100,00AF`
-and raises SCDQ without the disproven early PEND assertion. A clean 128M run
-then stops issuing command `00` after the single reference-shaped poll, remains
-fault-free at valid master/slave PCs `0606B694`/`06005FA2`, and reaches
-32,211,122 Work RAM High writes.
+sector drain, the CD block now publishes the byte-exact Play-end periodic Pause
+report `2100,4101,0100,00AF`. It adds neither PEND nor SCDQ; the local reference
+still has HIRQ `0BC4` before its first sector-count command, so the
+already-latched SCDQ bit is preserved rather than newly generated here.
 
-The reference cleanup commands `51` with count zero followed by
-`48,44,42,46` are still not visible in SystemRegis. The next differential is
-the callback or acknowledgement after the accepted periodic report; do not
-retune the matched `62 -> 00` edge, remove the periodic-control transition, or
-revive the rejected early-PEND experiment without new reference evidence.
+This releases the complete cleanup path. SystemRegis now advances from final
+`62,00` through `50,51(count=0),00,48,00,44,42,46`, then reaches the next
+reference Play request `1080,12BB,0080,000C`. Its subsequent `51,00,00` polling
+at Busy/FAD `12BB` also matches the local Mednafen trace while the new long seek
+is active. The remaining narrow discrepancy is the extra buffer-size command
+`50` before the first `51`; Mednafen begins directly with `51`. Do not retune
+the matched final HIRQ edge or revive early PEND/SCDQ. The next differential is
+the task selection that adds that one `50`, followed by the long-seek completion
+near FAD `12C7`.
 
 ## Verification
 

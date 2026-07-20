@@ -907,13 +907,14 @@ static void VerifySaturnSystemMap()
         Require(
             (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0081) == 0x0081,
             "CD Block drained play final deletion did not defer CMOK/EHST until HIRQ polling.");
+        var finalDrainEventHirq = largeIsoCd.HirqValue;
         largeIsoCd.AdvanceMasterInstructions(1_000);
         Require(
-            largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2080,
-            "CD Block drained play did not publish its deferred periodic Busy report.");
+            largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x2100,
+            "CD Block drained play did not publish its deferred periodic Pause report.");
         Require(
-            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0410) == 0x0400,
-            "CD Block drained play deferred periodic report did not expose SCDQ alone.");
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0410) == (finalDrainEventHirq & 0x0410),
+            "CD Block drained play deferred periodic report changed PEND/SCDQ unexpectedly.");
         IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play pre-reset status failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
