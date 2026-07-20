@@ -651,6 +651,7 @@ static int RunBios(string[] args)
     Console.WriteLine($"BIOS bytes: {bios.Bytes.Length:N0}");
     Console.WriteLine($"Master SH-2 PC: 0x{master.Registers.ProgramCounter:X8}");
     Console.WriteLine($"Master SH-2 SR: 0x{master.Registers.StatusRegister:X8}");
+    Console.WriteLine($"Master SH-2 state: {FormatSh2DiffState(master)}");
     if (suspectStackTransition is not null)
     {
         Console.WriteLine($"Master SH-2 suspect stack provenance: {suspectStackTransition}");
@@ -699,6 +700,14 @@ static int RunBios(string[] args)
         {
             Console.WriteLine($"  {command}");
         }
+        if (cdCommandTrace.Count > 128)
+        {
+            Console.WriteLine("CD recent command timeline:");
+            foreach (var command in cdCommandTrace.TakeLast(256))
+            {
+                Console.WriteLine($"  {command}");
+            }
+        }
     }
     if (cdHirqTrace.Count > 0)
     {
@@ -706,6 +715,14 @@ static int RunBios(string[] args)
         foreach (var write in cdHirqTrace.Take(128))
         {
             Console.WriteLine($"  {write}");
+        }
+        if (cdHirqTrace.Count > 128)
+        {
+            Console.WriteLine("CD recent HIRQ timeline:");
+            foreach (var write in cdHirqTrace.TakeLast(256))
+            {
+                Console.WriteLine($"  {write}");
+            }
         }
     }
 

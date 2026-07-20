@@ -88,6 +88,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _playLongSeek;
     private bool _playCompletesAfterSectorDrain;
     private bool _playFinalSectorBusyAfterStatus;
+    private bool _preserveFinalSectorStoredHirq;
+    private bool _deferFinalSectorEndHostIo;
     private bool _postDrainPauseAfterStatus;
     private int _postDeleteSeekStatusPollsRemaining;
     private int _postDeleteBusyStatusPollsRemaining;
@@ -520,7 +522,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         _hasExecutedCommand = true;
         _endHostIoCompleted = false;
+        _preserveFinalSectorStoredHirq = false;
+        _deferFinalSectorEndHostIo = false;
         RecordRecentCommand(LastCommandCode);
+        if (_playFinalSectorBusyAfterStatus && LastCommandCode is not 0x00 and not 0x51)
+        {
+            _playFinalSectorBusyAfterStatus = false;
+        }
         switch (LastCommandCode)
         {
             case 0x00:
@@ -624,7 +632,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         else
         {
-            _hirq |= HirqCmok;
+            if (LastCommandCode != 0x00
+                || !_playCompletesAfterSectorDrain
+                || _partitionSectorCounts[0] != 0)
+            {
+                _hirq |= HirqCmok;
+            }
         }
         if (_discImage is not null && LastCommandCode == 0x00 && ReadFileCompletionCount == 0)
         {
@@ -670,6 +683,16 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqEndFileSystem | HirqSectorStored | HirqSubcodeReady;
         }
+
+        if (_preserveFinalSectorStoredHirq)
+        {
+            _hirq &= unchecked((ushort)~(HirqCmok | HirqDataReady));
+            _hirq |= HirqSectorStored;
+            if (_deferFinalSectorEndHostIo)
+            {
+                _hirq &= unchecked((ushort)~HirqEndHostIo);
+            }
+        }
     }
 
     private void GetCurrentStatus()
@@ -712,12 +735,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         if (_playCompletesAfterSectorDrain)
         {
-            WriteStatusResponse(_status);
             if (_playFinalSectorBusyAfterStatus)
             {
+                WriteStatusResponse((byte)CdBlockDriveStatus.Play);
                 _playFinalSectorBusyAfterStatus = false;
-                _status = (byte)CdBlockDriveStatus.Busy;
                 _hirq |= HirqSubcodeReady;
+                _preserveFinalSectorStoredHirq = true;
+                return;
+            }
+            WriteStatusResponse(_status);
+            if (_partitionSectorCounts[0] == 0)
+            {
+                _commandCompletionHirqReadsRemaining = 1;
+                _commandCompletionHirqBits = HirqCmok;
             }
             return;
         }
@@ -1086,6 +1116,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr2 = 0x0000;
         _cr3 = 0x0000;
         _cr4 = (ushort)Math.Min(_partitionSectorCounts[partition], ushort.MaxValue);
+        if (_playCompletesAfterSectorDrain && _partitionSectorCounts[partition] == 1)
+        {
+            if (_status == (byte)CdBlockDriveStatus.Play)
+            {
+                _playFinalSectorBusyAfterStatus = true;
+                _status = (byte)CdBlockDriveStatus.Busy;
+                _currentFad = _partitionFads[partition] + _partitionSectorCounts[partition];
+            }
+            _commandCompletionHirqReadsRemaining = 1;
+            _commandCompletionHirqBits = HirqCmok | HirqSubcodeReady;
+            _preserveFinalSectorStoredHirq = true;
+        }
     }
 
     private void GetBufferSize()
@@ -1226,7 +1268,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _status = _partitionSectorCounts[partition] == 0
                 ? (byte)CdBlockDriveStatus.Busy
                 : (byte)CdBlockDriveStatus.Play;
-            _playFinalSectorBusyAfterStatus = _partitionSectorCounts[partition] == 1;
+            if (_partitionSectorCounts[partition] == 0)
+            {
+                _preserveFinalSectorStoredHirq = true;
+                _deferFinalSectorEndHostIo = true;
+                _commandCompletionHirqReadsRemaining = 1;
+                _commandCompletionHirqBits = HirqCmok | HirqEndHostIo;
+            }
         }
         WriteStatusResponse(_status);
         if (_playLongSeek && _status == (byte)CdBlockDriveStatus.Seek)

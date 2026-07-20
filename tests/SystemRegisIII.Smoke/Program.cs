@@ -901,6 +901,12 @@ static void VerifySaturnSystemMap()
         IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play final deletion status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00AF, "CD Block drained play final FAD failed.");
+        Require(
+            (largeIsoCd.HirqValue & 0x0085) == 0x0004,
+            "CD Block drained play final deletion exposed CMOK/EHST before CSCT completion.");
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0081) == 0x0081,
+            "CD Block drained play final deletion did not defer CMOK/EHST until HIRQ polling.");
         IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block drained play pre-reset status failed.");
         IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);

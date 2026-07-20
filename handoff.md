@@ -132,12 +132,21 @@ The first continuation exposed missing SH-2 `CMP/STR` (`264C`), which is now
 implemented and smoke-tested. Late short Play requests also remain active until
 their partition is drained, advance FAD per deleted sector, and enter Busy at
 the final-sector boundary instead of completing on the old fixed timer. A clean
-128M run has no bus fault or unimplemented opcode, completes six
-`52,53,61,06,62` cycles, and ends at valid master/slave PCs
-`0606F252`/`06005FA2`. The current live tail repeatedly polls command `00` with
-`0080,4101,0100,00AF`; continue with the final Busy-to-Pause/event timing that
-should release `48,44,42,46`, not the resolved `52`, `62`, `CMP/STR`, or cache
-boundaries.
+128M run has no bus fault or unimplemented opcode and completes six
+`52,53,61,06,62` cycles.
+
+The final-sector HIRQ boundary is now split into the two hardware-visible
+phases seen in the local Mednafen trace. Final command `62` returns Busy/FAD
+`00AF` with HIRQ `0B44`; the first HIRQ poll then publishes deferred
+`CMOK|EHST`, allowing command `00` to run with HIRQ `0BC4`. A focused smoke
+assertion locks that ordering. The old master timeout at `060683AA` is gone;
+the current 126.72M tail is live BIOS work around `0606F2D0` issuing repeated
+Busy/FAD-`00AF` status commands. Adding `PEND` at that point was tested and
+rejected: it remained latched as `0BD4` and did not cause cleanup. The next
+differential is the scheduling/acknowledgement that makes the reference issue
+`51` with sector count zero after the first final status report, followed by
+`48,44,42,46`. Do not retune the now-matched `62 -> 00` HIRQ edge or revive the
+rejected early-PEND experiment.
 
 ## Verification
 
