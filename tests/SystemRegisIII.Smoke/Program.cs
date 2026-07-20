@@ -940,6 +940,22 @@ static void VerifySaturnSystemMap()
         Require((largeIsoMap.Bus.ReadWord(0x2589_0018) & 0x2000) == 0, "CD Block post-file-info periodic status completed too early.");
         largeIsoCd.AdvanceMasterInstructions(1);
         Require((largeIsoMap.Bus.ReadWord(0x2589_0018) & 0x2000) != 0, "CD Block post-file-info periodic status failed.");
+
+        IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x12BB, 0x0080, 0x000C);
+        largeIsoCd.AdvanceMasterInstructions(600_000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block multi-sector long play seek transition failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12BB, "CD Block multi-sector long play seek FAD failed.");
+        largeIsoCd.AdvanceMasterInstructions(2_900_000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380, "CD Block multi-sector long play transition failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12C7, "CD Block multi-sector long play end FAD failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block multi-sector long play sector-count status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block multi-sector long play sector count failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x4380, "CD Block multi-sector long play DTREQ status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block multi-sector long play track failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block multi-sector long play index failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12C7, "CD Block multi-sector long play transfer FAD failed.");
     }
     finally
     {

@@ -945,15 +945,23 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void PublishPlayEndStatus()
     {
+        var entersPlay = _playLongSeek && _playPendingSectorCount > 1;
         _playSeekActive = false;
         _currentFad = _playEndFad;
         if (_playPendingSectorCount > 0)
         {
-            _partitionSectorCounts[0] = _playPendingSectorCount;
+            // A long seek exposes only the sector that has just completed at
+            // the pickup, not the full requested play range at once.
+            _partitionFads[0] = _playLongSeek ? _playEndFad - 1 : _partitionFads[0];
+            _partitionSectorCounts[0] = _playLongSeek ? 1u : _playPendingSectorCount;
             _playPendingSectorCount = 0;
         }
-        _status = (byte)(_playLongSeek ? CdBlockDriveStatus.Seek : CdBlockDriveStatus.Pause);
-        _cr1 = _playLongSeek ? (ushort)0x0480 : (ushort)0x2100;
+        _status = (byte)(_playLongSeek
+            ? entersPlay ? CdBlockDriveStatus.Play : CdBlockDriveStatus.Seek
+            : CdBlockDriveStatus.Pause);
+        _cr1 = _playLongSeek
+            ? entersPlay ? (ushort)0x0380 : (ushort)0x0480
+            : (ushort)0x2100;
         _cr2 = 0x4101;
         _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
         _cr4 = (ushort)_currentFad;
@@ -1227,9 +1235,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         sectorCount = Math.Min(sectorCount, partitionSectorCount - sectorOffset);
         StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
-        if (LastCommandCode == 0x61 && _status == (byte)CdBlockDriveStatus.Seek)
+        if (LastCommandCode == 0x61
+            && (_status == (byte)CdBlockDriveStatus.Seek || _status == (byte)CdBlockDriveStatus.Play))
         {
-            _cr1 = 0x4480;
+            _cr1 = (ushort)(((_status | CdStatusDataTransferRequest) << 8) | CdRomStatusBit);
             _cr2 = 0x4101;
             _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
             _cr4 = (ushort)_currentFad;
