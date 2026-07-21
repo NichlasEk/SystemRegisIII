@@ -87,6 +87,23 @@ static void VerifySaturnSystemMap()
 {
     var bios = new BiosImage("test-bios", [0x20, 0x00, 0x02, 0x00, 0x06, 0x00, 0x20, 0x00]);
     var systemMap = SaturnSystemMap.CreateBringup(bios);
+    var masterInternalBus = new Sh2InternalRegisterBus(systemMap.Bus, Sh2CpuRole.Master);
+    var slaveInternalBus = new Sh2InternalRegisterBus(systemMap.Bus, Sh2CpuRole.Slave);
+    systemMap.MasterFrtInputCapture.Triggered += masterInternalBus.TriggerFrtInputCapture;
+    systemMap.SlaveFrtInputCapture.Triggered += slaveInternalBus.TriggerFrtInputCapture;
+
+    systemMap.Bus.WriteWord(0x2180_0000, 0x0000);
+    Require(
+        (masterInternalBus.ReadByte(0xFFFF_FE11) & 0x80) != 0,
+        "Master SH-2 FRT input-capture trigger mapping failed.");
+    Require(
+        (slaveInternalBus.ReadByte(0xFFFF_FE11) & 0x80) == 0,
+        "Master SH-2 FRT trigger leaked into the slave timer.");
+    masterInternalBus.WriteByte(0xFFFF_FE11, 0x00);
+    systemMap.Bus.WriteWord(0x2100_0000, 0x0000);
+    Require(
+        (slaveInternalBus.ReadByte(0xFFFF_FE11) & 0x80) != 0,
+        "Slave SH-2 FRT input-capture trigger mapping failed.");
 
     Require(systemMap.Bus.ReadLong(0x0000_0000) == 0x2000_0200, "Bringup BIOS mapping failed.");
     systemMap.Bus.WriteLong(0x0600_0000, 0xDEAD_BEEF);

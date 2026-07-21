@@ -117,6 +117,11 @@ static int RunBios(string[] args)
     var addressMap = systemMap.Bus;
     var masterInternalBus = new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Master);
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
+    systemMap.MasterFrtInputCapture.Triggered += masterInternalBus.TriggerFrtInputCapture;
+    if (slaveInternalBus is not null)
+    {
+        systemMap.SlaveFrtInputCapture.Triggered += slaveInternalBus.TriggerFrtInputCapture;
+    }
     Sh2Cpu? master = null;
     Sh2Cpu? slave = null;
     var currentInstructionIndex = -1L;

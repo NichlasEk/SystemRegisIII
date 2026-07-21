@@ -12,6 +12,8 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
     private const uint BusControlRegister1 = 0xFFFF_FFE2;
     private const byte BusControlMasterBit = 0x80;
     private const uint CacheControlRegister = 0xFFFF_FE92;
+    private const uint FreeRunningTimerStatusRegister = 0xFFFF_FE11;
+    private const byte FreeRunningTimerInputCaptureFlag = 0x80;
     private const int CacheSetCount = 64;
     private const int CacheWayCount = 4;
     private const int CacheLineSize = 16;
@@ -51,6 +53,9 @@ public sealed class Sh2InternalRegisterBus : ISaturnBus, ISh2InstructionBus
     public byte CacheControl => _cacheControl;
     public long CacheHits { get; private set; }
     public long CacheMisses { get; private set; }
+
+    public void TriggerFrtInputCapture() =>
+        _registers[FreeRunningTimerStatusRegister - InternalStart] |= FreeRunningTimerInputCaptureFlag;
 
     public ushort ReadInstructionWord(uint address)
     {

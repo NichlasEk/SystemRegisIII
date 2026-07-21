@@ -20,6 +20,8 @@ public sealed class SaturnSystemMap
         DebugMemoryBusDevice vdp2Cram,
         Vdp2RegisterBusDevice vdp2Registers,
         CdBlockRegisterBusDevice cdBlock,
+        FrtInputCaptureTriggerBusDevice slaveFrtInputCapture,
+        FrtInputCaptureTriggerBusDevice masterFrtInputCapture,
         IReadOnlyList<IInspectableBusDevice> stubs)
     {
         Bus = bus;
@@ -31,6 +33,8 @@ public sealed class SaturnSystemMap
         Vdp2Registers = vdp2Registers;
         _vdp2RegisterTiming = vdp2Registers;
         CdBlock = cdBlock;
+        SlaveFrtInputCapture = slaveFrtInputCapture;
+        MasterFrtInputCapture = masterFrtInputCapture;
         Stubs = stubs;
     }
 
@@ -42,6 +46,8 @@ public sealed class SaturnSystemMap
     public DebugMemoryBusDevice Vdp2Cram { get; }
     public DebugMemoryBusDevice Vdp2Registers { get; }
     public CdBlockRegisterBusDevice CdBlock { get; }
+    public FrtInputCaptureTriggerBusDevice SlaveFrtInputCapture { get; }
+    public FrtInputCaptureTriggerBusDevice MasterFrtInputCapture { get; }
     public IReadOnlyList<IInspectableBusDevice> Stubs { get; }
 
     public void AdvanceVdp2MasterInstructions(int instructionCount) =>
@@ -73,6 +79,8 @@ public sealed class SaturnSystemMap
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
         var vdp2Registers = new Vdp2RegisterBusDevice();
+        var slaveFrtInputCapture = new FrtInputCaptureTriggerBusDevice("Slave FRT Input Capture");
+        var masterFrtInputCapture = new FrtInputCaptureTriggerBusDevice("Master FRT Input Capture");
 
         IInspectableBusDevice[] stubs =
         [
@@ -90,6 +98,8 @@ public sealed class SaturnSystemMap
             vdp2Registers,
             scuRegisters,
             new StubBusDevice("SH-2 Internal Registers"),
+            slaveFrtInputCapture,
+            masterFrtInputCapture,
         ];
 
         var builder = new SaturnAddressMapBuilder()
@@ -97,8 +107,8 @@ public sealed class SaturnSystemMap
             .Map(0x0010_0000, 0x0017_FFFF, stubs[0])
             .Map(0x0018_0000, 0x001F_FFFF, stubs[1])
             .Map(0x0020_0000, 0x002F_FFFF, workRamLow)
-            .Map(0x0100_0000, 0x010F_FFFF, stubs[1])
-            .Map(0x0180_0000, 0x01FF_FFFF, stubs[2])
+            .Map(0x0100_0000, 0x017F_FFFF, slaveFrtInputCapture)
+            .Map(0x0180_0000, 0x01FF_FFFF, masterFrtInputCapture)
             .Map(0x0200_0000, 0x020F_FFFF, stubs[3])
             .Map(0x0400_0000, 0x04FF_FFFF, stubs[4])
             .Map(0x0580_0000, 0x058F_FFFF, stubs[5])
@@ -113,7 +123,18 @@ public sealed class SaturnSystemMap
             .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
             .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[13]);
 
-        return new SaturnSystemMap(builder.Build(), workRamLow, workRamHigh, vdp1Area, vdp2Vram, vdp2Cram, vdp2Registers, cdBlockRegisterMirror, stubs);
+        return new SaturnSystemMap(
+            builder.Build(),
+            workRamLow,
+            workRamHigh,
+            vdp1Area,
+            vdp2Vram,
+            vdp2Cram,
+            vdp2Registers,
+            cdBlockRegisterMirror,
+            slaveFrtInputCapture,
+            masterFrtInputCapture,
+            stubs);
     }
 
     private static IMainMemory CreateHighWorkRam(SaturnBringupOptions options)
