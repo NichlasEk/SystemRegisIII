@@ -1025,7 +1025,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             // distinct 51/61/06/62 cycles instead of treating the first
             // stored sector as the end of the whole play request.
             _partitionFads[0] = _playLongSeek
-                ? _currentFad
+                ? _playEndFad - _playPendingSectorCount
                 : _partitionFads[0];
             _partitionSectorCounts[0] = _playLongSeek ? 1u : _playPendingSectorCount;
             _playPendingSectorCount = _playLongSeek ? _playPendingSectorCount - 1 : 0;
@@ -1407,7 +1407,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             // BIOS observes completion on its ninth word poll.  The device
             // is byte-addressed, so each SH-2 word poll performs two reads.
             _commandCompletionHirqReadsRemaining = 18;
-            _commandCompletionHirqBits = HirqCmok;
+            _commandCompletionHirqBits = hasPendingLongPlaySector
+                ? (ushort)(HirqCmok | HirqEndHostIo)
+                : HirqCmok;
             if (!hasPendingLongPlaySector)
             {
                 _longPlayDeletedSectorStatus = true;

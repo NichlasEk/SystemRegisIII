@@ -842,7 +842,10 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block seek-sector index failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x00A7, "CD Block seek-sector FAD failed.");
         Require(largeIsoCd.DataTransferWordCount == 0x0400, "CD Block seek-sector transfer length failed.");
-        for (var word = 0; word < 0x0400; word++)
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_8000) == 0x0143,
+            "CD Block seek-sector data did not come from the sector preceding the reported pickup FAD.");
+        for (var word = 1; word < 0x0400; word++)
         {
             largeIsoMap.Bus.ReadWord(0x2589_8000);
         }
@@ -983,8 +986,8 @@ static void VerifySaturnSystemMap()
                     $"CD Block multi-sector long play sector {sector} completed too early at poll {completionPoll}.");
             }
             Require(
-                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0005,
-                $"CD Block multi-sector long play sector {sector} did not publish CMOK on its ninth poll.");
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == (sector < 11 ? 0x0085 : 0x0005),
+                $"CD Block multi-sector long play sector {sector} did not publish its completion edge on the ninth poll.");
             if (sector == 0)
             {
                 for (var seekStatusPoll = 0; seekStatusPoll < 8; seekStatusPoll++)
