@@ -220,7 +220,10 @@ internal readonly record struct WatchedAccessContext(
     uint R11,
     uint R12,
     uint R13,
-    uint R14);
+    uint R14,
+    long InstructionIndex = -1,
+    long DeleteSectorCommandOccurrence = 0,
+    byte LastCdCommand = 0);
 
 internal readonly record struct WatchedAccess(WatchedAccessContext? Context, uint Address, uint Value);
 

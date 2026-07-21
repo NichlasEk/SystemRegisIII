@@ -119,6 +119,8 @@ static int RunBios(string[] args)
     var slaveInternalBus = dualSh2 ? new Sh2InternalRegisterBus(addressMap, Sh2CpuRole.Slave) : null;
     Sh2Cpu? master = null;
     Sh2Cpu? slave = null;
+    var currentInstructionIndex = -1L;
+    var cdCommandOccurrences = new long[256];
     var masterVdp1TextureSourceWatch = new WatchedBus(
         masterInternalBus,
         0x0602_9194,
@@ -198,14 +200,31 @@ static int RunBios(string[] args)
         masterCdResponseControlWatch,
         0x0606_662C,
         0x0606_662C,
-        () => GetWatchContext(master));
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
     var masterCdTaskAccumulatorWatch = new WatchedBus(
         masterCdTaskQuantumWatch,
         0x0606_6EAC,
         0x0606_6EAC,
-        () => GetWatchContext(master));
-    var masterNightsCodeWatch = new WatchedBus(
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
+    var masterCdTaskLifecycleWatch = new WatchedBus(
         masterCdTaskAccumulatorWatch,
+        0x0606_6ED8,
+        0x0606_6ED8,
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
+    var masterNightsCodeWatch = new WatchedBus(
+        masterCdTaskLifecycleWatch,
         0x0606_81C0,
         0x0606_821F,
         () => GetWatchContext(master));
@@ -370,7 +389,6 @@ static int RunBios(string[] args)
     var sh2DiffTrace = new List<string>(Math.Min(sh2DiffTraceCount, 1_000_000));
     var cdCommandTrace = new List<string>();
     var cdHirqTrace = new List<string>();
-    var cdCommandOccurrences = new long[256];
     long observedCdCommandCount = 0;
     long observedCdHirqWriteCount = 0;
     var sh2DiffTraceArmed = false;
@@ -378,6 +396,7 @@ static int RunBios(string[] args)
 
     for (var i = 0; i < instructionCount; i++)
     {
+        currentInstructionIndex = i;
         while (smpc.TryConsumeInterrupt())
         {
             scu.RaiseSmpc();
@@ -801,6 +820,7 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master CD response-control watch", masterCdResponseControlWatch);
         PrintWatchWindow("Master CD task-quantum watch", masterCdTaskQuantumWatch);
         PrintWatchWindow("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
+        PrintWatchWindow("Master CD task-lifecycle watch", masterCdTaskLifecycleWatch);
         PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
@@ -925,8 +945,9 @@ static int RunBios(string[] args)
     PrintTouchedStubs(systemMap);
     if (summaryOnly)
     {
-        PrintWatchSummary("Master CD task-quantum watch", masterCdTaskQuantumWatch);
-        PrintWatchSummary("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
+        PrintWatchWindow("Master CD task-quantum watch", masterCdTaskQuantumWatch);
+        PrintWatchWindow("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
+        PrintWatchWindow("Master CD task-lifecycle watch", masterCdTaskLifecycleWatch);
     }
 
     if (traceEnabled)
@@ -1112,7 +1133,11 @@ static bool IsDetailedHotPcReport(string name) =>
     || name.Contains("callback", StringComparison.Ordinal)
     || name.Contains("setup", StringComparison.Ordinal);
 
-static WatchedAccessContext? GetWatchContext(Sh2Cpu? cpu) =>
+static WatchedAccessContext? GetWatchContext(
+    Sh2Cpu? cpu,
+    long instructionIndex = -1,
+    long deleteSectorCommandOccurrence = 0,
+    byte lastCdCommand = 0) =>
     cpu is null
         ? null
         : new WatchedAccessContext(
@@ -1133,7 +1158,10 @@ static WatchedAccessContext? GetWatchContext(Sh2Cpu? cpu) =>
             cpu.Registers.General[11],
             cpu.Registers.General[12],
             cpu.Registers.General[13],
-            cpu.Registers.General[14]);
+            cpu.Registers.General[14],
+            instructionIndex,
+            deleteSectorCommandOccurrence,
+            lastCdCommand);
 
 static void PrintMasterGbrLoopProbe(Sh2Cpu master, ISaturnBus bus)
 {
@@ -1533,7 +1561,10 @@ static string FormatWatchContext(WatchedAccessContext? context)
     }
 
     var pc = value.ProgramCounter is { } programCounter ? $"0x{programCounter:X8}" : "<unknown>";
-    return $"pc={pc} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8} r1=0x{value.R1:X8} r2=0x{value.R2:X8} r3=0x{value.R3:X8} r4=0x{value.R4:X8} r5=0x{value.R5:X8} r6=0x{value.R6:X8} r7=0x{value.R7:X8} r8=0x{value.R8:X8} r9=0x{value.R9:X8} r10=0x{value.R10:X8} r11=0x{value.R11:X8} r12=0x{value.R12:X8} r13=0x{value.R13:X8} r14=0x{value.R14:X8}";
+    var timing = value.InstructionIndex >= 0
+        ? $" i={value.InstructionIndex:N0} cd62={value.DeleteSectorCommandOccurrence:N0} last-cd=0x{value.LastCdCommand:X2}"
+        : string.Empty;
+    return $"pc={pc}{timing} pr=0x{value.ProcedureRegister:X8} gbr=0x{value.GlobalBaseRegister:X8} r0=0x{value.R0:X8} r1=0x{value.R1:X8} r2=0x{value.R2:X8} r3=0x{value.R3:X8} r4=0x{value.R4:X8} r5=0x{value.R5:X8} r6=0x{value.R6:X8} r7=0x{value.R7:X8} r8=0x{value.R8:X8} r9=0x{value.R9:X8} r10=0x{value.R10:X8} r11=0x{value.R11:X8} r12=0x{value.R12:X8} r13=0x{value.R13:X8} r14=0x{value.R14:X8}";
 }
 
 static string FormatLoopProbeInstruction(ISaturnBus bus, uint address)

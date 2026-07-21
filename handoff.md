@@ -180,6 +180,20 @@ first accumulator write after the eighteenth command `62`, so the missing
 earlier lifecycle/reset of `06066EAC`; do not retune the matched HIRQ waveform
 or add a command-specific task-selection shortcut.
 
+That reset is now localized. After SystemRegis command `62` occurrence six,
+the scheduler adds `0800`, then task destruction at `0606C3F2` clears
+`06066EAC`; the task callback path later clears it again in the `RTS` delay
+slot at `0606CC6E`. Both clears happen before occurrence seven and the long
+Play completes. In the corresponding Mednafen interval, the accumulator is
+retained as `5000`, grows to `5800`, then to `5FE0` at the next `62`, and is
+only cleared afterward. Caller `0606B418` selects the callback/destructor path
+from the lifecycle word at task offset `+0x34` (`06066ED8`): values zero and
+six take the path, while other values skip it. The CLI now keeps bounded,
+instruction-stamped watches for the quantum, accumulator, and this lifecycle
+word. Continue by comparing the write that changes `06066ED8` and the
+destructor caller around `0606BDD4..0606BDF6`; the divergence is one task
+lifetime too early, not an arithmetic or HIRQ-waveform error.
+
 ## Verification
 
 Focused validation:
