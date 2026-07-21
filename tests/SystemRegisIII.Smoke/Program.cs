@@ -946,35 +946,71 @@ static void VerifySaturnSystemMap()
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0400, "CD Block multi-sector long play seek transition failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12BB, "CD Block multi-sector long play seek FAD failed.");
         largeIsoCd.AdvanceMasterInstructions(2_900_000);
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0380, "CD Block multi-sector long play transition failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12C7, "CD Block multi-sector long play end FAD failed.");
-        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0300, "CD Block multi-sector long play sector-count status failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, "CD Block multi-sector long play sector count failed.");
-        Require((largeIsoCd.HirqValue & 0x0005) == 0x0005, "CD Block multi-sector long play CMOK/CSCT status failed.");
-        IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x4380, "CD Block multi-sector long play DTREQ status failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block multi-sector long play track failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block multi-sector long play index failed.");
-        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12C7, "CD Block multi-sector long play transfer FAD failed.");
-        while (largeIsoCd.DataTransferWordsRead < largeIsoCd.DataTransferWordCount)
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0480, "CD Block multi-sector long play pickup seek status failed.");
+        Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x12BC, "CD Block multi-sector long play first pickup FAD failed.");
+        for (var sector = 0; sector < 12; sector++)
         {
-            largeIsoMap.Bus.ReadLong(0x2589_8000);
-        }
-        IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
-        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
-        Require(
-            (largeIsoCd.HirqValue & 0x0085) == 0x0004,
-            "CD Block multi-sector long play deletion did not retain CSCT without CMOK/EHST.");
-        for (var completionPoll = 0; completionPoll < 8; completionPoll++)
-        {
+            var expectedPickupFad = (ushort)(0x12BC + sector);
+            IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+            var expectedCountStatus = sector == 0 ? (ushort)0x0400 : (ushort)0x0300;
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == expectedCountStatus, $"CD Block multi-sector long play sector {sector} count status failed.");
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001, $"CD Block multi-sector long play sector {sector} count failed.");
+            Require((largeIsoCd.HirqValue & 0x0005) == 0x0005, $"CD Block multi-sector long play sector {sector} CMOK/CSCT status failed.");
+            if (sector == 0)
+            {
+                IssueCdCommand(largeIsoMap.Bus, 0x5200, 0x0000, 0x0000, 0x0001);
+                Require(largeIsoCd.ResponseCr1 == 0x0480, "CD Block first long-play sector size calculation lost seek status.");
+            }
+            IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
+            var expectedTransferStatus = sector == 0 ? (ushort)0x4480 : (ushort)0x4380;
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == expectedTransferStatus, $"CD Block multi-sector long play sector {sector} DTREQ status failed.");
+            Require(largeIsoMap.Bus.ReadWord(0x2589_001C) == 0x4101, $"CD Block multi-sector long play sector {sector} track failed.");
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0020) == 0x0100, $"CD Block multi-sector long play sector {sector} index failed.");
+            Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == expectedPickupFad, $"CD Block multi-sector long play sector {sector} transfer FAD failed.");
+            while (largeIsoCd.DataTransferWordsRead < largeIsoCd.DataTransferWordCount)
+            {
+                largeIsoMap.Bus.ReadLong(0x2589_8000);
+            }
+            IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+            IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
             Require(
-                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0004,
-                $"CD Block multi-sector long play completed too early at poll {completionPoll}.");
+                (largeIsoCd.HirqValue & 0x0085) == 0x0004,
+                $"CD Block multi-sector long play sector {sector} deletion did not retain CSCT without CMOK/EHST.");
+            for (var completionPoll = 0; completionPoll < 8; completionPoll++)
+            {
+                Require(
+                    (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0004,
+                    $"CD Block multi-sector long play sector {sector} completed too early at poll {completionPoll}.");
+            }
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0005,
+                $"CD Block multi-sector long play sector {sector} did not publish CMOK on its ninth poll.");
+            if (sector == 0)
+            {
+                for (var seekStatusPoll = 0; seekStatusPoll < 8; seekStatusPoll++)
+                {
+                    IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+                    Require(
+                        largeIsoCd.ResponseCr1 == 0x0480,
+                        $"CD Block first long-play deletion left seek too early at status poll {seekStatusPoll}.");
+                }
+            }
+            if (sector < 11)
+            {
+                largeIsoCd.AdvanceMasterInstructions(139_999);
+                IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+                Require(
+                    largeIsoMap.Bus.ReadWord(0x2589_0024) == 0,
+                    $"CD Block multi-sector long play sector {sector + 1} arrived too early.");
+                largeIsoCd.AdvanceMasterInstructions(1);
+                Require(
+                    (largeIsoCd.HirqValue & 0x0404) == 0x0404,
+                    $"CD Block multi-sector long play sector {sector + 1} did not publish SCDQ with retained CSCT.");
+                Require(
+                    largeIsoCd.ResponseCr1 == 0x0380,
+                    $"CD Block multi-sector long play sector {sector + 1} did not publish Play status.");
+            }
         }
-        Require(
-            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0085) == 0x0005,
-            "CD Block multi-sector long play did not publish CMOK on its ninth poll.");
         IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
         Require(
             (largeIsoCd.HirqValue & 0x0085) == 0x0004,

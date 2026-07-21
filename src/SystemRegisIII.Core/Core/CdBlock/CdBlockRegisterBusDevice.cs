@@ -38,6 +38,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int StartupPeriodicInstructionCount = 200_000;
     private const int PostFileInfoPeriodicInstructionCount = 38_000;
     private const int PlaySectorInstructionCount = 1_000;
+    private const int LongPlaySectorInstructionCount = 140_000;
     private const int FinalDrainPeriodicInstructionCount = 1_000;
     private const int LongPlaySeekStatusInstructionCount = 600_000;
     private const int LongPlaySeekEndInstructionCount = 3_500_000;
@@ -92,6 +93,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _playCompletesAfterSectorDrain;
     private bool _playFinalSectorBusyAfterStatus;
     private bool _longPlaySectorStored;
+    private int _longPlayNextSectorInstructionsRemaining;
     private bool _longPlayDeletedSectorStatus;
     private int _longPlayDeletedSectorStatusCommandsRemaining;
     private bool _preserveFinalSectorStoredHirq;
@@ -316,6 +318,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_playSeekStatusInstructionsRemaining <= 0)
             {
                 PublishPlaySeekStatus();
+            }
+        }
+
+        if (_longPlayNextSectorInstructionsRemaining > 0)
+        {
+            _longPlayNextSectorInstructionsRemaining -= instructionCount;
+            if (_longPlayNextSectorInstructionsRemaining <= 0)
+            {
+                PublishNextLongPlaySector();
             }
         }
 
@@ -769,7 +780,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _postDeleteSeekStatusPollsRemaining--;
             if (_postDeleteSeekStatusPollsRemaining == 0)
             {
-                _status = (byte)CdBlockDriveStatus.Busy;
+                _status = _playLongSeek && _playPendingSectorCount > 0
+                    ? (byte)CdBlockDriveStatus.Play
+                    : (byte)CdBlockDriveStatus.Busy;
                 _hirq |= HirqSubcodeReady;
             }
             return;
@@ -963,6 +976,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playCompletesAfterSectorDrain = !longSeek && previousFad > FirstTrackFad + 0x10;
         _playFinalSectorBusyAfterStatus = false;
         _longPlaySectorStored = false;
+        _longPlayNextSectorInstructionsRemaining = 0;
         _longPlayDeletedSectorStatus = false;
         _longPlayDeletedSectorStatusCommandsRemaining = 0;
         _postDrainPauseAfterStatus = false;
@@ -1000,22 +1014,25 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void PublishPlayEndStatus()
     {
-        var entersPlay = _playLongSeek && _playPendingSectorCount > 1;
         _playSeekActive = false;
-        _currentFad = _playEndFad;
+        _currentFad = _playLongSeek && _playPendingSectorCount > 0
+            ? _playEndFad - _playPendingSectorCount + 1
+            : _playEndFad;
         if (_playPendingSectorCount > 0)
         {
-            // A long seek exposes only the sector that has just completed at
-            // the pickup, not the full requested play range at once.
-            _partitionFads[0] = _playLongSeek ? _playEndFad - 1 : _partitionFads[0];
+            // A long seek exposes one completed sector at a time.  Keep the
+            // rest pending so BIOS can drain all requested sectors through
+            // distinct 51/61/06/62 cycles instead of treating the first
+            // stored sector as the end of the whole play request.
+            _partitionFads[0] = _playLongSeek
+                ? _currentFad
+                : _partitionFads[0];
             _partitionSectorCounts[0] = _playLongSeek ? 1u : _playPendingSectorCount;
-            _playPendingSectorCount = 0;
+            _playPendingSectorCount = _playLongSeek ? _playPendingSectorCount - 1 : 0;
         }
-        _status = (byte)(_playLongSeek
-            ? entersPlay ? CdBlockDriveStatus.Play : CdBlockDriveStatus.Seek
-            : CdBlockDriveStatus.Pause);
+        _status = (byte)(_playLongSeek ? CdBlockDriveStatus.Seek : CdBlockDriveStatus.Pause);
         _cr1 = _playLongSeek
-            ? entersPlay ? (ushort)0x0380 : (ushort)0x0480
+            ? (ushort)0x0480
             : (ushort)0x2100;
         _cr2 = 0x4101;
         _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
@@ -1024,7 +1041,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _hirq |= HirqPlayEnd;
         }
-        else if (entersPlay)
+        else
         {
             // The sector exposed when a long play reaches its pickup remains
             // stored while BIOS calculates and transfers it.  Keep CSCT set
@@ -1033,6 +1050,24 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _longPlaySectorStored = true;
             _hirq |= HirqSectorStored;
         }
+    }
+
+    private void PublishNextLongPlaySector()
+    {
+        if (!_playLongSeek || _playPendingSectorCount == 0)
+        {
+            return;
+        }
+
+        _partitionFads[0]++;
+        _partitionSectorCounts[0] = 1;
+        _playPendingSectorCount--;
+        _currentFad++;
+        WriteStatusResponse(_status);
+        _longPlaySectorStored = true;
+        // CSCT remains latched across the stream.  BIOS polls the partition
+        // count and observes the new sector without enabling the CD IRQ mask.
+        _hirq |= HirqSectorStored | HirqSubcodeReady;
     }
 
     private void SetFilterRange()
@@ -1139,6 +1174,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _partitionSectorCounts[partition] = 0;
             _partitionStreamEndFads[partition] = 0;
             _longPlaySectorStored = false;
+            _longPlayNextSectorInstructionsRemaining = 0;
             _longPlayDeletedSectorStatus = false;
             _longPlayDeletedSectorStatusCommandsRemaining = 0;
         }
@@ -1147,6 +1183,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             Array.Clear(_partitionFads);
             Array.Clear(_partitionSectorCounts);
             Array.Clear(_partitionStreamEndFads);
+            _longPlayNextSectorInstructionsRemaining = 0;
         }
 
         if (completeDrainedPlay)
@@ -1352,17 +1389,30 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         var deletedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
         if (deletedLongPlaySector)
         {
-            // The final long-play deletion retains CSCT but does not publish
-            // EHST.  Its delayed completion publishes CMOK on BIOS's ninth
-            // HIRQ word poll, matching the value kept in its accumulator.
+            var hasPendingLongPlaySector = _playPendingSectorCount > 0;
+            if (hasPendingLongPlaySector)
+            {
+                // The next sector arrives asynchronously.  Leaving the
+                // partition empty until this deadline lets BIOS acknowledge
+                // the current CSCT before a fresh sector-stored edge is
+                // raised for the following 51/61/06/62 cycle.
+                _longPlayNextSectorInstructionsRemaining = LongPlaySectorInstructionCount;
+            }
+
+            // Each long-play deletion retains its current CSCT through the
+            // delayed command completion. Only the last requested sector
+            // enters the special post-deletion status sequence.
             _preserveFinalSectorStoredHirq = true;
             _deferFinalSectorEndHostIo = true;
             // BIOS observes completion on its ninth word poll.  The device
             // is byte-addressed, so each SH-2 word poll performs two reads.
             _commandCompletionHirqReadsRemaining = 18;
             _commandCompletionHirqBits = HirqCmok;
-            _longPlayDeletedSectorStatus = true;
-            _longPlayDeletedSectorStatusCommandsRemaining = 2;
+            if (!hasPendingLongPlaySector)
+            {
+                _longPlayDeletedSectorStatus = true;
+                _longPlayDeletedSectorStatusCommandsRemaining = 2;
+            }
         }
         if (_playCompletesAfterSectorDrain && sectorOffset == 0)
         {
@@ -1383,8 +1433,18 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         WriteStatusResponse(_status);
         if (_playLongSeek && _status == (byte)CdBlockDriveStatus.Seek)
         {
-            _postDeleteSeekStatusPollsRemaining = PostDeleteSeekStatusPollCount;
-            _postDeleteBusyStatusPollsRemaining = PostDeleteBusyStatusPollCount;
+            if (_playPendingSectorCount > 0)
+            {
+                // The pickup remains in SEEK briefly after the first stored
+                // sector is deleted, then enters PLAY while the stream continues.
+                // NiGHTS observes eight status reports before this transition.
+                _postDeleteSeekStatusPollsRemaining = 8;
+            }
+            else
+            {
+                _postDeleteSeekStatusPollsRemaining = PostDeleteSeekStatusPollCount;
+                _postDeleteBusyStatusPollsRemaining = PostDeleteBusyStatusPollCount;
+            }
         }
     }
 
