@@ -9,13 +9,29 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     private const uint DspProgramControlOffset = 0x0080;
     private const uint DspExecuteBit = 0x0001_0000;
     private const int DspExecutionPollCount = 16;
+    private const uint DmaRegisterStride = 0x20;
+    private const uint DmaReadAddressOffset = 0x00;
+    private const uint DmaWriteAddressOffset = 0x04;
+    private const uint DmaByteCountOffset = 0x08;
+    private const uint DmaAddressAddOffset = 0x0C;
+    private const uint DmaEnableOffset = 0x10;
+    private const uint DmaModeOffset = 0x14;
+    private const uint DmaEnableBit = 1u << 8;
+    private const uint DmaManualStartBit = 1u << 0;
+    private const uint DmaIndirectBit = 1u << 24;
+    private const uint DmaReadUpdateBit = 1u << 16;
+    private const uint DmaWriteUpdateBit = 1u << 8;
     private const uint VBlankInBit = 1u << 0;
     private const uint VBlankOutBit = 1u << 1;
     private const uint SmpcBit = 1u << 7;
+    private const uint Dma2EndBit = 1u << 9;
+    private const uint Dma1EndBit = 1u << 10;
+    private const uint Dma0EndBit = 1u << 11;
     private readonly Dictionary<uint, byte> _registers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
     private int _dspExecutionPollsRemaining;
+    private ISaturnBus? _dmaBus;
 
     public string Name => "SCU / System Control Area";
     public long ReadCount { get; private set; }
@@ -30,6 +46,13 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public bool HasPendingVBlankIn => (InterruptStatus & VBlankInBit) != 0 && (InterruptMask & VBlankInBit) == 0;
     public bool HasPendingVBlankOut => (InterruptStatus & VBlankOutBit) != 0 && (InterruptMask & VBlankOutBit) == 0;
     public bool HasPendingSmpc => (InterruptStatus & SmpcBit) != 0 && (InterruptMask & SmpcBit) == 0;
+    public bool HasPendingDma2End => (InterruptStatus & Dma2EndBit) != 0 && (InterruptMask & Dma2EndBit) == 0;
+    public bool HasPendingDma1End => (InterruptStatus & Dma1EndBit) != 0 && (InterruptMask & Dma1EndBit) == 0;
+    public bool HasPendingDma0End => (InterruptStatus & Dma0EndBit) != 0 && (InterruptMask & Dma0EndBit) == 0;
+    public long CompletedDmaCount { get; private set; }
+    public ScuDmaTransfer? LastDmaTransfer { get; private set; }
+
+    public void ConnectDmaBus(ISaturnBus bus) => _dmaBus = bus;
 
     public byte ReadByte(uint offset)
     {
@@ -83,6 +106,11 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
         }
 
         _registers[offset] = value;
+        if (TryGetDmaLevel(offset, out var dmaLevel)
+            && offset == (uint)(dmaLevel * DmaRegisterStride) + DmaEnableOffset + 3)
+        {
+            TryStartDma(dmaLevel);
+        }
         if (offset == DspProgramControlOffset + 3
             && (ReadRegisterLong(DspProgramControlOffset) & DspExecuteBit) != 0)
         {
@@ -102,6 +130,12 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
 
     public void AcknowledgeSmpc() => InterruptStatus &= ~SmpcBit;
 
+    public void AcknowledgeDma2End() => InterruptStatus &= ~Dma2EndBit;
+
+    public void AcknowledgeDma1End() => InterruptStatus &= ~Dma1EndBit;
+
+    public void AcknowledgeDma0End() => InterruptStatus &= ~Dma0EndBit;
+
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>
         GetHotOffsets(_readOffsets, count);
 
@@ -111,6 +145,70 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     private static bool IsInterruptMask(uint offset) => offset is >= InterruptMaskOffset and < InterruptMaskOffset + 4;
 
     private static bool IsInterruptStatus(uint offset) => offset is >= InterruptStatusOffset and < InterruptStatusOffset + 4;
+
+    private static bool TryGetDmaLevel(uint offset, out int level)
+    {
+        level = (int)(offset / DmaRegisterStride);
+        return level is >= 0 and < 3 && offset < 0x58;
+    }
+
+    private void TryStartDma(int level)
+    {
+        var baseOffset = (uint)level * DmaRegisterStride;
+        var enable = ReadRegisterLong(baseOffset + DmaEnableOffset);
+        var mode = ReadRegisterLong(baseOffset + DmaModeOffset);
+        if ((enable & (DmaEnableBit | DmaManualStartBit)) != (DmaEnableBit | DmaManualStartBit)
+            || (mode & DmaIndirectBit) != 0
+            || _dmaBus is null)
+        {
+            return;
+        }
+
+        var readAddress = ReadRegisterLong(baseOffset + DmaReadAddressOffset) & 0x07FF_FFFF;
+        var writeAddress = ReadRegisterLong(baseOffset + DmaWriteAddressOffset) & 0x07FF_FFFF;
+        var byteCountMask = level == 0 ? 0x000F_FFFFu : 0x0000_0FFFu;
+        var byteCount = ReadRegisterLong(baseOffset + DmaByteCountOffset) & byteCountMask;
+        if (byteCount == 0)
+        {
+            byteCount = level == 0 ? 0x0010_0000u : 0x0000_1000u;
+        }
+
+        var addressAdd = ReadRegisterLong(baseOffset + DmaAddressAddOffset);
+        var readIncrement = ((addressAdd >> 8) & 1) != 0;
+        var writeAdd = addressAdd & 7;
+        if (!readIncrement || writeAdd != 1)
+        {
+            return;
+        }
+
+        var source = readAddress;
+        var destination = writeAddress;
+        for (uint index = 0; index < byteCount; index++)
+        {
+            _dmaBus.WriteByte(destination, _dmaBus.ReadByte(source));
+            source++;
+            destination++;
+        }
+
+        if ((mode & DmaReadUpdateBit) != 0)
+        {
+            WriteRegisterLong(baseOffset + DmaReadAddressOffset, source);
+        }
+
+        if ((mode & DmaWriteUpdateBit) != 0)
+        {
+            WriteRegisterLong(baseOffset + DmaWriteAddressOffset, destination);
+        }
+
+        LastDmaTransfer = new ScuDmaTransfer(level, readAddress, writeAddress, byteCount, addressAdd, mode);
+        CompletedDmaCount++;
+        InterruptStatus |= level switch
+        {
+            0 => Dma0EndBit,
+            1 => Dma1EndBit,
+            _ => Dma2EndBit,
+        };
+    }
 
     private static byte ReadWordByte(uint value, uint byteOffset)
     {
@@ -153,3 +251,11 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
             .Select(static pair => (pair.Key, pair.Value))
             .ToArray();
 }
+
+public sealed record ScuDmaTransfer(
+    int Level,
+    uint ReadAddress,
+    uint WriteAddress,
+    uint ByteCount,
+    uint AddressAdd,
+    uint Mode);

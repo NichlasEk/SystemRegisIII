@@ -279,6 +279,23 @@ static void VerifySaturnSystemMap()
     Require(rawPadMap.Bus.ReadByte(0x0010_0025) == 0xBF, "SMPC raw pad data 1 failed.");
     Require(rawPadMap.Bus.ReadByte(0x0010_0027) == 0x7F, "SMPC raw pad data 2 failed.");
     var scuRegisters = systemMap.Stubs.OfType<ScuRegisterBusDevice>().Single();
+    systemMap.Bus.WriteLong(0x0600_1000, 0x1234_5678);
+    systemMap.Bus.WriteLong(0x25FE_0000, 0x0600_1000);
+    systemMap.Bus.WriteLong(0x25FE_0004, 0x25F8_0020);
+    systemMap.Bus.WriteLong(0x25FE_0008, 0x0000_0004);
+    systemMap.Bus.WriteLong(0x25FE_000C, 0x0000_0101);
+    systemMap.Bus.WriteLong(0x25FE_0014, 0x0000_0007);
+    systemMap.Bus.WriteLong(0x25FE_0010, 0x0000_0101);
+    Require(systemMap.Bus.ReadLong(0x25F8_0020) == 0x1234_5678, "SCU direct DMA transfer failed.");
+    Require(scuRegisters.CompletedDmaCount == 1, "SCU direct DMA completion count failed.");
+    Require(
+        scuRegisters.LastDmaTransfer is { Level: 0, ByteCount: 4 },
+        "SCU direct DMA telemetry failed.");
+    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_F7FF);
+    Require(scuRegisters.HasPendingDma0End, "SCU DMA0-end interrupt pending failed.");
+    scuRegisters.AcknowledgeDma0End();
+    systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_FFFF);
+
     scuRegisters.RaiseVBlankIn();
     Require(!scuRegisters.HasPendingVBlankIn, "SCU VBlank interrupt ignored reset mask failed.");
     scuRegisters.RaiseVBlankOut();

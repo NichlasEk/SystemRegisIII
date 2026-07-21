@@ -489,6 +489,18 @@ static int RunBios(string[] args)
                 scu.AcknowledgeSmpc();
             }
         }
+        else if (scu.HasPendingDma2End && master.RequestInterrupt(6, 0x49))
+        {
+            scu.AcknowledgeDma2End();
+        }
+        else if (scu.HasPendingDma1End && master.RequestInterrupt(6, 0x4A))
+        {
+            scu.AcknowledgeDma1End();
+        }
+        else if (scu.HasPendingDma0End && master.RequestInterrupt(5, 0x4B))
+        {
+            scu.AcknowledgeDma0End();
+        }
 
         var masterPc = master.Registers.ProgramCounter;
         if (probeSuspectStack
@@ -1439,8 +1451,26 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu, ScuInterruptProbe p
     Console.WriteLine(
         $"  mask=0x{scu.InterruptMask:X8} status=0x{scu.InterruptStatus:X8} vblank-in-pending={scu.HasPendingVBlankIn} vblank-out-pending={scu.HasPendingVBlankOut} smpc-pending={scu.HasPendingSmpc}");
     Console.WriteLine($"  last status write=0x{scu.LastInterruptStatusWrite:X8}");
+    var lastDma = scu.LastDmaTransfer is { } transfer
+        ? $"last=level{transfer.Level} 0x{transfer.ReadAddress:X8}->0x{transfer.WriteAddress:X8} bytes=0x{transfer.ByteCount:X}"
+        : "last=<none>";
+    Console.WriteLine($"  DMA completed={scu.CompletedDmaCount:N0} {lastDma}");
+    for (var level = 0; level < 3; level++)
+    {
+        var offset = (uint)(level * 0x20);
+        Console.WriteLine(
+            $"  DMA{level}: read=0x{ReadScuLong(scu, offset):X8} write=0x{ReadScuLong(scu, offset + 4):X8} " +
+            $"count=0x{ReadScuLong(scu, offset + 8):X8} add=0x{ReadScuLong(scu, offset + 0x0C):X8} " +
+            $"enable=0x{ReadScuLong(scu, offset + 0x10):X8} mode=0x{ReadScuLong(scu, offset + 0x14):X8}");
+    }
     probe.Print();
 }
+
+static uint ReadScuLong(ScuRegisterBusDevice scu, uint offset) =>
+    ((uint)scu.ReadByte(offset) << 24)
+    | ((uint)scu.ReadByte(offset + 1) << 16)
+    | ((uint)scu.ReadByte(offset + 2) << 8)
+    | scu.ReadByte(offset + 3);
 
 static void PrintWatchWindow(string label, WatchedBus watch)
 {

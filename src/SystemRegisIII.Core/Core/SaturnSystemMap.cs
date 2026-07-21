@@ -123,8 +123,10 @@ public sealed class SaturnSystemMap
             .Map(0x0C00_0000, 0x0C0F_FFFF, workRamHighDevice)
             .Map(0xFFFF_8000, 0xFFFF_FFFF, stubs[13]);
 
+        var bus = builder.Build();
+        scuRegisters.ConnectDmaBus(bus);
         return new SaturnSystemMap(
-            builder.Build(),
+            bus,
             workRamLow,
             workRamHigh,
             vdp1Area,
