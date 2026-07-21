@@ -59,6 +59,8 @@ public sealed class SaturnSystemMap
 
     public void NotifyVBlankIn() => Vdp1Registers.NotifyVBlankIn();
 
+    public void NotifyVBlankOut() => Vdp1Registers.NotifyVBlankOut();
+
     public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
     {
         options ??= new SaturnBringupOptions();

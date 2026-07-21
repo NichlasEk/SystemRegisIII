@@ -422,6 +422,7 @@ static int RunBios(string[] args)
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
         {
             vblankOutDue = true;
+            systemMap.NotifyVBlankOut();
         }
 
         if (vblankInDue || vblankOutDue)

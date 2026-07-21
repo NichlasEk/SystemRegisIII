@@ -287,6 +287,8 @@ static void VerifySaturnSystemMap()
     scuRegisters.AcknowledgeVdp1DrawEnd();
     systemMap.Bus.WriteWord(0x25D0_0004, 0x0002);
     systemMap.NotifyVBlankIn();
+    Require(systemMap.Vdp1Registers.CompletedDrawCount == 1, "VDP1 automatic draw completed before VBlank-OUT.");
+    systemMap.NotifyVBlankOut();
     Require(systemMap.Vdp1Registers.CompletedDrawCount == 2, "VDP1 automatic draw completion failed.");
     Require(systemMap.Vdp1Registers.AutomaticStartCount == 1, "VDP1 automatic draw-start telemetry failed.");
     Require(scuRegisters.HasPendingVdp1DrawEnd, "SCU automatic VDP1 draw-end interrupt failed.");

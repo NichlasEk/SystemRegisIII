@@ -7,6 +7,7 @@ public sealed class Vdp1RegisterBusDevice : DebugMemoryBusDevice
     private const uint PlotTriggerModeOffset = 0x04;
     private const uint EndStatusOffset = 0x10;
     private bool _automaticStart;
+    private bool _automaticDrawPending;
 
     public Vdp1RegisterBusDevice()
         : base("VDP1 Registers", 0x20)
@@ -52,6 +53,15 @@ public sealed class Vdp1RegisterBusDevice : DebugMemoryBusDevice
     {
         if (_automaticStart)
         {
+            _automaticDrawPending = true;
+        }
+    }
+
+    public void NotifyVBlankOut()
+    {
+        if (_automaticDrawPending)
+        {
+            _automaticDrawPending = false;
             AutomaticStartCount++;
             CompleteDraw();
         }
