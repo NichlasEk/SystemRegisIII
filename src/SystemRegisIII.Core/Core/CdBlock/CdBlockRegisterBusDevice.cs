@@ -303,6 +303,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             }
         }
 
+        if (_longPlayNextSectorInstructionsRemaining > 0)
+        {
+            _longPlayNextSectorInstructionsRemaining -= instructionCount;
+            if (_longPlayNextSectorInstructionsRemaining <= 0)
+            {
+                PublishNextLongPlaySector();
+            }
+        }
+
         if (_playEndInstructionsRemaining > 0)
         {
             _playEndInstructionsRemaining -= instructionCount;
@@ -318,15 +327,6 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_playSeekStatusInstructionsRemaining <= 0)
             {
                 PublishPlaySeekStatus();
-            }
-        }
-
-        if (_longPlayNextSectorInstructionsRemaining > 0)
-        {
-            _longPlayNextSectorInstructionsRemaining -= instructionCount;
-            if (_longPlayNextSectorInstructionsRemaining <= 0)
-            {
-                PublishNextLongPlaySector();
             }
         }
 
@@ -1049,6 +1049,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             // commands synchronously, so CMOK remains available alongside it.
             _longPlaySectorStored = true;
             _hirq |= HirqSectorStored;
+            if (_playPendingSectorCount > 0)
+            {
+                _longPlayNextSectorInstructionsRemaining = LongPlaySectorInstructionCount;
+            }
         }
     }
 
@@ -1059,8 +1063,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        _partitionFads[0]++;
-        _partitionSectorCounts[0] = 1;
+        _partitionSectorCounts[0]++;
         _playPendingSectorCount--;
         _currentFad++;
         WriteStatusResponse(_status);
@@ -1068,6 +1071,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         // CSCT remains latched across the stream.  BIOS polls the partition
         // count and observes the new sector without enabling the CD IRQ mask.
         _hirq |= HirqSectorStored | HirqSubcodeReady;
+        _longPlayNextSectorInstructionsRemaining = _playPendingSectorCount > 0
+            ? LongPlaySectorInstructionCount
+            : 0;
     }
 
     private void SetFilterRange()
@@ -1386,6 +1392,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _partitionSectorCounts[partition] -= sectorCount;
+        if (_playLongSeek && sectorOffset == 0)
+        {
+            _partitionFads[partition] += sectorCount;
+        }
         var deletedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
         if (deletedLongPlaySector)
         {
@@ -1396,7 +1406,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 // partition empty until this deadline lets BIOS acknowledge
                 // the current CSCT before a fresh sector-stored edge is
                 // raised for the following 51/61/06/62 cycle.
-                _longPlayNextSectorInstructionsRemaining = LongPlaySectorInstructionCount;
+                if (_longPlayNextSectorInstructionsRemaining <= 0)
+                {
+                    _longPlayNextSectorInstructionsRemaining = LongPlaySectorInstructionCount;
+                }
             }
 
             // Each long-play deletion retains its current CSCT through the

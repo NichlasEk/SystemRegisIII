@@ -1070,6 +1070,49 @@ static void VerifySaturnSystemMap()
         Require(
             postLongPlayDeletionStatus == 0x0300,
             $"CD Block multi-sector long play did not retain its post-deletion play status: 0x{postLongPlayDeletionStatus:X4}.");
+
+        // Keep this synthetic play inside the tiny test image so the
+        // multi-sector host transfer validates both buffering and payload.
+        IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00A6, 0x0080, 0x0010);
+        largeIsoCd.AdvanceMasterInstructions(3_500_000);
+        for (var bufferedSector = 1; bufferedSector < 4; bufferedSector++)
+        {
+            largeIsoCd.AdvanceMasterInstructions(140_000);
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_0024) == 4,
+            "CD Block long play did not continue buffering while stored sectors remained in the partition.");
+        IssueCdCommand(largeIsoMap.Bus, 0x5200, 0x0000, 0x0000, 0x0004);
+        Require(
+            (largeIsoCd.ResponseCr1 & 0x8000) == 0,
+            "CD Block rejected a continuously buffered long-play sector batch.");
+        for (var commandPoll = 0; commandPoll < 8; commandPoll++)
+        {
+            largeIsoMap.Bus.ReadWord(0x2589_0008);
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x5300, 0x0000, 0x0000, 0x0000);
+        Require(
+            largeIsoCd.ResponseCr2 == 0x1000,
+            "CD Block continuously buffered long-play batch actual size failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0004);
+        Require(
+            largeIsoCd.DataTransferWordCount == 0x1000,
+            "CD Block continuously buffered long-play batch transfer length failed.");
+        while (largeIsoCd.DataTransferWordsRead < largeIsoCd.DataTransferWordCount)
+        {
+            largeIsoMap.Bus.ReadLong(0x2589_8000);
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0004);
+        for (var bufferedSector = 0; bufferedSector < 4; bufferedSector++)
+        {
+            largeIsoCd.AdvanceMasterInstructions(140_000);
+        }
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_0024) == 4,
+            "CD Block long play did not refill a drained partition continuously.");
     }
     finally
     {
