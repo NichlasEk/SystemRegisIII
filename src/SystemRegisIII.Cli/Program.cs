@@ -416,6 +416,7 @@ static int RunBios(string[] args)
                 systemMap.Vdp2Vram.Snapshot.Span,
                 systemMap.Vdp2Registers.Snapshot.Span);
             vblankInDue = true;
+            systemMap.NotifyVBlankIn();
             smpc.NotifyVBlankIn();
         }
         else if (i > 0 && i % vblankInterval == vblankOutOffset)
@@ -500,6 +501,10 @@ static int RunBios(string[] args)
         else if (scu.HasPendingDma0End && master.RequestInterrupt(5, 0x4B))
         {
             scu.AcknowledgeDma0End();
+        }
+        else if (scu.HasPendingVdp1DrawEnd && master.RequestInterrupt(2, 0x4D))
+        {
+            scu.AcknowledgeVdp1DrawEnd();
         }
 
         var masterPc = master.Registers.ProgramCounter;
@@ -874,6 +879,10 @@ static int RunBios(string[] args)
     }
 
     PrintScuInterruptState(scu, interruptProbe);
+    Console.WriteLine(
+        $"VDP1 draw starts: completed={systemMap.Vdp1Registers.CompletedDrawCount:N0} " +
+        $"manual={systemMap.Vdp1Registers.ManualStartCount:N0} automatic={systemMap.Vdp1Registers.AutomaticStartCount:N0} " +
+        $"PTMR=0x{systemMap.Vdp1Registers.PlotTriggerMode:X4}");
     if (instructionWindowAddress is not null)
     {
         PrintInstructionWindow(

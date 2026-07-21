@@ -3,6 +3,7 @@ using SystemRegisIII.Core.Core.CdBlock;
 using SystemRegisIII.Core.Core.Memory;
 using SystemRegisIII.Core.Core.Scu;
 using SystemRegisIII.Core.Core.Smpc;
+using SystemRegisIII.Core.Core.Vdp1;
 using SystemRegisIII.Core.Core.Vdp2;
 
 namespace SystemRegisIII.Core.Core;
@@ -16,6 +17,7 @@ public sealed class SaturnSystemMap
         IMainMemory workRamLow,
         IMainMemory workRamHigh,
         DebugMemoryBusDevice vdp1Area,
+        Vdp1RegisterBusDevice vdp1Registers,
         DebugMemoryBusDevice vdp2Vram,
         DebugMemoryBusDevice vdp2Cram,
         Vdp2RegisterBusDevice vdp2Registers,
@@ -28,6 +30,7 @@ public sealed class SaturnSystemMap
         WorkRamLow = workRamLow;
         WorkRamHigh = workRamHigh;
         Vdp1Area = vdp1Area;
+        Vdp1Registers = vdp1Registers;
         Vdp2Vram = vdp2Vram;
         Vdp2Cram = vdp2Cram;
         Vdp2Registers = vdp2Registers;
@@ -42,6 +45,7 @@ public sealed class SaturnSystemMap
     public IMainMemory WorkRamLow { get; }
     public IMainMemory WorkRamHigh { get; }
     public DebugMemoryBusDevice Vdp1Area { get; }
+    public Vdp1RegisterBusDevice Vdp1Registers { get; }
     public DebugMemoryBusDevice Vdp2Vram { get; }
     public DebugMemoryBusDevice Vdp2Cram { get; }
     public DebugMemoryBusDevice Vdp2Registers { get; }
@@ -52,6 +56,8 @@ public sealed class SaturnSystemMap
 
     public void AdvanceVdp2MasterInstructions(int instructionCount) =>
         _vdp2RegisterTiming.AdvanceMasterInstructions(instructionCount);
+
+    public void NotifyVBlankIn() => Vdp1Registers.NotifyVBlankIn();
 
     public static SaturnSystemMap CreateBringup(BiosImage bios, SaturnBringupOptions? options = null)
     {
@@ -74,8 +80,8 @@ public sealed class SaturnSystemMap
         }
 
         var vdp1Area = new DebugMemoryBusDevice("VDP1 Area", 1024 * 1024);
-        var vdp1Registers = new StubBusDevice("VDP1 Registers")
-            .AddReadOnlyWord(0x10, 0x0002);
+        var vdp1Registers = new Vdp1RegisterBusDevice();
+        vdp1Registers.DrawCompleted += scuRegisters.RaiseVdp1DrawEnd;
         var vdp2Vram = new DebugMemoryBusDevice("VDP2 VRAM", 512 * 1024);
         var vdp2Cram = new DebugMemoryBusDevice("VDP2 CRAM", 4 * 1024);
         var vdp2Registers = new Vdp2RegisterBusDevice();
@@ -130,6 +136,7 @@ public sealed class SaturnSystemMap
             workRamLow,
             workRamHigh,
             vdp1Area,
+            vdp1Registers,
             vdp2Vram,
             vdp2Cram,
             vdp2Registers,

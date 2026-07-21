@@ -27,6 +27,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     private const uint Dma2EndBit = 1u << 9;
     private const uint Dma1EndBit = 1u << 10;
     private const uint Dma0EndBit = 1u << 11;
+    private const uint Vdp1DrawEndBit = 1u << 13;
     private readonly Dictionary<uint, byte> _registers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
@@ -49,6 +50,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public bool HasPendingDma2End => (InterruptStatus & Dma2EndBit) != 0 && (InterruptMask & Dma2EndBit) == 0;
     public bool HasPendingDma1End => (InterruptStatus & Dma1EndBit) != 0 && (InterruptMask & Dma1EndBit) == 0;
     public bool HasPendingDma0End => (InterruptStatus & Dma0EndBit) != 0 && (InterruptMask & Dma0EndBit) == 0;
+    public bool HasPendingVdp1DrawEnd => (InterruptStatus & Vdp1DrawEndBit) != 0 && (InterruptMask & Vdp1DrawEndBit) == 0;
     public long CompletedDmaCount { get; private set; }
     public ScuDmaTransfer? LastDmaTransfer { get; private set; }
 
@@ -135,6 +137,10 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public void AcknowledgeDma1End() => InterruptStatus &= ~Dma1EndBit;
 
     public void AcknowledgeDma0End() => InterruptStatus &= ~Dma0EndBit;
+
+    public void RaiseVdp1DrawEnd() => InterruptStatus |= Vdp1DrawEndBit;
+
+    public void AcknowledgeVdp1DrawEnd() => InterruptStatus &= ~Vdp1DrawEndBit;
 
     public IReadOnlyList<(uint Offset, long Count)> GetHotReadOffsets(int count) =>
         GetHotOffsets(_readOffsets, count);
