@@ -167,11 +167,18 @@ edge. Mednafen keeps HIRQ at `0B44` for six BIOS word polls, raises EHST to
 `0BC4` on poll seven, and raises CMOK to `0BC5` on poll fifteen. SystemRegis now
 models both delayed edges and smoke covers the exact 7/15 timing. The 130.27M
 run remains fault-free but still selects `62,00,00,51,...` instead of the
-reference `62,00,51,00,48`. The next proven divergence is the background-task
-countdown at `06066EDC`: the scheduler helper around `0606CC40` reads `3` in
-SystemRegis and `12` in Mednafen before the extra status task is selected.
-Continue by tracing the writers/timer source for `06066EDC`; do not retune the
-now matched HIRQ polling edges.
+reference `62,00,51,00,48`.
+
+The previously reported `06066EDC = 3` versus `12` difference was a trace-PC
+pipeline alignment error: both cores load `3`. SH-2 displacement scaling also
+corrects the scheduler operands to quantum `0606662C` and task accumulator
+`06066EAC`, not `06066638`/`06066EB4`. At the first post-delete helper call the
+reference reads `07E0 + 5800` and stores `5FE0`; SystemRegis reads `0800 + 0000`
+and stores `0800`. A separate Mednafen WRAM write probe confirms `5FE0` is the
+first accumulator write after the eighteenth command `62`, so the missing
+`5800` predates the new post-delete HIRQ staging. Continue by tracing the
+earlier lifecycle/reset of `06066EAC`; do not retune the matched HIRQ waveform
+or add a command-specific task-selection shortcut.
 
 ## Verification
 

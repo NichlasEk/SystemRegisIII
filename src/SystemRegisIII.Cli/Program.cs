@@ -194,8 +194,18 @@ static int RunBios(string[] args)
         0x0606_62E0,
         0x0606_62EF,
         () => GetWatchContext(master));
-    var masterNightsCodeWatch = new WatchedBus(
+    var masterCdTaskQuantumWatch = new WatchedBus(
         masterCdResponseControlWatch,
+        0x0606_662C,
+        0x0606_662C,
+        () => GetWatchContext(master));
+    var masterCdTaskAccumulatorWatch = new WatchedBus(
+        masterCdTaskQuantumWatch,
+        0x0606_6EAC,
+        0x0606_6EAC,
+        () => GetWatchContext(master));
+    var masterNightsCodeWatch = new WatchedBus(
+        masterCdTaskAccumulatorWatch,
         0x0606_81C0,
         0x0606_821F,
         () => GetWatchContext(master));
@@ -789,6 +799,8 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master transform-source watch", masterTransformSourceWatch);
         PrintWatchWindow("Master geometry-source watch", masterGeometrySourceWatch);
         PrintWatchWindow("Master CD response-control watch", masterCdResponseControlWatch);
+        PrintWatchWindow("Master CD task-quantum watch", masterCdTaskQuantumWatch);
+        PrintWatchWindow("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
         PrintWatchWindow("Master BIOS menu-state watch", masterMenuStateWatch);
         PrintWatchWindow("Master SMPC watch", masterSmpcWatch);
         PrintWatchWindow("Master CD Block watch", masterCdBlockWatch);
@@ -911,6 +923,11 @@ static int RunBios(string[] args)
     PrintBusFaults(busFaults);
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
+    if (summaryOnly)
+    {
+        PrintWatchSummary("Master CD task-quantum watch", masterCdTaskQuantumWatch);
+        PrintWatchSummary("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
+    }
 
     if (traceEnabled)
     {
