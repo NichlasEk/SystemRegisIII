@@ -1137,6 +1137,24 @@ static void VerifySaturnSystemMap()
             postLongPlayDeletionStatus == 0x0300,
             $"CD Block multi-sector long play did not retain its post-deletion play status: 0x{postLongPlayDeletionStatus:X4}.");
 
+        largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFBEF);
+        largeIsoCd.AdvanceMasterInstructions(139_999);
+        Require(
+            (largeIsoCd.HirqValue & 0x0010) == 0,
+            "CD Block multi-sector long play raised PEND before its final sector interval elapsed.");
+        largeIsoCd.AdvanceMasterInstructions(1);
+        Require(
+            largeIsoCd.ResponseCr1 == 0x2180 && (largeIsoCd.HirqValue & 0x0010) != 0,
+            $"CD Block multi-sector long play did not enter periodic Pause with PEND: CR1=0x{largeIsoCd.ResponseCr1:X4}, HIRQ=0x{largeIsoCd.HirqValue:X4}.");
+        largeIsoCd.AdvanceMasterInstructions(199_999);
+        Require(
+            (largeIsoCd.HirqValue & 0x0400) == 0,
+            "CD Block multi-sector long play raised its Pause SCDQ too early.");
+        largeIsoCd.AdvanceMasterInstructions(1);
+        Require(
+            (largeIsoCd.HirqValue & 0x0410) == 0x0410,
+            "CD Block multi-sector long play did not retain PEND through its periodic Pause SCDQ.");
+
         // Keep this synthetic play inside the tiny test image so the
         // multi-sector host transfer validates both buffering and payload.
         IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00A6, 0x0080, 0x0010);

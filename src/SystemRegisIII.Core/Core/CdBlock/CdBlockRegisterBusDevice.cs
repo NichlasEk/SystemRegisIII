@@ -39,6 +39,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int PostFileInfoPeriodicInstructionCount = 38_000;
     private const int PlaySectorInstructionCount = 1_000;
     private const int LongPlaySectorInstructionCount = 140_000;
+    private const int LongPlayEndInstructionCount = 140_000;
+    private const int PausePeriodicInstructionCount = 200_000;
     private const int FinalDrainPeriodicInstructionCount = 1_000;
     private const int LongPlaySeekStatusInstructionCount = 600_000;
     private const int LongPlaySeekEndInstructionCount = 3_500_000;
@@ -94,6 +96,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private bool _playFinalSectorBusyAfterStatus;
     private bool _longPlaySectorStored;
     private int _longPlayNextSectorInstructionsRemaining;
+    private int _longPlayEndInstructionsRemaining;
+    private int _pausePeriodicInstructionsRemaining;
     private bool _longPlayDeletedSectorStatus;
     private int _longPlayDeletedSectorStatusCommandsRemaining;
     private bool _preserveFinalSectorStoredHirq;
@@ -309,6 +313,32 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_longPlayNextSectorInstructionsRemaining <= 0)
             {
                 PublishNextLongPlaySector();
+            }
+        }
+
+        var startedPausePeriodic = false;
+        if (_longPlayEndInstructionsRemaining > 0)
+        {
+            _longPlayEndInstructionsRemaining -= instructionCount;
+            if (_longPlayEndInstructionsRemaining <= 0)
+            {
+                _playSeekActive = false;
+                _status = (byte)CdBlockDriveStatus.Pause;
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+                _hirq |= HirqPlayEnd;
+                _pausePeriodicInstructionsRemaining = PausePeriodicInstructionCount;
+                startedPausePeriodic = true;
+            }
+        }
+
+        if (!startedPausePeriodic && _pausePeriodicInstructionsRemaining > 0)
+        {
+            _pausePeriodicInstructionsRemaining -= instructionCount;
+            if (_pausePeriodicInstructionsRemaining <= 0)
+            {
+                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+                _hirq |= HirqSubcodeReady;
+                _pausePeriodicInstructionsRemaining = PausePeriodicInstructionCount;
             }
         }
 
@@ -977,6 +1007,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playFinalSectorBusyAfterStatus = false;
         _longPlaySectorStored = false;
         _longPlayNextSectorInstructionsRemaining = 0;
+        _longPlayEndInstructionsRemaining = 0;
+        _pausePeriodicInstructionsRemaining = 0;
         _longPlayDeletedSectorStatus = false;
         _longPlayDeletedSectorStatusCommandsRemaining = 0;
         _postDrainPauseAfterStatus = false;
@@ -1427,6 +1459,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             {
                 _longPlayDeletedSectorStatus = true;
                 _longPlayDeletedSectorStatusCommandsRemaining = 2;
+                if (_status == (byte)CdBlockDriveStatus.Play)
+                {
+                    _longPlayEndInstructionsRemaining = LongPlayEndInstructionCount;
+                }
             }
         }
         if (_playCompletesAfterSectorDrain && sectorOffset == 0)

@@ -194,6 +194,33 @@ word. Continue by comparing the write that changes `06066ED8` and the
 destructor caller around `0606BDD4..0606BDF6`; the divergence is one task
 lifetime too early, not an arithmetic or HIRQ-waveform error.
 
+## July 22 Multi-Sector Play-End Release
+
+The first post-backup-wrapper differential was a CD HIRQ read at actual PC
+`0606AD20`: Mednafen returned `0FD5`, while SystemRegis returned `0BC5`. The
+missing bits were exactly PEND and SCDQ. An event probe in the local Mednafen
+copy showed that the final sector of a multi-sector Play remains in Play for
+one sector interval, then enters Pause and raises PEND; the following periodic
+drive update raises SCDQ while PEND remains latched.
+
+SystemRegis previously scheduled its long-play completion only while the drive
+was still in Seek. Once the first buffered sector had moved it into Play, the
+last sector deletion could never schedule the final Pause event. A drained
+multi-sector Play now waits 140,000 master instructions, publishes periodic
+Pause `2180` with PEND, and raises recurring SCDQ at 200,000-instruction
+intervals until the next Play command. Smoke coverage verifies both timer
+boundaries and PEND retention.
+
+The 240M automatic acceptance is fault-free at master/slave PCs
+`0606E5CA`/`06005FA0`. An SH-2 trace anchored at the unique backup-wrapper
+return `0604D3AC` now reads HIRQ `0FD5` at both `060681F2` and `0606AD20`.
+Twelve comparable CPU/register milestones through `0607048E` match the local
+Mednafen trace, excluding the already-known historical MACL difference. The
+next differential is after that matched point in the object/data scan: the
+reference next reaches `060704C2`, while SystemRegis continues through the
+`06050AE0` data loop. Continue from that memory/input provenance rather than
+retuning the now-matched CD event.
+
 ## Verification
 
 Focused validation:
