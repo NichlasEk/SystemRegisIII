@@ -197,8 +197,11 @@ static void VerifySaturnSystemMap()
     scspAckMap.Bus.WriteLong(0x25A0_0700, 0x0800_0000);
     Require(scspAckMap.Bus.ReadByte(0x25A0_0700) == 0, "SCSP command-ack simulation failed.");
     Require(scspAckMap.Bus.ReadByte(0x25A0_0701) == 0, "SCSP command payload write-back failed.");
-    systemMap.Bus.WriteWord(0x2018_0000, 0xBEEF);
-    Require(systemMap.Bus.ReadWord(0x0018_0000) == 0xBEEF, "Backup RAM cache-through write-back failed.");
+    Require(systemMap.Bus.ReadWord(0x0018_0000) == 0xFF42, "Backup RAM format signature failed.");
+    Require(systemMap.Bus.ReadWord(0x0018_0002) == 0xFF61, "Backup RAM interleaved byte mapping failed.");
+    systemMap.Bus.WriteWord(0x2018_0080, 0xBEEF);
+    Require(systemMap.Bus.ReadWord(0x0018_0080) == 0xFFEF, "Backup RAM cache-through write-back failed.");
+    Require(systemMap.Bus.ReadWord(0x0019_0080) == 0xFFEF, "Backup RAM physical mirror failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
     systemMap.Bus.WriteByte(0x0010_001F, 0x02);

@@ -22,6 +22,7 @@ public sealed class SaturnSystemMap
         DebugMemoryBusDevice vdp2Cram,
         Vdp2RegisterBusDevice vdp2Registers,
         CdBlockRegisterBusDevice cdBlock,
+        SaturnBackupRamBusDevice backupRam,
         FrtInputCaptureTriggerBusDevice slaveFrtInputCapture,
         FrtInputCaptureTriggerBusDevice masterFrtInputCapture,
         IReadOnlyList<IInspectableBusDevice> stubs)
@@ -36,6 +37,7 @@ public sealed class SaturnSystemMap
         Vdp2Registers = vdp2Registers;
         _vdp2RegisterTiming = vdp2Registers;
         CdBlock = cdBlock;
+        BackupRam = backupRam;
         SlaveFrtInputCapture = slaveFrtInputCapture;
         MasterFrtInputCapture = masterFrtInputCapture;
         Stubs = stubs;
@@ -50,6 +52,7 @@ public sealed class SaturnSystemMap
     public DebugMemoryBusDevice Vdp2Cram { get; }
     public DebugMemoryBusDevice Vdp2Registers { get; }
     public CdBlockRegisterBusDevice CdBlock { get; }
+    public SaturnBackupRamBusDevice BackupRam { get; }
     public FrtInputCaptureTriggerBusDevice SlaveFrtInputCapture { get; }
     public FrtInputCaptureTriggerBusDevice MasterFrtInputCapture { get; }
     public IReadOnlyList<IInspectableBusDevice> Stubs { get; }
@@ -74,6 +77,7 @@ public sealed class SaturnSystemMap
         var cdBlockRegisterMirror = new CdBlockRegisterBusDevice(
             options.DiscImage,
             options.MountedDiscInitialStatus);
+        var backupRam = new SaturnBackupRamBusDevice();
         var scuRegisters = new ScuRegisterBusDevice();
         var scspArea = new StubBusDevice("SCSP Area").EnableWriteBack();
         if (options.SimulateScspCommandAck)
@@ -93,7 +97,7 @@ public sealed class SaturnSystemMap
         IInspectableBusDevice[] stubs =
         [
             smpcRegisters,
-            new StubBusDevice("Backup RAM / Cartridge Area").EnableWriteBack(),
+            backupRam,
             new StubBusDevice("Cartridge / Expansion Area"),
             new StubBusDevice("CD Block Area"),
             new StubBusDevice("A-Bus Probe Area"),
@@ -143,6 +147,7 @@ public sealed class SaturnSystemMap
             vdp2Cram,
             vdp2Registers,
             cdBlockRegisterMirror,
+            backupRam,
             slaveFrtInputCapture,
             masterFrtInputCapture,
             stubs);
