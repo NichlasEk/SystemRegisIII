@@ -306,6 +306,9 @@ static void VerifySaturnSystemMap()
     Require(
         scuRegisters.LastDmaTransfer is { Level: 0, ByteCount: 4 },
         "SCU direct DMA telemetry failed.");
+    Require(
+        scuRegisters.RecentDmaTransfers is [{ Level: 0, ReadAddress: 0x0600_1000, WriteAddress: 0x05F8_0020, ByteCount: 4 }],
+        "SCU direct DMA history failed.");
     systemMap.Bus.WriteLong(0x25FE_00A0, 0xFFFF_F7FF);
     Require(scuRegisters.HasPendingDma0End, "SCU DMA0-end interrupt pending failed.");
     scuRegisters.AcknowledgeDma0End();

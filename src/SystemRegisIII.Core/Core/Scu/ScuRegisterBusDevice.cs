@@ -31,6 +31,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     private readonly Dictionary<uint, byte> _registers = [];
     private readonly Dictionary<uint, long> _readOffsets = [];
     private readonly Dictionary<uint, long> _writeOffsets = [];
+    private readonly Queue<ScuDmaTransfer> _recentDmaTransfers = new();
     private int _dspExecutionPollsRemaining;
     private ISaturnBus? _dmaBus;
 
@@ -53,6 +54,7 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
     public bool HasPendingVdp1DrawEnd => (InterruptStatus & Vdp1DrawEndBit) != 0 && (InterruptMask & Vdp1DrawEndBit) == 0;
     public long CompletedDmaCount { get; private set; }
     public ScuDmaTransfer? LastDmaTransfer { get; private set; }
+    public IReadOnlyList<ScuDmaTransfer> RecentDmaTransfers => _recentDmaTransfers.ToArray();
 
     public void ConnectDmaBus(ISaturnBus bus) => _dmaBus = bus;
 
@@ -207,6 +209,11 @@ public sealed class ScuRegisterBusDevice : IInspectableBusDevice
         }
 
         LastDmaTransfer = new ScuDmaTransfer(level, readAddress, writeAddress, byteCount, addressAdd, mode);
+        _recentDmaTransfers.Enqueue(LastDmaTransfer);
+        while (_recentDmaTransfers.Count > 256)
+        {
+            _recentDmaTransfers.Dequeue();
+        }
         CompletedDmaCount++;
         InterruptStatus |= level switch
         {

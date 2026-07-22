@@ -1465,6 +1465,15 @@ static void PrintScuInterruptState(ScuRegisterBusDevice scu, ScuInterruptProbe p
         ? $"last=level{transfer.Level} 0x{transfer.ReadAddress:X8}->0x{transfer.WriteAddress:X8} bytes=0x{transfer.ByteCount:X}"
         : "last=<none>";
     Console.WriteLine($"  DMA completed={scu.CompletedDmaCount:N0} {lastDma}");
+    foreach (var group in scu.RecentDmaTransfers
+                 .GroupBy(static transfer => (transfer.Level, transfer.ReadAddress, transfer.WriteAddress, transfer.ByteCount))
+                 .OrderByDescending(static group => group.Count())
+                 .Take(12))
+    {
+        var key = group.Key;
+        Console.WriteLine(
+            $"    recent x{group.Count():N0}: level{key.Level} 0x{key.ReadAddress:X8}->0x{key.WriteAddress:X8} bytes=0x{key.ByteCount:X}");
+    }
     for (var level = 0; level < 3; level++)
     {
         var offset = (uint)(level * 0x20);
