@@ -123,8 +123,8 @@ static void VerifySaturnSystemMap()
         "CD Block register mirror stub mapping failed.");
     Require(
         systemMap.Bus.TryResolve(0x24FF_FFFF, out region, out _) &&
-        region.Device.Name == "A-Bus Probe Area",
-        "A-Bus probe area mapping failed.");
+        region.Device.Name == "Backup Memory Cartridge",
+        "Backup memory cartridge mapping failed.");
     Require(
         systemMap.Bus.TryResolve(0x25B0_0400, out region, out _) &&
         region.Device.Name == "SCSP Area",
@@ -202,6 +202,11 @@ static void VerifySaturnSystemMap()
     systemMap.Bus.WriteWord(0x2018_0080, 0xBEEF);
     Require(systemMap.Bus.ReadWord(0x0018_0080) == 0xFFEF, "Backup RAM cache-through write-back failed.");
     Require(systemMap.Bus.ReadWord(0x0019_0080) == 0xFFEF, "Backup RAM physical mirror failed.");
+    Require(systemMap.Bus.ReadWord(0x0400_0000) == 0xFF42, "Backup cartridge format signature failed.");
+    Require(systemMap.Bus.ReadWord(0x04FF_FFFE) == 0x0021, "Backup cartridge ID failed.");
+    systemMap.Bus.WriteWord(0x2400_0400, 0xBEEF);
+    Require(systemMap.Bus.ReadWord(0x0400_0400) == 0xFFEF, "Backup cartridge cache-through write failed.");
+    Require(systemMap.Bus.ReadWord(0x0410_0400) == 0xFFEF, "Backup cartridge physical mirror failed.");
     systemMap.Bus.WriteByte(0x0010_0000, 0x80);
     Require(systemMap.Stubs.Any(static stub => stub.Name == "SMPC Registers" && stub.WriteCount == 1), "Stub counters failed.");
     systemMap.Bus.WriteByte(0x0010_001F, 0x02);
