@@ -49,6 +49,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private bool _rtcValid = true;
     private bool _resetNmiEnabled;
     private bool _statusFlag;
+    private byte _busBuffer;
     private int _busyStatusReadsRemaining;
     private int _clockChangeVBlankInsRemaining;
     private bool _clockChangeNmiPending;
@@ -97,17 +98,17 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         {
             if (!_statusFlag)
             {
-                return 0;
+                return (byte)(_busBuffer & 0xFE);
             }
 
             if (_busyStatusReadsRemaining > 0)
             {
                 _busyStatusReadsRemaining--;
-                return 1;
+                return (byte)(_busBuffer | 0x01);
             }
 
             _statusFlag = false;
-            return 0;
+            return (byte)(_busBuffer & 0xFE);
         }
 
         if (TryGetRegisterIndex(offset, OutputRegisterBase, _outputRegisters.Length, out var outputIndex))
@@ -115,7 +116,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
             return _outputRegisters[outputIndex];
         }
 
-        return 0;
+        return _busBuffer;
     }
 
     public void WriteByte(uint offset, byte value)
@@ -124,6 +125,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         FirstWriteOffset ??= offset;
         LastWriteOffset = offset;
         RecordOffset(_writeOffsets, offset);
+        _busBuffer = value;
         offset &= 0x7F;
 
         if (TryGetRegisterIndex(offset, InputRegisterBase, _inputRegisters.Length, out var inputIndex))

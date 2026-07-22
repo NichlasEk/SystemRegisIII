@@ -222,9 +222,15 @@ static void VerifySaturnSystemMap()
     smpcRegisters.NotifyVBlankIn();
     Require(smpcRegisters.TryConsumeClockChangeNmi(), "SMPC clock-change NMI did not arrive after three VBlanks.");
     Require(!smpcRegisters.TryConsumeClockChangeNmi(), "SMPC clock-change NMI was delivered more than once.");
-    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC command did not assert its busy flag.");
-    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x01, "SMPC busy flag cleared too early.");
-    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x00, "SMPC busy flag did not clear after command latency.");
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x0F, "SMPC command did not assert its busy flag.");
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x0F, "SMPC busy flag cleared too early.");
+    Require(systemMap.Bus.ReadByte(0x0010_0063) == 0x0E, "SMPC busy flag did not clear after command latency.");
+    var smpcBusBufferMap = SaturnSystemMap.CreateBringup(bios);
+    smpcBusBufferMap.Bus.WriteByte(0x0010_0063, 0x01);
+    smpcBusBufferMap.Bus.WriteByte(0x0010_001F, 0x19);
+    Require(smpcBusBufferMap.Bus.ReadByte(0x0010_0063) == 0x19, "SMPC RESENAB busy flag lost bus-buffer bits.");
+    Require(smpcBusBufferMap.Bus.ReadByte(0x0010_0063) == 0x19, "SMPC RESENAB busy flag cleared too early.");
+    Require(smpcBusBufferMap.Bus.ReadByte(0x0010_0063) == 0x18, "SMPC RESENAB completion lost bus-buffer bits.");
     systemMap.Bus.WriteByte(0x0010_0001, 0x01);
     systemMap.Bus.WriteByte(0x0010_0003, 0x00);
     systemMap.Bus.WriteByte(0x0010_0005, 0xF0);
@@ -267,7 +273,7 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC INTBACK port 1 digital pad data 2 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0029) == 0xF0, "SMPC INTBACK port 2 status failed.");
     Require(systemMap.Bus.ReadByte(0x0010_1061) == systemMap.Bus.ReadByte(0x0010_0061), "SMPC mirrored status register failed.");
-    Require(systemMap.Bus.ReadLong(0x0010_11DC) == 0, "SMPC mirrored open register failed.");
+    Require(systemMap.Bus.ReadLong(0x0010_11DC) == 0x1000_1000, "SMPC mirrored open-bus register failed.");
     var pressedPadMap = SaturnSystemMap.CreateBringup(
         bios,
         new SaturnBringupOptions { DigitalPadState = SaturnInputState.Start | SaturnInputState.A });
