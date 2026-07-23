@@ -394,9 +394,11 @@ static int RunBios(string[] args)
     var deferredVblankOutChecks = 0L;
     var sh2DiffTrace = new List<string>(Math.Min(sh2DiffTraceCount, 1_000_000));
     var cdCommandTrace = new List<string>();
+    var cdPickupTrace = new List<string>();
     var cdHirqTrace = new List<string>();
     long observedCdCommandCount = 0;
     long observedCdHirqWriteCount = 0;
+    var observedCdPickupFad = systemMap.CdBlock.CurrentFad;
     var sh2DiffTraceArmed = false;
     var initialProgramLoaded = false;
 
@@ -648,6 +650,19 @@ static int RunBios(string[] args)
         systemMap.CdBlock.AdvanceMasterInstructions(1);
         systemMap.AdvanceVdp2MasterInstructions(1);
 
+        var cdPickupFad = systemMap.CdBlock.CurrentFad;
+        if (cdPickupFad != observedCdPickupFad)
+        {
+            cdPickupTrace.Add(
+                $"i={i:N0} pc=0x{masterPc:X8} fad=0x{observedCdPickupFad:X6}->0x{cdPickupFad:X6} " +
+                $"last-command=0x{systemMap.CdBlock.LastCommandCode:X2} " +
+                $"command=0x{systemMap.CdBlock.LastCommandCr1:X4},0x{systemMap.CdBlock.LastCommandCr2:X4}," +
+                $"0x{systemMap.CdBlock.LastCommandCr3:X4},0x{systemMap.CdBlock.LastCommandCr4:X4} " +
+                $"response=0x{systemMap.CdBlock.ResponseCr1:X4},0x{systemMap.CdBlock.ResponseCr2:X4}," +
+                $"0x{systemMap.CdBlock.ResponseCr3:X4},0x{systemMap.CdBlock.ResponseCr4:X4}");
+            observedCdPickupFad = cdPickupFad;
+        }
+
         var cdCommandCount = systemMap.CdBlock.TotalCommandCount;
         if (cdCommandCount != observedCdCommandCount)
         {
@@ -778,6 +793,22 @@ static int RunBios(string[] args)
             foreach (var command in cdCommandTrace.TakeLast(256))
             {
                 Console.WriteLine($"  {command}");
+            }
+        }
+    }
+    if (cdPickupTrace.Count > 0)
+    {
+        Console.WriteLine("CD pickup timeline:");
+        foreach (var pickup in cdPickupTrace.Take(128))
+        {
+            Console.WriteLine($"  {pickup}");
+        }
+        if (cdPickupTrace.Count > 128)
+        {
+            Console.WriteLine("CD recent pickup timeline:");
+            foreach (var pickup in cdPickupTrace.TakeLast(256))
+            {
+                Console.WriteLine($"  {pickup}");
             }
         }
     }

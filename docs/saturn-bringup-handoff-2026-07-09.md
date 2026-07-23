@@ -452,3 +452,22 @@ The full third backup operation and the second `0600598C` return now match Medna
 Mednafen initializes an SMPC read from its retained bus buffer and replaces only SF bit zero. The last command byte is `19`, so busy reads return `19` and the completed read returns `18`. SystemRegis previously returned only a synthesized zero or one, producing the observed `R0=0`. `SmpcRegisterBusDevice` now retains every written byte as its bus buffer, preserves the upper seven bits for SF reads, and returns that buffer for otherwise open registers. Focused smoke coverage verifies `0E -> 0F/0F/0E`, the exact NiGHTS-shaped `19 -> 19/19/18` sequence, and mirrored open-bus lanes.
 
 The clean Release 260M acceptance is fault-free and matches the exact reference return at `0604D37E`: `R0=18`, `R1=2`, `R5=400`, `R6=24100000`, and `R7=1`. It continues immediately through `0604D380 -> 0604CDAC -> 0604D390`, creates a 32 KiB backup image, and ends in valid game code at master/slave PCs `0606F284`/`06005FA0`. The next differential should begin after this now-matched return and follow the subsequent object-manager path toward the still-missing late `060DC000` command-list producer. Preserve the cartridge model, the backup-RAM layout, and the SMPC bus-buffer behavior; all three previously apparent save-path differences now have hardware explanations.
+
+## July 23 CD Pickup and Play-Argument Provenance
+
+The post-selector `R1` difference is the packed `CR3:CR4` status response:
+Mednafen reports `01000B16` while SystemRegis reports `01000B26`. A new bounded
+CLI CD pickup timeline records every internal FAD change together with
+instruction index, master PC, full command CR input, and response CR output.
+
+The clean 240M run shows that SystemRegis issues the relevant Play command as
+`1080,0B16,0080,0010` at instruction 155,221,236. Its long-play clock then
+advances exactly sixteen times, from `0B16` to `0B26`. The Mednafen workload
+captured during the continuous-buffering differential was
+`1080,0B06,0080,0010` and its later status remains at the expected end FAD
+`0B16`.
+
+The next real divergence is therefore the producer of Play CR2 before the
+generic command-helper write at `060683CE`, not the CD block's sector-count
+arithmetic. Follow that producer against Mednafen. Do not compensate by
+subtracting `0x10` in `PlayDisc` or by disabling continuous buffering.

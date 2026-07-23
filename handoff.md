@@ -252,6 +252,36 @@ VDP1 list remains the eight-drawable, eleven-command capture from instruction
 return to the disproven directory-scan hypothesis or retune the now-matched
 selector HIRQ waveform.
 
+## July 23 CD Pickup and Play-Argument Provenance
+
+The `R1` difference at actual PC `0606F2F6` is the packed CD response
+`CR3:CR4`, not an SH-2 arithmetic difference. The reference reads
+`0180,4101,0100,0B16`; SystemRegis reads
+`0180,4101,0100,0B26`.
+
+The CLI now records a bounded CD pickup timeline whenever the internal FAD
+changes. Each record includes instruction index, master PC, old/new FAD, the
+complete last-command CR input, and the current response. This separates
+command-argument provenance from later asynchronous sector publication without
+requiring a huge architectural trace.
+
+A clean 240M pickup run proves that the CD sector timer is not adding the same
+16 sectors twice. SystemRegis issues Play as
+`1080,0B16,0080,0010` at instruction 155,221,236, then publishes exactly
+sixteen sequential pickup changes from `0B16` through `0B26`. The existing
+Mednafen reference for this workload issues
+`1080,0B06,0080,0010` and later reports `0B16`. The extra `0x10` is therefore
+already present in the SystemRegis Play start argument; `0B26` is its correct
+modeled end, not a second increment inside `PublishNextLongPlaySector`.
+
+This moves the next differential earlier than the selector response. Trace the
+producer of command-7 Play CR2 immediately before the write at master PC
+`060683CE`, and compare it with the Mednafen `0B06` command construction. Do
+not clamp the CD response to `0B16`, subtract the sector count inside
+`PlayDisc`, or remove continuous long-play buffering: those would hide the
+upstream argument divergence and regress the already verified streamed-sector
+workloads.
+
 ## Verification
 
 Focused validation:

@@ -177,6 +177,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     public ushort ResponseCr2 => _cr2;
     public ushort ResponseCr3 => _cr3;
     public ushort ResponseCr4 => _cr4;
+    public uint CurrentFad => _currentFad;
     public bool DataTransferActive => _dataTransferActive;
     public uint DataTransferWordCount => _dataTransferWordCount;
     public uint DataTransferWordsRead => _dataTransferWordsRead;
