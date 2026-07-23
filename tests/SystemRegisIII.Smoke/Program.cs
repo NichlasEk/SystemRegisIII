@@ -246,6 +246,17 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadByte(0x0010_002D) == 0x00, "SMPC INTBACK RTC minute failed.");
     Require(systemMap.Bus.ReadByte(0x0010_002F) == 0x00, "SMPC INTBACK RTC second failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0033) == 0x01, "SMPC INTBACK area code failed.");
+    systemMap.Bus.WriteByte(0x0010_0001, 0x01);
+    systemMap.Bus.WriteByte(0x0010_0003, 0x08);
+    systemMap.Bus.WriteByte(0x0010_001F, 0x10);
+    Require(smpcRegisters.TryConsumeInterrupt(), "SMPC combined INTBACK status interrupt failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0061) == 0x2F, "SMPC combined INTBACK status phase failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0033) == 0x01, "SMPC combined INTBACK area code failed.");
+    systemMap.Bus.WriteByte(0x0010_0001, 0x80);
+    Require(smpcRegisters.TryConsumeInterrupt(), "SMPC combined INTBACK peripheral interrupt failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0061) == 0xC0, "SMPC combined INTBACK peripheral phase failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0021) == 0xF1, "SMPC combined INTBACK peripheral data failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0033) == 0x01, "SMPC combined INTBACK peripheral phase did not retain OREG9.");
     systemMap.Bus.WriteByte(0x0010_0001, 0x20);
     systemMap.Bus.WriteByte(0x0010_0003, 0x26);
     systemMap.Bus.WriteByte(0x0010_0005, 0x38);
@@ -272,6 +283,7 @@ static void VerifySaturnSystemMap()
     Require(systemMap.Bus.ReadByte(0x0010_0025) == 0xFF, "SMPC INTBACK port 1 digital pad data 1 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0027) == 0xFF, "SMPC INTBACK port 1 digital pad data 2 failed.");
     Require(systemMap.Bus.ReadByte(0x0010_0029) == 0xF0, "SMPC INTBACK port 2 status failed.");
+    Require(systemMap.Bus.ReadByte(0x0010_0033) == 0x01, "SMPC INTBACK short peripheral response did not retain OREG9 area code.");
     Require(systemMap.Bus.ReadByte(0x0010_1061) == systemMap.Bus.ReadByte(0x0010_0061), "SMPC mirrored status register failed.");
     Require(systemMap.Bus.ReadLong(0x0010_11DC) == 0x1000_1000, "SMPC mirrored open-bus register failed.");
     var pressedPadMap = SaturnSystemMap.CreateBringup(

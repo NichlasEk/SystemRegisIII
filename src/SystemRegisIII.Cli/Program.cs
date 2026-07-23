@@ -61,6 +61,7 @@ static int RunBios(string[] args)
     var finalWorkRamLowPath = GetOption(args, "--dump-final-wram-low");
     var finalBackupRamPath = GetOption(args, "--dump-final-backup-ram");
     var sh2DiffTracePath = GetOption(args, "--dump-sh2-diff-trace");
+    var preCdCommandTracePath = GetOption(args, "--dump-pre-cd-command-trace");
     var preUnimplementedTracePath = GetOption(args, "--dump-pre-unimplemented-trace");
     var postAuthTracePath = GetOption(args, "--dump-post-auth-trace");
     var postCommand30TracePath = GetOption(args, "--dump-post-command30-trace");
@@ -76,6 +77,12 @@ static int RunBios(string[] args)
     var postReadFileTraceCount = Math.Max(1, GetIntOption(args, "--post-read-file-trace-count", defaultValue: 1024));
     var postFileInfoTraceCount = Math.Max(1, GetIntOption(args, "--post-file-info-trace-count", defaultValue: 2048));
     var sh2DiffTraceCount = Math.Max(1, GetIntOption(args, "--sh2-diff-trace-count", defaultValue: 512));
+    var preCdCommandTraceCount = Math.Max(
+        1,
+        GetIntOption(args, "--pre-cd-command-trace-count", defaultValue: 4096));
+    var preCdCommandTraceStartInstruction = Math.Max(
+        0,
+        GetIntOption(args, "--pre-cd-command-trace-start-instruction", defaultValue: 0));
     var sh2DiffTraceTrigger = GetUIntOption(args, "--sh2-diff-trace-trigger", 0x0600_4030);
     var sh2DiffTraceCdCommand = GetOption(args, "--sh2-diff-trace-cd-command") is null
         ? (byte?)null
@@ -84,6 +91,8 @@ static int RunBios(string[] args)
         1,
         GetIntOption(args, "--sh2-diff-trace-cd-occurrence", defaultValue: 1));
     var preUnimplementedTrace = new Queue<string>(256);
+    var preCdCommandTrace = new Queue<string>(Math.Min(preCdCommandTraceCount, 1_000_000));
+    string[]? capturedPreCdCommandTrace = null;
     string[]? capturedPreUnimplementedTrace = null;
     var postAuthTrace = new List<string>(Math.Min(postAuthTraceCount, 1_000_000));
     var postAuthTraceArmed = false;
@@ -229,8 +238,35 @@ static int RunBios(string[] args)
             currentInstructionIndex,
             cdCommandOccurrences[0x62],
             systemMap.CdBlock.LastCommandCode));
-    var masterNightsCodeWatch = new WatchedBus(
+    var masterKeikokuVariantWatch = new WatchedBus(
         masterCdTaskLifecycleWatch,
+        0x0606_4FBF,
+        0x0606_4FBF,
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
+    var masterCdPlayStartSourceWatch = new WatchedBus(
+        masterKeikokuVariantWatch,
+        0x0600_1F68,
+        0x0600_1F6B,
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
+    var masterCdPlayStartWatch = new WatchedBus(
+        masterCdPlayStartSourceWatch,
+        0x0606_561C,
+        0x0606_561F,
+        () => GetWatchContext(
+            master,
+            currentInstructionIndex,
+            cdCommandOccurrences[0x62],
+            systemMap.CdBlock.LastCommandCode));
+    var masterNightsCodeWatch = new WatchedBus(
+        masterCdPlayStartWatch,
         0x0606_81C0,
         0x0606_821F,
         () => GetWatchContext(master));
@@ -538,6 +574,17 @@ static int RunBios(string[] args)
 
             preUnimplementedTrace.Enqueue(FormatSh2DiffState(master));
         }
+        if (preCdCommandTracePath is not null
+            && capturedPreCdCommandTrace is null
+            && i >= preCdCommandTraceStartInstruction)
+        {
+            if (preCdCommandTrace.Count == preCdCommandTraceCount)
+            {
+                preCdCommandTrace.Dequeue();
+            }
+
+            preCdCommandTrace.Enqueue(FormatSh2DiffState(master));
+        }
         if (simulateInitialProgramLoad && !initialProgramLoaded && masterPc == 0x0601_0000
             && systemMap.CdBlock.TryLoadInitialProgram(
                 systemMap.WorkRamHigh.Span,
@@ -679,6 +726,7 @@ static int RunBios(string[] args)
                 && cdCommandOccurrences[systemMap.CdBlock.LastCommandCode] == sh2DiffTraceCdOccurrence)
             {
                 sh2DiffTraceArmed = true;
+                capturedPreCdCommandTrace = preCdCommandTrace.ToArray();
             }
             observedCdCommandCount = cdCommandCount;
             if (systemMap.CdBlock.LastCommandCode == 0xE1)
@@ -972,6 +1020,12 @@ static int RunBios(string[] args)
         File.WriteAllLines(sh2DiffTracePath, sh2DiffTrace);
         Console.WriteLine($"SH-2 differential trace: {sh2DiffTracePath} entries={sh2DiffTrace.Count:N0}");
     }
+    if (preCdCommandTracePath is not null)
+    {
+        var entries = capturedPreCdCommandTrace ?? preCdCommandTrace.ToArray();
+        File.WriteAllLines(preCdCommandTracePath, entries);
+        Console.WriteLine($"SH-2 pre-CD-command trace: {preCdCommandTracePath} entries={entries.Length:N0}");
+    }
     if (preUnimplementedTracePath is not null)
     {
         var entries = capturedPreUnimplementedTrace ?? preUnimplementedTrace.ToArray();
@@ -1012,6 +1066,9 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master CD task-quantum watch", masterCdTaskQuantumWatch);
         PrintWatchWindow("Master CD task-accumulator watch", masterCdTaskAccumulatorWatch);
         PrintWatchWindow("Master CD task-lifecycle watch", masterCdTaskLifecycleWatch);
+        PrintWatchWindow("Master KEIKOKU variant-selector watch", masterKeikokuVariantWatch);
+        PrintWatchWindow("Master CD Play-start source watch", masterCdPlayStartSourceWatch);
+        PrintWatchWindow("Master CD Play-start watch", masterCdPlayStartWatch);
     }
 
     if (traceEnabled)
@@ -2408,6 +2465,7 @@ static void PrintUsage()
     Console.WriteLine();
     Console.WriteLine("Usage:");
     Console.WriteLine("  SystemRegisIII.Cli run --bios <path> [--disc <path>] [--cd-status busy|pause|standby|play|wait] [--instructions N] [--vblank-interval N] [--pad buttons] [--pad-raw F102FFFF] [--instruction-window HEX] [--instruction-window-count N] [--dump-vdp1-frame output.ppm] [--dump-vdp1-texture output.bin] [--dump-vdp2-state output-prefix] [--dump-final-vdp2-state output-prefix] [--dump-final-wram-low output.bin] [--dump-final-wram-high output.bin] [--dump-final-backup-ram output.bin] [--dump-initial-wram-low output.bin] [--dump-initial-wram-high output.bin] [--dump-sh2-diff-trace output.log] [--dump-pre-unimplemented-trace output.log] [--dump-post-auth-trace output.log] [--dump-post-command30-trace output.log] [--dump-post-read-file-trace output.log] [--dump-post-file-info-trace output.log] [--dump-post-file-info-wram-high output.bin] [--post-auth-trace-count N] [--post-command30-trace-count N] [--post-read-file-trace-count N] [--post-file-info-trace-count N] [--sh2-diff-trace-trigger HEX] [--sh2-diff-trace-cd-command HEX] [--sh2-diff-trace-cd-occurrence N] [--sh2-diff-trace-count N] [--probe-r0 HEX] [--trace] [--simulate-slave-ready] [--simulate-scsp-command-ack] [--simulate-initial-program-load] [--dual-sh2] [--defer-vblank-in-critical-windows] [--probe-suspect-stack] [--summary-only]");
+    Console.WriteLine("  Pre-command tracing: [--dump-pre-cd-command-trace output.log] [--pre-cd-command-trace-count N] [--pre-cd-command-trace-start-instruction N]");
 }
 
 sealed class ScuInterruptProbe

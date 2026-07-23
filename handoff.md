@@ -282,6 +282,46 @@ not clamp the CD response to `0B16`, subtract the sector count inside
 upstream argument divergence and regress the already verified streamed-sector
 workloads.
 
+## July 23 SMPC INTBACK Status/Peripheral Phases
+
+The Play-argument provenance reaches NiGHTS's region-dependent resource
+selection. Root directory records prove file ID `42` is `KEIKOKU.PRS` at FAD
+`0B06`, while file ID `43` is `KEIKOKUP.PRS` at FAD `0B16`. Game code at
+`0604CA84..0604CA9A` selects between them from byte `06064FBF`.
+
+A focused Mednafen write probe found the byte's real producer at
+`0600635C`: NiGHTS copies SMPC `OREG9` (`20100033`) into `06064FBF`.
+`OREG9` is the Saturn area code and is `01` for the Japanese BIOS/profile.
+SystemRegis initialized the destination to zero but skipped this copy because
+its combined INTBACK response returned peripheral data immediately.
+
+SMPC INTBACK now follows the reference's two visible phases when IREG0 requests
+system status while IREG1 also requests peripheral data:
+
+1. publish system status first with `SR=2F`, including area code `OREG9=01`;
+2. retain OREG values while waiting for IREG0 `CONTINUE`;
+3. publish the digital-pad response in a second interrupt with `SR=C0`.
+
+IREG0 `BREAK` cancels the pending peripheral phase. Short peripheral responses
+also retain untouched OREG values instead of clearing the entire output
+register bank. Smoke coverage locks the two interrupts, both status values,
+pad data, OREG9 retention, and the break-independent direct peripheral path.
+
+The corrected 156M Release acceptance reaches the exact reference boundary:
+
+```text
+i=132,100,156  PC=0600635C  [06064FBF] <- 01 from [20100033]
+i=155,209,879  PC=0604CA86  [06064FBF] -> 01
+i=155,221,115  Play 1080,0B06,0080,0010
+```
+
+The final CD response is `0400,4101,0100,0B06`; the old `0B16` command
+argument and derived `0B26` pickup are gone. This resolves the Play #7
+command-construction differential without a game-specific filename or FAD
+special case. The CLI retains a bounded pre-command SH-2 trace plus focused
+watches for the selector byte and Play-start provenance for the next
+differential.
+
 ## Verification
 
 Focused validation:
@@ -300,7 +340,7 @@ dotnet run -c Release --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj
   --dual-sh2 \
   --simulate-scsp-command-ack \
   --vblank-interval 100000 \
-  --instructions 128000000 \
+  --instructions 156000000 \
   --summary-only
 ```
 

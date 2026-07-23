@@ -50,6 +50,7 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
     private bool _resetNmiEnabled;
     private bool _statusFlag;
     private byte _busBuffer;
+    private bool _peripheralIntbackPending;
     private int _busyStatusReadsRemaining;
     private int _clockChangeVBlankInsRemaining;
     private bool _clockChangeNmiPending;
@@ -131,6 +132,19 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
         if (TryGetRegisterIndex(offset, InputRegisterBase, _inputRegisters.Length, out var inputIndex))
         {
             _inputRegisters[inputIndex] = value;
+            if (inputIndex == 0 && _peripheralIntbackPending)
+            {
+                if ((value & 0x40) != 0)
+                {
+                    _peripheralIntbackPending = false;
+                }
+                else if ((value & 0x80) != 0)
+                {
+                    _peripheralIntbackPending = false;
+                    BuildPeripheralIntbackResponse();
+                    PendingInterrupts++;
+                }
+            }
             return;
         }
 
@@ -255,44 +269,49 @@ public sealed class SmpcRegisterBusDevice : IInspectableBusDevice
 
     private void BuildIntbackResponse()
     {
-        Array.Clear(_outputRegisters);
-
         var returnsSmpcStatus = (_inputRegisters[0] & 0x01) != 0;
         var returnsPeripheralData = (_inputRegisters[1] & 0x08) != 0;
-        var port1Mode = (_inputRegisters[1] >> 4) & 0x03;
-        var port2Mode = (_inputRegisters[1] >> 6) & 0x03;
 
+        if (returnsSmpcStatus)
+        {
+            StatusRegisterValue = returnsPeripheralData ? (byte)0x2F : SmpcStatusValid;
+            _peripheralIntbackPending = returnsPeripheralData;
+
+            _outputRegisters[0] = (byte)((_rtcValid ? RtcValidStatus : 0) | (!_resetNmiEnabled ? SystemStatus0ResetDisabled : 0));
+            Array.Copy(_rtc, 0, _outputRegisters, 1, _rtc.Length);
+            _outputRegisters[9] = JapanAreaCode;
+            _outputRegisters[10] = SystemStatus1Default;
+            _outputRegisters[11] = SystemStatus2Default;
+            Array.Copy(_systemMemory, 0, _outputRegisters, 12, _systemMemory.Length);
+            return;
+        }
+
+        _peripheralIntbackPending = false;
         if (returnsPeripheralData)
         {
-            StatusRegisterValue = (byte)(0xC0 | (port2Mode << 2) | port1Mode);
-            var outputIndex = 0;
-            if (port1Mode != 0x03)
-            {
-                _digitalPadPortData.CopyTo(_outputRegisters, outputIndex);
-                outputIndex += _digitalPadPortData.Length;
-            }
-
-            if (port2Mode != 0x03 && outputIndex < _outputRegisters.Length)
-            {
-                _outputRegisters[outputIndex] = NoPeripheralPortStatus;
-            }
-
+            BuildPeripheralIntbackResponse();
             return;
         }
 
         StatusRegisterValue = SmpcStatusValid;
+    }
 
-        if (!returnsSmpcStatus)
+    private void BuildPeripheralIntbackResponse()
+    {
+        var port1Mode = (_inputRegisters[1] >> 4) & 0x03;
+        var port2Mode = (_inputRegisters[1] >> 6) & 0x03;
+        StatusRegisterValue = (byte)(0xC0 | (port2Mode << 2) | port1Mode);
+        var outputIndex = 0;
+        if (port1Mode != 0x03)
         {
-            return;
+            _digitalPadPortData.CopyTo(_outputRegisters, outputIndex);
+            outputIndex += _digitalPadPortData.Length;
         }
 
-        _outputRegisters[0] = (byte)((_rtcValid ? RtcValidStatus : 0) | (!_resetNmiEnabled ? SystemStatus0ResetDisabled : 0));
-        Array.Copy(_rtc, 0, _outputRegisters, 1, _rtc.Length);
-        _outputRegisters[9] = JapanAreaCode;
-        _outputRegisters[10] = SystemStatus1Default;
-        _outputRegisters[11] = SystemStatus2Default;
-        Array.Copy(_systemMemory, 0, _outputRegisters, 12, _systemMemory.Length);
+        if (port2Mode != 0x03 && outputIndex < _outputRegisters.Length)
+        {
+            _outputRegisters[outputIndex] = NoPeripheralPortStatus;
+        }
     }
 
     private static bool TryGetRegisterIndex(uint offset, uint start, int count, out int index)
