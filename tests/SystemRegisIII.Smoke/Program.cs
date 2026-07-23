@@ -492,12 +492,27 @@ static void VerifySaturnSystemMap()
         Require(mountedCdRegisters.LastCommandCode == 0x67, "CD Block get-copy-error command latch failed.");
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x0100, "CD Block get-copy-error status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x0000, "CD Block get-copy-error CR2 failed.");
+        discMap.Bus.WriteWord(0x2589_0008, 0xFFBF);
         discMap.Bus.WriteWord(0x2589_0018, 0x4000);
         discMap.Bus.WriteWord(0x2589_001C, 0x0096);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
         discMap.Bus.WriteWord(0x2589_0024, 0x0002);
         Require(mountedCdRegisters.LastCommandCode == 0x40, "CD Block filter-range command latch failed.");
-        Require((discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0041, "CD Block filter-range ESEL HIRQ failed.");
+        Require((mountedCdRegisters.HirqValue & 0x0041) == 0, "CD Block filter-range completed before HIRQ polling.");
+        for (var poll = 0; poll < 8; poll++)
+        {
+            Require(
+                (discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0,
+                "CD Block filter-range CMOK/ESEL completed too early.");
+        }
+
+        Require(
+            (discMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0001,
+            "CD Block filter-range CMOK did not complete before ESEL on the ninth poll.");
+        mountedCdRegisters.AdvanceMasterInstructions(95);
+        Require((mountedCdRegisters.HirqValue & 0x0040) == 0, "CD Block filter-range ESEL completed too early.");
+        mountedCdRegisters.AdvanceMasterInstructions(1);
+        Require((mountedCdRegisters.HirqValue & 0x0040) != 0, "CD Block filter-range ESEL completion failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x6100);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -861,7 +876,26 @@ static void VerifySaturnSystemMap()
         largeIsoMap.Bus.WriteWord(0x2589_0008, 0xFFBF);
         IssueCdCommand(largeIsoMap.Bus, 0x4401, 0x0000, 0x0000, 0x0000);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0180, "CD Block set-filter-mode status failed.");
-        Require((largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0040) != 0, "CD Block set-filter-mode ESEL HIRQ failed.");
+        Require((largeIsoCd.HirqValue & 0x0041) == 0, "CD Block set-filter-mode completed before HIRQ polling.");
+        for (var poll = 0; poll < 8; poll++)
+        {
+            Require(
+                (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0,
+                "CD Block set-filter-mode CMOK/ESEL completed too early.");
+        }
+
+        Require(
+            (largeIsoMap.Bus.ReadWord(0x2589_0008) & 0x0041) == 0x0001,
+            "CD Block set-filter-mode CMOK did not complete before ESEL on the ninth poll.");
+        IssueCdCommand(largeIsoMap.Bus, 0x0000, 0x0000, 0x0000, 0x0000);
+        largeIsoCd.AdvanceMasterInstructions(95);
+        Require(
+            (largeIsoCd.HirqValue & 0x0040) == 0,
+            "CD Block set-filter-mode ESEL completed too early after a status command.");
+        largeIsoCd.AdvanceMasterInstructions(1);
+        Require(
+            (largeIsoCd.HirqValue & 0x0040) != 0,
+            "CD Block set-filter-mode ESEL did not survive a status command.");
 
         IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00A6, 0x0080, 0x0001);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block late play old-position status failed.");

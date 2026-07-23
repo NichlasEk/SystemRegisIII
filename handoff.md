@@ -216,10 +216,41 @@ The 240M automatic acceptance is fault-free at master/slave PCs
 return `0604D3AC` now reads HIRQ `0FD5` at both `060681F2` and `0606AD20`.
 Twelve comparable CPU/register milestones through `0607048E` match the local
 Mednafen trace, excluding the already-known historical MACL difference. The
-next differential is after that matched point in the object/data scan: the
-reference next reaches `060704C2`, while SystemRegis continues through the
-`06050AE0` data loop. Continue from that memory/input provenance rather than
-retuning the now-matched CD event.
+original 3,100-state SystemRegis trace ended during the following directory
+scan and made that finite scan look divergent. The extended trace described
+below reaches the `PRGMOVIE.PRS` directory entry and rules that hypothesis out.
+
+## July 23 Selector Command Completion Phases
+
+The first real differential after the directory scan was Set Filter Mode
+command `44`. Mednafen acknowledges the old CMOK/ESEL bits from HIRQ
+`0FD5 -> 0F94`, completes CMOK after eight unsuccessful BIOS word polls, and
+therefore reaches actual PC `06068380` with HIRQ snapshot `R6=0F95` and poll
+counter `R7=8`. ESEL is a distinct later event after the command's additional
+96-clock selector phase. SystemRegis previously raised CMOK and ESEL
+immediately, producing `R6=0FD5`, `R7=0`.
+
+Commands `40,42,44,46` now delay CMOK for eighteen byte register reads (eight
+unsuccessful word polls followed by the successful ninth read), then schedule
+ESEL as a separate 96-instruction bringup event. The ESEL event is independent
+of the generic command-midpoint state, so an intervening status command cannot
+discard it. Smoke coverage pins the CMOK/ESEL ordering for both Set Filter
+Range and Set Filter Mode, including the intervening status-command case.
+
+The clean Release 240M acceptance is fault-free, writes all 30,000 requested
+trace states, and ends at valid master/slave PCs `0606FA92`/`06005FA0`. At
+actual PC `06068380`, SystemRegis now exactly matches the reference
+`R6=00000F95`, `R7=00000008`. A sequential comparison matches 131 reference
+CPU/register milestones after the unique `0604D3AC` anchor (ignoring the
+already-known MACL history). The next concrete difference is reference
+sequence 3201 at actual PC `0606F2F6`: Mednafen has `R1=01000B16`, while
+SystemRegis has `R1=01000B26`; the remaining compared registers match there.
+
+This still does not produce a new visible boot/game frame. The richest complete
+VDP1 list remains the eight-drawable, eleven-command capture from instruction
+89.7M. Continue from the `R1` provenance immediately before `0606F2F6`; do not
+return to the disproven directory-scan hypothesis or retune the now-matched
+selector HIRQ waveform.
 
 ## Verification
 

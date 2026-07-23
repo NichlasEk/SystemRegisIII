@@ -33,6 +33,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private const int PartitionCount = 0x18;
     private const int AuthStartupPollCount = 8;
     private const int InitializeTransitionPollCount = 8;
+    private const int SelectorCompletionInstructionCount = 96;
     private const int SoftwareResetInstructionCount = 8_192;
     private const int StartupFirstPeriodicInstructionCount = 50_000;
     private const int StartupPeriodicInstructionCount = 200_000;
@@ -86,6 +87,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _commandCompletionHirqBits;
     private int _commandMidpointHirqReadsRemaining;
     private ushort _commandMidpointHirqBits;
+    private bool _selectorCompletionPendingAfterCmok;
+    private int _selectorCompletionInstructionsRemaining;
     private int _postAuthStatusInstructionsRemaining;
     private int _postSessionStatusInstructionsRemaining;
     private int _playEndInstructionsRemaining;
@@ -287,6 +290,15 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         if (instructionCount <= 0)
         {
             return;
+        }
+
+        if (_selectorCompletionInstructionsRemaining > 0)
+        {
+            _selectorCompletionInstructionsRemaining -= instructionCount;
+            if (_selectorCompletionInstructionsRemaining <= 0)
+            {
+                _hirq |= HirqEndSelector;
+            }
         }
 
         if (_postAuthStatusInstructionsRemaining > 0)
@@ -518,6 +530,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             if (_commandCompletionHirqReadsRemaining == 0)
             {
                 _hirq |= _commandCompletionHirqBits;
+                if (_selectorCompletionPendingAfterCmok
+                    && (_commandCompletionHirqBits & HirqCmok) != 0)
+                {
+                    _selectorCompletionPendingAfterCmok = false;
+                    _selectorCompletionInstructionsRemaining = SelectorCompletionInstructionCount;
+                }
+
                 _commandCompletionHirqBits = 0;
             }
         }
@@ -576,10 +595,12 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             && LastCommandCode == 0x01;
         var commandCompletionHirqByteReads = delayStartupHardwareInfo
             ? 16
-            : LastCommandCode is 0x03 or 0x30 or 0x72 or 0x74
-                || (LastCommandCode == 0x04 && (LastCommandCr1 & 0x0001) != 0)
-                    ? 16
-                    : 0;
+            : LastCommandCode is 0x40 or 0x42 or 0x44 or 0x46
+                ? 18
+                : LastCommandCode is 0x03 or 0x30 or 0x72 or 0x74
+                    || (LastCommandCode == 0x04 && (LastCommandCr1 & 0x0001) != 0)
+                        ? 16
+                        : 0;
         if (!_hasExecutedCommand && _discImage is not null)
         {
             _hirq |= 0x0BE0;
@@ -723,7 +744,11 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         else if (_discImage is not null && LastCommandCode is 0x40 or 0x42 or 0x44 or 0x46)
         {
-            _hirq |= HirqEndSelector;
+            // Selector commands complete CMOK after eight unsuccessful BIOS
+            // word polls, on the ninth read,
+            // then publish ESEL after the command's separate 96-clock selector
+            // phase. This event must survive intervening status commands.
+            _selectorCompletionPendingAfterCmok = true;
         }
         else if (_discImage is not null && LastCommandCode is 0x48 or 0x60)
         {
