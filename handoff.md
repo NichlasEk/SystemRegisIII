@@ -362,33 +362,41 @@ instruction-89.7M list.
 
 ## July 24 Long-Play Completion Waveform
 
-The first completion implementation left stale `CMOK|ESEL` asserted and omitted
-`EHST`, producing `HIRQ=0B55`. The Mednafen completion edge is `0B94`:
-`EHST|PEND|CSCT`, without `CMOK|ESEL`. Long-play completion now performs that
-exact bit transition.
+The first completion implementation omitted `EHST`, producing `HIRQ=0B55`.
+Mednafen's logged `0B94` is not the raw completion edge: it is sampled after
+BIOS has already issued command `30`. Long-play completion therefore latches
+`EHST|PEND` while preserving unrelated HIRQ bits; command `30` then clears
+`CMOK|ESEL` during its asynchronous completion, producing the observed `0B94`.
 
 The completion status also has two distinct phases. The PEND edge itself is a
 non-periodic Pause response (`0180`); only the later 200,000-instruction Pause
 tick reports `2180` and raises SCDQ. Smoke coverage locks both phases and the
 completion HIRQ mask for synthetic long plays.
 
-A clean 226M Release acceptance confirms the corrected live waveform:
+An intermediate 226M run that cleared `CMOK|ESEL` directly at the PEND edge
+regressed at the first `0B06 -> 0B16` Play and never reached the later
+`4DDF` workload. That disproves generic completion-time clearing and is why the
+clearing now belongs to command `30`. `HIRQMASK` remains zero in both
+SystemRegis and Mednafen; do not force a CD-to-SCU interrupt as a workaround.
+
+The corrected latch-preserving 226M acceptance restores every later Play,
+reaches `0180,4102,0100,4F1A`, and advances beyond the old PEND/SCDQ-only
+stall. BIOS now executes:
 
 ```text
-HIRQ completion/poll: 0F94 -> 0B94
-completion status:    0180
-later periodic status: 2180
+62 -> 51(partition 1 count=0111) -> 52(20 sectors)
+   -> 53(actual size=5000 words) -> 61(DTREQ=4000, word count=0000)
 ```
 
-NiGHTS still does not issue Mednafen's post-completion `30/48/44/42/46`
-sequence. It repeatedly acknowledges only SCDQ while PEND remains asserted,
-and the final frame hash is unchanged from the old 240M baseline
-(`9d4916c718efa8604f44ff744c2c40118ede43968d7dea4d4ac4212c9268e00e`).
-The next differential is therefore outside the now-matched CD response/HIRQ
-data: trace how a CD completion becomes an SH-2/SCU interrupt in the reference.
-The current bringup map wires VDP1 draw-end into SCU but has no corresponding
-CD Block interrupt path. Do not retune the completion bits or periodic timing
-before that delivery path is compared.
+The empty transfer exposes the next model boundary. `SetFilterRange` currently
+stores filter start/count values in `_partitionFads/_partitionSectorCounts`,
+conflating filter configuration with buffered sector contents. The size
+commands therefore accept partition 1's fake `0111` count, but `61` reads its
+range FAD outside the mounted image and builds a zero-word transfer. Separate
+filter configuration from partition storage, track the CD-device/filter
+connection selected by command `30`, and route subsequent Play sectors into
+the connected partition. Preserve the newly matched completion latch order;
+do not paper over the empty transfer by synthesizing `CR2=5000`.
 
 ## Verification
 

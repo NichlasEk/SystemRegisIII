@@ -338,7 +338,6 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
                 _playSeekActive = false;
                 _status = (byte)CdBlockDriveStatus.Pause;
                 WriteStatusResponse(_status);
-                _hirq &= unchecked((ushort)~(HirqCmok | HirqEndSelector));
                 _hirq |= HirqEndHostIo | HirqPlayEnd;
                 _pausePeriodicInstructionsRemaining = PausePeriodicInstructionCount;
                 startedPausePeriodic = true;
@@ -715,7 +714,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
         if (commandCompletionHirqByteReads > 0)
         {
-            _hirq &= unchecked((ushort)~HirqCmok);
+            var commandStartHirq = LastCommandCode == 0x30
+                ? (ushort)(HirqCmok | HirqEndSelector)
+                : HirqCmok;
+            _hirq &= unchecked((ushort)~commandStartHirq);
             // The register device is byte-addressed, so one SH-2 word poll
             // performs two reads here.
             _commandCompletionHirqReadsRemaining = commandCompletionHirqByteReads;

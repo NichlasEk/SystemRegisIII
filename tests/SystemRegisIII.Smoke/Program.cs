@@ -1296,8 +1296,8 @@ static void VerifySaturnSystemMap()
             cueMap.Bus.ReadWord(0x2589_0018) == 0x0180,
             "CUE CD Block continuously buffered play did not publish its non-periodic completion pause.");
         Require(
-            (cueMap.CdBlock.HirqValue & 0x00D5) == 0x0094,
-            $"CUE CD Block continuously buffered play published the wrong completion HIRQ shape: 0x{cueMap.CdBlock.HirqValue:X4}.");
+            (cueMap.CdBlock.HirqValue & 0x0094) == 0x0094,
+            $"CUE CD Block continuously buffered play omitted required completion HIRQ bits: 0x{cueMap.CdBlock.HirqValue:X4}.");
         cueMap.CdBlock.AdvanceMasterInstructions(200_000);
         Require(
             cueMap.Bus.ReadWord(0x2589_0018) == 0x2180,
