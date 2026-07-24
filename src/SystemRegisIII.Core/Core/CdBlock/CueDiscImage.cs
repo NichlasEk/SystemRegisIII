@@ -5,17 +5,36 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
     private const int RawSectorSize = 2352;
     private const int Mode1UserDataOffset = 16;
     private const int Mode2UserDataOffset = 24;
-    private readonly FileStream _trackStream;
-    private readonly int _userDataOffset;
+    private readonly CueFileStream[] _files;
 
     public CueDiscImage(string cuePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(cuePath);
 
         var parsedCue = ParseCue(cuePath);
-        var dataTrack = parsedCue.DataTrack;
-        _trackStream = File.Open(dataTrack.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        _userDataOffset = dataTrack.UserDataOffset;
+        _files = new CueFileStream[parsedCue.Files.Count];
+        try
+        {
+            for (var index = 0; index < parsedCue.Files.Count; index++)
+            {
+                var file = parsedCue.Files[index];
+                _files[index] = new CueFileStream(
+                    File.Open(file.Path, FileMode.Open, FileAccess.Read, FileShare.Read),
+                    file.BaseSector,
+                    file.SectorCount,
+                    file.Tracks);
+            }
+        }
+        catch
+        {
+            foreach (var file in _files)
+            {
+                file?.Stream.Dispose();
+            }
+
+            throw;
+        }
+
         Tracks = parsedCue.Tracks;
         LeadoutFad = parsedCue.LeadoutFad;
         DiscType = parsedCue.DiscType;
@@ -25,7 +44,7 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
     public string Name { get; }
     public long LengthBytes => SectorCount * SectorSize;
     public int SectorSize => RawDiscImage.DefaultSectorSize;
-    public long SectorCount => _trackStream.Length / RawSectorSize;
+    public long SectorCount => LeadoutFad - 150;
     public IReadOnlyList<CdTrackInfo> Tracks { get; }
     public uint LeadoutFad { get; }
     public byte DiscType { get; }
@@ -38,12 +57,41 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
             return 0;
         }
 
-        var bytesToRead = Math.Min(destination.Length, SectorSize);
-        _trackStream.Position = logicalBlockAddress * RawSectorSize + _userDataOffset;
-        return _trackStream.Read(destination[..bytesToRead]);
+        foreach (var file in _files)
+        {
+            if (logicalBlockAddress < file.BaseSector
+                || logicalBlockAddress >= file.BaseSector + file.SectorCount)
+            {
+                continue;
+            }
+
+            var fileSector = checked((uint)(logicalBlockAddress - file.BaseSector));
+            var userDataOffset = file.Tracks[0].UserDataOffset;
+            foreach (var track in file.Tracks)
+            {
+                if (track.IndexSectors > fileSector)
+                {
+                    break;
+                }
+
+                userDataOffset = track.UserDataOffset;
+            }
+
+            var bytesToRead = Math.Min(destination.Length, SectorSize);
+            file.Stream.Position = (long)fileSector * RawSectorSize + userDataOffset;
+            return file.Stream.Read(destination[..bytesToRead]);
+        }
+
+        return 0;
     }
 
-    public void Dispose() => _trackStream.Dispose();
+    public void Dispose()
+    {
+        foreach (var file in _files)
+        {
+            file.Stream.Dispose();
+        }
+    }
 
     private static ParsedCue ParseCue(string cuePath)
     {
@@ -51,7 +99,8 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         string? currentFile = null;
         byte currentTrackNumber = 0;
         byte currentControlAdr = 0;
-        DataTrack? dataTrack = null;
+        int currentUserDataOffset = 0;
+        var hasDataTrack = false;
         var parsedTracks = new List<ParsedTrack>();
         byte discType = 0;
         foreach (var rawLine in File.ReadLines(cuePath))
@@ -68,13 +117,19 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
                 var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
                 currentTrackNumber = byte.Parse(parts[1]);
                 currentControlAdr = line.Contains("AUDIO", StringComparison.OrdinalIgnoreCase) ? (byte)0x01 : (byte)0x41;
-                if (dataTrack is null && line.Contains("MODE1/2352", StringComparison.OrdinalIgnoreCase))
+                if (line.Contains("MODE1/2352", StringComparison.OrdinalIgnoreCase))
                 {
-                    dataTrack = new DataTrack(Path.Combine(cueDirectory, currentFile), Mode1UserDataOffset);
+                    currentUserDataOffset = Mode1UserDataOffset;
+                    hasDataTrack = true;
                 }
-                else if (dataTrack is null && line.Contains("MODE2/2352", StringComparison.OrdinalIgnoreCase))
+                else if (line.Contains("MODE2/2352", StringComparison.OrdinalIgnoreCase))
                 {
-                    dataTrack = new DataTrack(Path.Combine(cueDirectory, currentFile), Mode2UserDataOffset);
+                    currentUserDataOffset = Mode2UserDataOffset;
+                    hasDataTrack = true;
+                }
+                else
+                {
+                    currentUserDataOffset = 0;
                 }
 
                 if (line.Contains("MODE2/2352", StringComparison.OrdinalIgnoreCase))
@@ -91,30 +146,38 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
                     currentTrackNumber,
                     currentControlAdr,
                     Path.Combine(cueDirectory, currentFile),
-                    ParseMsf(line[9..])));
+                    ParseMsf(line[9..]),
+                    currentUserDataOffset));
             }
         }
 
-        if (dataTrack is null)
+        if (!hasDataTrack)
         {
             throw new InvalidOperationException($"No supported 2352-byte data track found in '{cuePath}'.");
         }
 
         var fileBases = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+        var parsedFiles = new List<ParsedFile>();
         uint nextFileBase = 0;
         foreach (var track in parsedTracks)
         {
             if (!fileBases.ContainsKey(track.Path))
             {
                 fileBases[track.Path] = nextFileBase;
-                nextFileBase += (uint)(new FileInfo(track.Path).Length / RawSectorSize);
+                var sectorCount = (uint)(new FileInfo(track.Path).Length / RawSectorSize);
+                parsedFiles.Add(new ParsedFile(
+                    track.Path,
+                    nextFileBase,
+                    sectorCount,
+                    parsedTracks.Where(candidate => string.Equals(candidate.Path, track.Path, StringComparison.OrdinalIgnoreCase)).ToArray()));
+                nextFileBase += sectorCount;
             }
         }
 
         var tracks = parsedTracks
             .Select(track => new CdTrackInfo(track.Number, track.ControlAdr, 150 + fileBases[track.Path] + track.IndexSectors))
             .ToArray();
-        return new ParsedCue(dataTrack.Value, tracks, 150 + nextFileBase, discType);
+        return new ParsedCue(parsedFiles, tracks, 150 + nextFileBase, discType);
     }
 
     private static uint ParseMsf(string value)
@@ -144,7 +207,28 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         return parts[1];
     }
 
-    private readonly record struct DataTrack(string Path, int UserDataOffset);
-    private readonly record struct ParsedTrack(byte Number, byte ControlAdr, string Path, uint IndexSectors);
-    private readonly record struct ParsedCue(DataTrack DataTrack, IReadOnlyList<CdTrackInfo> Tracks, uint LeadoutFad, byte DiscType);
+    private sealed record CueFileStream(
+        FileStream Stream,
+        uint BaseSector,
+        uint SectorCount,
+        IReadOnlyList<ParsedTrack> Tracks);
+
+    private readonly record struct ParsedTrack(
+        byte Number,
+        byte ControlAdr,
+        string Path,
+        uint IndexSectors,
+        int UserDataOffset);
+
+    private readonly record struct ParsedFile(
+        string Path,
+        uint BaseSector,
+        uint SectorCount,
+        IReadOnlyList<ParsedTrack> Tracks);
+
+    private readonly record struct ParsedCue(
+        IReadOnlyList<ParsedFile> Files,
+        IReadOnlyList<CdTrackInfo> Tracks,
+        uint LeadoutFad,
+        byte DiscType);
 }

@@ -398,6 +398,61 @@ connection selected by command `30`, and route subsequent Play sectors into
 the connected partition. Preserve the newly matched completion latch order;
 do not paper over the empty transfer by synthesizing `CR2=5000`.
 
+## July 24 Multi-File CUE and Track-2 Transfer
+
+Filter ranges and buffered partitions are now separate state. Command `40`
+retains its FAD/count in filter configuration without fabricating partition
+sectors, and smoke coverage verifies that a range on filter 1 does not appear
+through command `51`.
+
+The remaining empty partition-0 transfer was a disc-image boundary.
+`CueDiscImage` previously opened only the first CUE file even though its TOC
+included every later track. NiGHTS track 2 starts in its own MODE2/2352 file,
+so every read at and after FAD `4DDF` returned zero. The reader now opens all
+referenced files, assigns each file a global logical-sector base, selects the
+track-specific MODE1/MODE2 payload offset, and reports the complete leadout
+length. The synthetic CUE smoke reads a marker from a second file and verifies
+the combined sector count.
+
+The 226M acceptance now performs real 2,048-byte transfers from track 2. At
+FADs `4DE9` and `4DEA`, the sequence is:
+
+```text
+51(count=1) -> 52 -> 53(actual size=0400 words)
+  -> 61(DTREQ, real payload) -> 06 -> 62
+```
+
+This passes the former 225M fake-partition/zero-transfer loop. No visible boot
+frame is confirmed yet; the captured frame remains byte-identical to the
+previous eight-sprite image
+(`9d4916c718efa8604f44ff744c2c40118ede43968d7dea4d4ac4212c9268e00e`).
+
+The new stop is earlier in instruction count because the game is now actively
+consuming the movie sectors. At instruction `182,757,005`, master execution is
+already in the low BIOS vector page and runs the reset/cache prologue:
+
+```text
+previous PC 000003A8 -> PC 00000204
+VBR=06000000 PR=00000204 R15=06001EE8
+```
+
+The four historical unknown opcodes at `00000002..0000000C` confirm that
+execution had first fallen into reset-vector data. The later `BRAF` adds
+`E0000000` while running from low `0000021A`, yielding the invalid
+`E000021E`; during a real power-on path the same prologue begins through the
+cache-through alias and does not produce that target. An experimental
+`E000...` instruction mirror was tested and removed because it only moved the
+secondary fault to `E000022C`.
+
+CLI watch and trace wrappers now preserve `ISh2InstructionBus` when forwarding
+CPU fetches, so instruction-cache replacement-disable behavior and diagnostic
+traces no longer collapse into ordinary data reads. Fault summaries include
+VBR and all four words from the affected cache set. The bounded low-BIOS probe
+is armed for the first outside transition into `00000000..00000020` as well as
+the later reset prologue. Continue by identifying the exact branch/return that
+first sets master PC to the vector page; do not map `E000...` or alter the
+validated MODE2 payload offset.
+
 ## Verification
 
 Focused validation:
@@ -416,7 +471,7 @@ dotnet run -c Release --project src/SystemRegisIII.Cli/SystemRegisIII.Cli.csproj
   --dual-sh2 \
   --simulate-scsp-command-ack \
   --vblank-interval 100000 \
-  --instructions 156000000 \
+  --instructions 226000000 \
   --summary-only
 ```
 

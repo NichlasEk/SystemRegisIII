@@ -1,4 +1,5 @@
 using SystemRegisIII.Core.Core.Bus;
+using SystemRegisIII.Core.Core.Cpu.Sh2;
 
 namespace SystemRegisIII.Cli;
 
@@ -6,7 +7,7 @@ internal sealed class WatchedBus(
     ISaturnBus inner,
     uint startAddress,
     uint endAddressInclusive,
-    Func<WatchedAccessContext?>? contextProvider = null) : ISaturnBus
+    Func<WatchedAccessContext?>? contextProvider = null) : ISaturnBus, ISh2InstructionBus
 {
     private readonly Dictionary<uint, long> _reads = [];
     private readonly Dictionary<uint, uint> _lastReadValues = [];
@@ -48,6 +49,15 @@ internal sealed class WatchedBus(
     public ushort ReadWord(uint address)
     {
         var value = inner.ReadWord(address);
+        RecordRead(address, value);
+        return value;
+    }
+
+    public ushort ReadInstructionWord(uint address)
+    {
+        var value = inner is ISh2InstructionBus instructionBus
+            ? instructionBus.ReadInstructionWord(address)
+            : inner.ReadWord(address);
         RecordRead(address, value);
         return value;
     }

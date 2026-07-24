@@ -1,8 +1,9 @@
 using SystemRegisIII.Core.Tools.TraceViewer;
+using SystemRegisIII.Core.Core.Cpu.Sh2;
 
 namespace SystemRegisIII.Core.Core.Bus;
 
-public sealed class TracingBus(ISaturnBus inner, ITraceEventSink trace) : ISaturnBus
+public sealed class TracingBus(ISaturnBus inner, ITraceEventSink trace) : ISaturnBus, ISh2InstructionBus
 {
     private readonly IAddressMap? _addressMap = inner as IAddressMap;
 
@@ -16,6 +17,15 @@ public sealed class TracingBus(ISaturnBus inner, ITraceEventSink trace) : ISatur
     public ushort ReadWord(uint address)
     {
         var value = inner.ReadWord(address);
+        WriteTrace(address, 2, value, isWrite: false);
+        return value;
+    }
+
+    public ushort ReadInstructionWord(uint address)
+    {
+        var value = inner is ISh2InstructionBus instructionBus
+            ? instructionBus.ReadInstructionWord(address)
+            : inner.ReadWord(address);
         WriteTrace(address, 2, value, isWrite: false);
         return value;
     }

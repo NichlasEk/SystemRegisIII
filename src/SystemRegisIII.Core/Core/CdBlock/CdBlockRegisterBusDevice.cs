@@ -58,6 +58,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
     private readonly uint[] _partitionStreamEndFads = new uint[PartitionCount];
+    private readonly uint[] _filterRangeFads = new uint[PartitionCount];
+    private readonly uint[] _filterRangeSectorCounts = new uint[PartitionCount];
     private readonly Dictionary<byte, long> _commandCounts = [];
     private readonly Queue<byte> _recentCommands = new();
     private byte _getSectorLength;
@@ -1148,8 +1150,8 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        _partitionFads[partition] = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
-        _partitionSectorCounts[partition] = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
+        _filterRangeFads[partition] = ((uint)(LastCommandCr1 & 0x00FF) << 16) | LastCommandCr2;
+        _filterRangeSectorCounts[partition] = ((uint)(LastCommandCr3 & 0x00FF) << 16) | LastCommandCr4;
         WriteStatusResponse(_discImage is null ? _status : (byte)(_status | CdStatusPeriodic));
     }
 

@@ -354,6 +354,8 @@ static int RunBios(string[] args)
     var busFaults = new List<string>();
     string? suspectStackTransition = null;
     string? r0Transition = null;
+    string? lowBiosEntryTransition = null;
+    var previousMasterPc = master.Registers.ProgramCounter;
     var observedMasterStackPointer = master.Registers.General[15];
     var slaveWasEnabled = smpc.SlaveSh2Enabled;
     var interruptProbe = new ScuInterruptProbe();
@@ -548,6 +550,14 @@ static int RunBios(string[] args)
         }
 
         var masterPc = master.Registers.ProgramCounter;
+        if (lowBiosEntryTransition is null
+            && ((masterPc <= 0x0000_0020 && previousMasterPc > 0x0000_0020)
+                || (masterPc is >= 0x0000_0200 and <= 0x0000_0208
+                    && previousMasterPc is not (>= 0x0000_01FE and <= 0x0000_0206))))
+        {
+            lowBiosEntryTransition =
+                $"before i={i:N0}: previous-pc=0x{previousMasterPc:X8}; {FormatSh2DiffState(master)}";
+        }
         if (probeSuspectStack
             && master.Registers.General[15] != observedMasterStackPointer
             && IsSuspectStackPointer(master.Registers.General[15]))
@@ -669,6 +679,7 @@ static int RunBios(string[] args)
         {
             break;
         }
+        previousMasterPc = masterPc;
         if (probeSuspectStack
             && master.Registers.General[15] != stackPointerBeforeInstruction
             && IsSuspectStackPointer(master.Registers.General[15]))
@@ -794,6 +805,10 @@ static int RunBios(string[] args)
     if (r0Transition is not null)
     {
         Console.WriteLine($"Master SH-2 R0 provenance: {r0Transition}");
+    }
+    if (lowBiosEntryTransition is not null)
+    {
+        Console.WriteLine($"Master SH-2 low-BIOS entry provenance: {lowBiosEntryTransition}");
     }
     if (slave is not null)
     {
@@ -1059,6 +1074,17 @@ static int RunBios(string[] args)
     }
     PrintVdp1CommandTable(systemMap.Vdp1Area);
     PrintBusFaults(busFaults);
+    if (busFaults.Count > 0 && master.CurrentInstructionProgramCounter is { } faultPc)
+    {
+        var cacheDataOffset = faultPc & 0x03FF;
+        Console.Write("Master SH-2 cache data-array words at fault set:");
+        for (var way = 0; way < 4; way++)
+        {
+            var dataArrayAddress = 0xC000_0000u | ((uint)way << 10) | cacheDataOffset;
+            Console.Write($" way{way}=0x{masterInternalBus.ReadWord(dataArrayAddress):X4}");
+        }
+        Console.WriteLine();
+    }
     Console.WriteLine($"Mapped regions: {addressMap.Regions.Count}");
     PrintTouchedStubs(systemMap);
     if (summaryOnly)
@@ -2324,7 +2350,7 @@ static string? GetOption(string[] args, string name)
 static string FormatSh2DiffState(Sh2Cpu cpu)
 {
     var registers = cpu.Registers;
-    var line = $"SRDIFF pc={registers.ProgramCounter:x8} sr={registers.StatusRegister:x8} pr={registers.ProcedureRegister:x8} gbr={registers.GlobalBaseRegister:x8} mach={registers.MacHigh:x8} macl={registers.MacLow:x8}";
+    var line = $"SRDIFF pc={registers.ProgramCounter:x8} sr={registers.StatusRegister:x8} pr={registers.ProcedureRegister:x8} gbr={registers.GlobalBaseRegister:x8} vbr={registers.VectorBaseRegister:x8} mach={registers.MacHigh:x8} macl={registers.MacLow:x8}";
     for (var index = 0; index < registers.General.Length; index++)
     {
         line += $" r{index}={registers.General[index]:x8}";

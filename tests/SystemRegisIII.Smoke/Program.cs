@@ -525,6 +525,8 @@ static void VerifySaturnSystemMap()
         Require((mountedCdRegisters.HirqValue & 0x0040) == 0, "CD Block filter-range ESEL completed too early.");
         mountedCdRegisters.AdvanceMasterInstructions(1);
         Require((mountedCdRegisters.HirqValue & 0x0040) != 0, "CD Block filter-range ESEL completion failed.");
+        IssueCdCommand(discMap.Bus, 0x1080, 0x0096, 0x0080, 0x0002);
+        mountedCdRegisters.AdvanceMasterInstructions(2_000);
         discMap.Bus.WriteWord(0x2589_0018, 0x6100);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
         discMap.Bus.WriteWord(0x2589_0020, 0x0000);
@@ -548,7 +550,7 @@ static void VerifySaturnSystemMap()
         Require(discMap.Bus.ReadWord(0x2589_0018) == 0x4180, "CD Block get-and-delete-sector DTREQ status failed.");
         Require(discMap.Bus.ReadWord(0x2589_001C) == 0x4101, "CD Block get-and-delete-sector track status failed.");
         Require(discMap.Bus.ReadWord(0x2589_0020) == 0x0100, "CD Block get-and-delete-sector track index failed.");
-        Require(discMap.Bus.ReadWord(0x2589_0024) == 0x00A6, "CD Block get-and-delete-sector FAD failed.");
+        Require(discMap.Bus.ReadWord(0x2589_0024) == 0x0098, "CD Block get-and-delete-sector Play FAD failed.");
         Require(mountedCdRegisters.DataTransferWordCount == 0x0400, "CD Block get-and-delete-sector transfer length failed.");
         discMap.Bus.WriteWord(0x2589_0018, 0x7500);
         discMap.Bus.WriteWord(0x2589_001C, 0x0000);
@@ -909,6 +911,12 @@ static void VerifySaturnSystemMap()
             (largeIsoCd.HirqValue & 0x0040) != 0,
             "CD Block set-filter-mode ESEL did not survive a status command.");
 
+        IssueCdCommand(largeIsoMap.Bus, 0x4000, 0x4F1A, 0x0100, 0x0111);
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0100, 0x0000);
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0000,
+            "CD Block filter range was incorrectly exposed as buffered partition sectors.");
+
         IssueCdCommand(largeIsoMap.Bus, 0x1080, 0x00A6, 0x0080, 0x0001);
         Require(largeIsoMap.Bus.ReadWord(0x2589_0018) == 0x0080, "CD Block late play old-position status failed.");
         Require(largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x017D, "CD Block late play old-position FAD failed.");
@@ -1256,7 +1264,7 @@ static void VerifySaturnSystemMap()
         var cuePath = CreateTinyCueImage(cueDirectory);
         using var cueImage = new CueDiscImage(cuePath);
         Require(cueImage.SectorSize == RawDiscImage.DefaultSectorSize, "CUE disc logical sector size failed.");
-        Require(cueImage.SectorCount == 40, "CUE disc sector count failed.");
+        Require(cueImage.SectorCount == 50, "CUE disc sector count failed.");
         Require(cueImage.Tracks.Count == 2, "CUE track count failed.");
         Require(cueImage.Tracks[0] == new CdTrackInfo(1, 0x41, 150), "CUE first-track TOC failed.");
         Require(cueImage.Tracks[1] == new CdTrackInfo(2, 0x01, 192), "CUE audio-track TOC failed.");
@@ -1265,6 +1273,8 @@ static void VerifySaturnSystemMap()
         Span<byte> cueSector = stackalloc byte[RawDiscImage.DefaultSectorSize];
         Require(cueImage.ReadSector(30, cueSector) == RawDiscImage.DefaultSectorSize, "CUE disc sector read length failed.");
         Require(cueSector[0] == 0xCA && cueSector[1] == 0xFE && cueSector[2] == 0xBA && cueSector[3] == 0xBE, "CUE disc user-data offset failed.");
+        Require(cueImage.ReadSector(42, cueSector) == RawDiscImage.DefaultSectorSize, "CUE second-file sector read length failed.");
+        Require(cueSector[0] == 0xDE && cueSector[1] == 0xAD && cueSector[2] == 0xBE && cueSector[3] == 0xEF, "CUE second-file track mapping failed.");
 
         var cueMap = SaturnSystemMap.CreateBringup(
             bios,
@@ -1557,7 +1567,12 @@ static string CreateTinyCueImage(string directory)
     }
 
     File.WriteAllBytes(binPath, rawBytes);
-    File.WriteAllBytes(audioPath, new byte[10 * 2352]);
+    var audioBytes = new byte[10 * 2352];
+    audioBytes[2 * 2352] = 0xDE;
+    audioBytes[2 * 2352 + 1] = 0xAD;
+    audioBytes[2 * 2352 + 2] = 0xBE;
+    audioBytes[2 * 2352 + 3] = 0xEF;
+    File.WriteAllBytes(audioPath, audioBytes);
     File.WriteAllText(
         cuePath,
         """
