@@ -559,3 +559,20 @@ the next architectural stop or first complete movie/game frame. Preserve the
 140,000-instruction interval: the timing experiments disproved it as the root
 cause. Do not merge the two XA file streams, add a CPK-specific callback
 guard, or stage the temporary local Mednafen probe.
+
+A subsequent natural-auth 220M acceptance remains fault-free at master/slave
+PCs `0606E63E` and `06005FA2`. Pickup advances from the 190M checkpoint's
+`4E1E` to `4EF4`, while commands `61/62` increase from 156 each to 288 each.
+This confirms that the filter correction supports sustained CPK consumption
+rather than only moving the former crash. The richest VDP1 frame remains
+byte-identical at SHA-256
+`9d4916c718efa8604f44ff744c2c40118ede43968d7dea4d4ac4212c9268e00e`.
+The next differential is therefore after the continuing XA workload and before
+a new VDP1 command list or movie frame is produced.
+
+For comparable long runs, leave `--cd-status` unset so the mounted disc begins
+with its modeled authentication transition. Forcing `--cd-status standby`
+returns `0200` to the first status query and leaves BIOS polling status instead
+of entering the natural `75/06/67/E0/E1` authentication sequence. The
+diagnostic `--simulate-initial-program-load` bridge is not a substitute for
+that CD startup path.
