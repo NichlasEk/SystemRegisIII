@@ -1280,6 +1280,21 @@ static void VerifySaturnSystemMap()
         Require(cueMap.Bus.ReadWord(0x2589_0018) == 0x4100, "CUE CD Block get-file-info DTREQ status failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x0000, "CUE CD Block file-info FAD high failed.");
         Require(cueMap.Bus.ReadWord(0x2589_8000) == 0x00B4, "CUE CD Block file-info FAD low failed.");
+
+        IssueCdCommand(cueMap.Bus, 0x1080, 0x00C0, 0x0080, 0x0002);
+        cueMap.CdBlock.AdvanceMasterInstructions(3_500_000);
+        Require(
+            cueMap.Bus.ReadWord(0x2589_001C) == 0x0102,
+            "CUE CD Block current-track status did not follow the pickup into audio track 2.");
+        cueMap.CdBlock.AdvanceMasterInstructions(139_999);
+        cueMap.CdBlock.AdvanceMasterInstructions(1);
+        Require(
+            cueMap.Bus.ReadWord(0x2589_0018) == 0x0380,
+            "CUE CD Block continuously buffered play did not leave seek after its next sector.");
+        cueMap.CdBlock.AdvanceMasterInstructions(139_999);
+        Require(
+            cueMap.Bus.ReadWord(0x2589_0018) == 0x2180,
+            "CUE CD Block continuously buffered play did not publish its final periodic pause.");
     }
     finally
     {

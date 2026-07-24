@@ -322,6 +322,43 @@ special case. The CLI retains a bounded pre-command SH-2 trace plus focused
 watches for the selector byte and Play-start provenance for the next
 differential.
 
+## July 24 Track-Aware Long-Play Completion
+
+The corrected INTBACK path continues beyond Play #7 without a new
+command-construction difference. A clean 180M run reaches the same sequence as
+Mednafen:
+
+```text
+1080,0B06,0080,0010 -> pickup 0B16
+1080,0253,0080,0010 -> pickup 0263
+1080,12BB,0080,000C -> pickup 12C7
+1080,4DDF,0080,013B
+```
+
+The first post-command difference was in the CD position report. FAD `4DDF`
+is the start of NiGHTS track 2, but SystemRegis kept returning the hardcoded
+track-1 word `CR2=4101`. Mednafen returns `CR2=4102`, then completes the
+315-sector stream at FAD `4F1A` and enters Pause. The old 240M SystemRegis
+baseline reached the same final FAD but remained in `SEEK` forever:
+
+```text
+0480,4101,0100,4F1A
+```
+
+CD position reports now resolve the current track number and control/ADR from
+the mounted CUE TOC. Continuously buffered long Play also changes from Seek to
+Play when the next sector arrives and schedules the existing periodic-Pause
+completion after its final sector. The synthetic two-track CUE smoke locks the
+track-2 report, Seek-to-Play transition, and final periodic Pause without
+special-casing NiGHTS or its FADs.
+
+The corrected 227M Release acceptance reaches FAD `4F1A` at instruction
+225,186,036 with `0380,4102,0100,4F1A`, publishes the Pause/PEND edge 140,000
+instructions later, and leaves the `060683CE` CD-status poll loop. The final
+million instructions execute the normal `0606E5xx` geometry path instead of
+issuing further status commands. No new visible frame is confirmed yet; the
+richest VDP1 capture remains the eight-drawable instruction-89.7M list.
+
 ## Verification
 
 Focused validation:

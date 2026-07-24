@@ -1053,9 +1053,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _initializeTransitionPollsRemaining = 0;
         _status = (byte)CdBlockDriveStatus.Busy;
         _cr1 = _currentFad > FirstTrackFad + 0x10 ? (ushort)CdRomStatusBit : (ushort)0;
-        _cr2 = 0x4101;
-        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
-        _cr4 = (ushort)_currentFad;
+        WriteCurrentPosition();
         _currentFad = startFad;
         _playEndFad = startFad + (uint)sectorCount;
         _playSeekActive = true;
@@ -1065,9 +1063,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _status = (byte)CdBlockDriveStatus.Seek;
         _cr1 = (ushort)(_status << 8);
-        _cr2 = 0x4101;
-        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
-        _cr4 = (ushort)_currentFad;
+        WriteCurrentPosition();
     }
 
     private void PublishPlayEndStatus()
@@ -1092,9 +1088,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _cr1 = _playLongSeek
             ? (ushort)0x0480
             : (ushort)0x2100;
-        _cr2 = 0x4101;
-        _cr3 = (ushort)(0x0100 | (_currentFad >> 16));
-        _cr4 = (ushort)_currentFad;
+        WriteCurrentPosition();
         if (!_playLongSeek)
         {
             _hirq |= HirqPlayEnd;
@@ -1124,6 +1118,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _partitionSectorCounts[0]++;
         _playPendingSectorCount--;
         _currentFad++;
+        if (_status == (byte)CdBlockDriveStatus.Seek)
+        {
+            _status = (byte)CdBlockDriveStatus.Play;
+        }
         WriteStatusResponse(_status);
         _longPlaySectorStored = true;
         // CSCT remains latched across the stream.  BIOS polls the partition
@@ -1132,6 +1130,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _longPlayNextSectorInstructionsRemaining = _playPendingSectorCount > 0
             ? LongPlaySectorInstructionCount
             : 0;
+        if (_playPendingSectorCount == 0)
+        {
+            _longPlayEndInstructionsRemaining = LongPlayEndInstructionCount;
+        }
     }
 
     private void SetFilterRange()
@@ -1407,17 +1409,13 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             && (_status == (byte)CdBlockDriveStatus.Seek || _status == (byte)CdBlockDriveStatus.Play))
         {
             _cr1 = (ushort)(((_status | CdStatusDataTransferRequest) << 8) | CdRomStatusBit);
-            _cr2 = 0x4101;
-            _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
-            _cr4 = (ushort)_currentFad;
+            WriteCurrentPosition();
         }
         else if (LastCommandCode == 0x63)
         {
             DeleteTransferredSectors(partition, sectorOffset, sectorCount);
             _cr1 = 0x4180;
-            _cr2 = 0x4101;
-            _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
-            _cr4 = (ushort)_currentFad;
+            WriteCurrentPosition();
         }
     }
 
@@ -1740,9 +1738,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     {
         _statusMode = true;
         _cr1 = _currentFad > FirstTrackFad + 0x10 ? (ushort)CdRomStatusBit : (ushort)0;
-        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
-        _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
-        _cr4 = (ushort)_currentFad;
+        WriteCurrentPosition();
     }
 
     private void GetCopyError()
@@ -2002,9 +1998,37 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         _cr1 = (ushort)((status << 8) | CdRomStatusBit);
-        _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
+        WriteCurrentPosition();
+    }
+
+    private void WriteCurrentPosition()
+    {
+        var track = ResolveTrack(_currentFad);
+        _cr2 = (ushort)((track.ControlAdr << 8) | track.Number);
         _cr3 = (ushort)((FirstTrackIndex << 8) | (_currentFad >> 16));
         _cr4 = (ushort)_currentFad;
+    }
+
+    private CdTrackInfo ResolveTrack(uint fad)
+    {
+        var tracks = (_discImage as IDiscTableOfContents)?.Tracks;
+        var current = new CdTrackInfo(FirstTrackNumber, DataTrackControlAdr, FirstTrackFad);
+        if (tracks is null)
+        {
+            return current;
+        }
+
+        foreach (var track in tracks)
+        {
+            if (track.Fad > fad)
+            {
+                break;
+            }
+
+            current = track;
+        }
+
+        return current;
     }
 
     private void WriteAuthenticationStartupResponse()
