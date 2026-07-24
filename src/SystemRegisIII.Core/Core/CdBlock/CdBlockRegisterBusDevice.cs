@@ -58,8 +58,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private readonly uint[] _partitionFads = new uint[PartitionCount];
     private readonly uint[] _partitionSectorCounts = new uint[PartitionCount];
     private readonly uint[] _partitionStreamEndFads = new uint[PartitionCount];
+    private readonly List<uint>[] _partitionSectorFads =
+        Enumerable.Range(0, PartitionCount).Select(static _ => new List<uint>()).ToArray();
     private readonly uint[] _filterRangeFads = new uint[PartitionCount];
     private readonly uint[] _filterRangeSectorCounts = new uint[PartitionCount];
+    private readonly byte[] _filterModes = new byte[PartitionCount];
+    private readonly byte[] _filterTrueConnections = new byte[PartitionCount];
+    private readonly byte[] _filterFalseConnections = new byte[PartitionCount];
+    private readonly byte[] _filterChannels = new byte[PartitionCount];
+    private readonly byte[] _filterFiles = new byte[PartitionCount];
+    private readonly byte[] _filterSubmodes = new byte[PartitionCount];
+    private readonly byte[] _filterSubmodeMasks = new byte[PartitionCount];
+    private readonly byte[] _filterCodingInfos = new byte[PartitionCount];
+    private readonly byte[] _filterCodingInfoMasks = new byte[PartitionCount];
     private readonly Dictionary<byte, long> _commandCounts = [];
     private readonly Queue<byte> _recentCommands = new();
     private byte _getSectorLength;
@@ -129,6 +140,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
     private ushort _cr3 = 0x4C4F;
     private ushort _cr4 = 0x434B;
     private uint _currentFad = FirstTrackFad;
+    private byte _cdDeviceConnection;
 
     public CdBlockRegisterBusDevice(
         IDiscImage? discImage = null,
@@ -141,6 +153,11 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _authDiscType = DetectAuthenticationType(discImage);
         _authStartupPollsRemaining = mountedDiscInitialStatus is null && _authDiscType == 0x04 ? AuthStartupPollCount : 0;
         _authStartupCompleted = _authStartupPollsRemaining == 0;
+        for (var filter = 0; filter < PartitionCount; filter++)
+        {
+            _filterTrueConnections[filter] = (byte)filter;
+            _filterFalseConnections[filter] = 0xFF;
+        }
     }
 
     public string Name => "CD Block Register Mirror";
@@ -1053,6 +1070,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         _playSeekStatusInstructionsRemaining = longSeek ? LongPlaySeekStatusInstructionCount : 0;
         _partitionFads[0] = startFad;
         _partitionSectorCounts[0] = longSeek ? 0u : (uint)sectorCount;
+        foreach (var sectorFads in _partitionSectorFads)
+        {
+            sectorFads.Clear();
+        }
         _playPendingSectorCount = longSeek ? (uint)sectorCount : 0;
         _partitionStreamEndFads[0] = 0;
         _initializeTransitionPollsRemaining = 0;
@@ -1083,11 +1104,17 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             // rest pending so BIOS can drain all requested sectors through
             // distinct 51/61/06/62 cycles instead of treating the first
             // stored sector as the end of the whole play request.
-            _partitionFads[0] = _playLongSeek
-                ? _playEndFad - _playPendingSectorCount
-                : _partitionFads[0];
-            _partitionSectorCounts[0] = _playLongSeek ? 1u : _playPendingSectorCount;
-            _playPendingSectorCount = _playLongSeek ? _playPendingSectorCount - 1 : 0;
+            if (_playLongSeek)
+            {
+                var sectorFad = _playEndFad - _playPendingSectorCount;
+                _playPendingSectorCount--;
+                _longPlaySectorStored = RouteLongPlaySector(sectorFad);
+            }
+            else
+            {
+                _partitionSectorCounts[0] = _playPendingSectorCount;
+                _playPendingSectorCount = 0;
+            }
         }
         _status = (byte)(_playLongSeek ? CdBlockDriveStatus.Seek : CdBlockDriveStatus.Pause);
         _cr1 = _playLongSeek
@@ -1104,8 +1131,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             // stored while BIOS calculates and transfers it.  Keep CSCT set
             // through that command chain.  This register model completes
             // commands synchronously, so CMOK remains available alongside it.
-            _longPlaySectorStored = true;
-            _hirq |= HirqSectorStored;
+            if (_longPlaySectorStored)
+            {
+                _hirq |= HirqSectorStored;
+            }
             if (_playPendingSectorCount > 0)
             {
                 _longPlayNextSectorInstructionsRemaining = LongPlaySectorInstructionCount;
@@ -1120,7 +1149,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        _partitionSectorCounts[0]++;
+        var sectorFad = _currentFad;
         _playPendingSectorCount--;
         _currentFad++;
         if (_status == (byte)CdBlockDriveStatus.Seek)
@@ -1128,10 +1157,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _status = (byte)CdBlockDriveStatus.Play;
         }
         WriteStatusResponse(_status);
-        _longPlaySectorStored = true;
-        // CSCT remains latched across the stream.  BIOS polls the partition
-        // count and observes the new sector without enabling the CD IRQ mask.
-        _hirq |= HirqSectorStored | HirqSubcodeReady;
+        _longPlaySectorStored = RouteLongPlaySector(sectorFad);
+        // CSCT remains latched across accepted sectors. BIOS polls the routed
+        // partition and observes the new sector without enabling the CD IRQ mask.
+        if (_longPlaySectorStored)
+        {
+            _hirq |= HirqSectorStored;
+        }
+        _hirq |= HirqSubcodeReady;
         _longPlayNextSectorInstructionsRemaining = _playPendingSectorCount > 0
             ? LongPlaySectorInstructionCount
             : 0;
@@ -1139,6 +1172,74 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         {
             _longPlayEndInstructionsRemaining = LongPlayEndInstructionCount;
         }
+    }
+
+    private bool RouteLongPlaySector(uint fad)
+    {
+        var filter = _cdDeviceConnection;
+        for (var iteration = 0; filter < PartitionCount && iteration < PartitionCount; iteration++)
+        {
+            if (MatchesFilter(filter, fad))
+            {
+                var partition = _filterTrueConnections[filter];
+                if (partition >= PartitionCount)
+                {
+                    return false;
+                }
+
+                var sectorFads = _partitionSectorFads[partition];
+                sectorFads.Add(fad);
+                _partitionFads[partition] = sectorFads[0];
+                _partitionSectorCounts[partition] = (uint)sectorFads.Count;
+                return true;
+            }
+
+            filter = _filterFalseConnections[filter];
+        }
+
+        return false;
+    }
+
+    private bool MatchesFilter(int filter, uint fad)
+    {
+        var mode = _filterModes[filter];
+        if ((mode & 0x40) != 0)
+        {
+            var startFad = _filterRangeFads[filter];
+            var sectorCount = _filterRangeSectorCounts[filter];
+            if (fad < startFad || fad - startFad >= sectorCount)
+            {
+                return false;
+            }
+        }
+
+        var subheader = default(CdSectorSubheader);
+        if (_discImage is ICdSectorSubheaderSource source)
+        {
+            source.TryReadSectorSubheader(FadToLogicalBlockAddress(fad), out subheader);
+        }
+
+        var reverse = (mode & 0x10) != 0 && (mode & 0x0F) != 0;
+        if ((mode & 0x01) != 0 && subheader.File != _filterFiles[filter])
+        {
+            return reverse;
+        }
+        if ((mode & 0x02) != 0 && subheader.Channel != _filterChannels[filter])
+        {
+            return reverse;
+        }
+        if ((mode & 0x04) != 0
+            && (subheader.Submode & _filterSubmodeMasks[filter]) != _filterSubmodes[filter])
+        {
+            return reverse;
+        }
+        if ((mode & 0x08) != 0
+            && (subheader.CodingInfo & _filterCodingInfoMasks[filter]) != _filterCodingInfos[filter])
+        {
+            return reverse;
+        }
+
+        return !reverse;
     }
 
     private void SetFilterRange()
@@ -1157,18 +1258,57 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void SetFilterControl()
     {
-        var partition = LastCommandCr3 >> 8;
-        if (partition >= PartitionCount)
+        var filter = LastCommandCr3 >> 8;
+        if (filter >= PartitionCount)
         {
             WriteStatusResponse((byte)(_status | CdStatusPeriodic));
             return;
         }
 
-        // Subheader conditions, mode, and connector commands all complete
-        // with the ordinary drive report.  The current bringup data path owns
-        // partition routing directly, but BIOS still depends on this response
-        // shape and the ESEL completion raised by ExecuteCommand.
+        switch (LastCommandCode)
+        {
+            case 0x42:
+                _filterChannels[filter] = (byte)LastCommandCr1;
+                _filterSubmodeMasks[filter] = (byte)(LastCommandCr2 >> 8);
+                _filterCodingInfoMasks[filter] = (byte)LastCommandCr2;
+                _filterFiles[filter] = (byte)LastCommandCr3;
+                _filterSubmodes[filter] = (byte)(LastCommandCr4 >> 8);
+                _filterCodingInfos[filter] = (byte)LastCommandCr4;
+                break;
+            case 0x44:
+                _filterModes[filter] = (byte)LastCommandCr1;
+                if ((_filterModes[filter] & 0x80) != 0)
+                {
+                    ResetFilterConditions(filter);
+                }
+                break;
+            case 0x46:
+                var flags = (byte)LastCommandCr1;
+                if ((flags & 0x01) != 0)
+                {
+                    _filterTrueConnections[filter] = (byte)(LastCommandCr2 >> 8);
+                }
+                if ((flags & 0x02) != 0)
+                {
+                    _filterFalseConnections[filter] = (byte)LastCommandCr2;
+                }
+                break;
+        }
+
         WriteStatusResponse(_status);
+    }
+
+    private void ResetFilterConditions(int filter)
+    {
+        _filterModes[filter] = 0;
+        _filterRangeFads[filter] = 0;
+        _filterRangeSectorCounts[filter] = 0;
+        _filterChannels[filter] = 0;
+        _filterFiles[filter] = 0;
+        _filterSubmodes[filter] = 0;
+        _filterSubmodeMasks[filter] = 0;
+        _filterCodingInfos[filter] = 0;
+        _filterCodingInfoMasks[filter] = 0;
     }
 
     private void InitializeCdBlock()
@@ -1218,6 +1358,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
 
     private void SetCdDeviceConnection()
     {
+        var filter = LastCommandCr3 >> 8;
+        if (filter >= PartitionCount && filter != 0xFF)
+        {
+            WriteStatusResponse((byte)(_status | CdStatusPeriodic));
+            return;
+        }
+
+        _cdDeviceConnection = (byte)filter;
         _statusMode = true;
         _cr1 = 0;
         _cr2 = (ushort)((DataTrackControlAdr << 8) | FirstTrackNumber);
@@ -1244,6 +1392,7 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             _partitionFads[partition] = 0;
             _partitionSectorCounts[partition] = 0;
             _partitionStreamEndFads[partition] = 0;
+            _partitionSectorFads[partition].Clear();
             _longPlaySectorStored = false;
             _longPlayNextSectorInstructionsRemaining = 0;
             _longPlayDeletedSectorStatus = false;
@@ -1254,6 +1403,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             Array.Clear(_partitionFads);
             Array.Clear(_partitionSectorCounts);
             Array.Clear(_partitionStreamEndFads);
+            foreach (var sectorFads in _partitionSectorFads)
+            {
+                sectorFads.Clear();
+            }
             _longPlayNextSectorInstructionsRemaining = 0;
         }
 
@@ -1409,7 +1562,10 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
 
         sectorCount = Math.Min(sectorCount, partitionSectorCount - sectorOffset);
-        StartDataTransfer(BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
+        var routedSectorFads = _partitionSectorFads[partition];
+        StartDataTransfer((uint)routedSectorFads.Count >= sectorOffset + sectorCount
+            ? BuildSectorTransfer(routedSectorFads, sectorOffset, sectorCount)
+            : BuildSectorTransfer(_partitionFads[partition] + sectorOffset, sectorCount));
         if (LastCommandCode == 0x61
             && (_status == (byte)CdBlockDriveStatus.Seek || _status == (byte)CdBlockDriveStatus.Play))
         {
@@ -1462,7 +1618,19 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
         }
         if (_playLongSeek && sectorOffset == 0)
         {
-            _partitionFads[partition] += sectorCount;
+            var routedSectorFads = _partitionSectorFads[partition];
+            if ((uint)routedSectorFads.Count >= sectorCount)
+            {
+                routedSectorFads.RemoveRange(0, checked((int)sectorCount));
+                _partitionSectorCounts[partition] = (uint)routedSectorFads.Count;
+                _partitionFads[partition] = routedSectorFads.Count > 0
+                    ? routedSectorFads[0]
+                    : _partitionFads[partition] + sectorCount;
+            }
+            else
+            {
+                _partitionFads[partition] += sectorCount;
+            }
         }
         var deletedLongPlaySector = _longPlaySectorStored && _partitionSectorCounts[partition] == 0;
         if (deletedLongPlaySector)
@@ -1914,6 +2082,32 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             Array.Clear(sectorBytes);
             var lba = FadToLogicalBlockAddress(startFad + sector);
             var bytesRead = _discImage.ReadSector(lba, sectorBytes);
+            for (var byteIndex = 0; byteIndex + 1 < bytesRead && wordIndex < words.Length; byteIndex += 2)
+            {
+                words[wordIndex++] = (ushort)((sectorBytes[byteIndex] << 8) | sectorBytes[byteIndex + 1]);
+            }
+        }
+
+        return wordIndex == words.Length ? words : words[..wordIndex];
+    }
+
+    private ushort[] BuildSectorTransfer(IReadOnlyList<uint> sectorFads, uint sectorOffset, uint sectorCount)
+    {
+        if (_discImage is null || sectorCount == 0)
+        {
+            return [];
+        }
+
+        var wordsPerSector = _discImage.SectorSize / 2;
+        var wordCount = Math.Min((long)sectorCount * wordsPerSector, int.MaxValue);
+        var words = new ushort[checked((int)wordCount)];
+        var sectorBytes = new byte[_discImage.SectorSize];
+        var wordIndex = 0;
+        for (var sector = 0u; sector < sectorCount && wordIndex < words.Length; sector++)
+        {
+            Array.Clear(sectorBytes);
+            var fad = sectorFads[checked((int)(sectorOffset + sector))];
+            var bytesRead = _discImage.ReadSector(FadToLogicalBlockAddress(fad), sectorBytes);
             for (var byteIndex = 0; byteIndex + 1 < bytesRead && wordIndex < words.Length; byteIndex += 2)
             {
                 words[wordIndex++] = (ushort)((sectorBytes[byteIndex] << 8) | sectorBytes[byteIndex + 1]);

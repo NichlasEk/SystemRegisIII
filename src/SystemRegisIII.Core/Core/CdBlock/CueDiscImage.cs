@@ -1,6 +1,6 @@
 namespace SystemRegisIII.Core.Core.CdBlock;
 
-public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
+public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, ICdSectorSubheaderSource, IDisposable
 {
     private const int RawSectorSize = 2352;
     private const int Mode1UserDataOffset = 16;
@@ -83,6 +83,53 @@ public sealed class CueDiscImage : IDiscImage, IDiscTableOfContents, IDisposable
         }
 
         return 0;
+    }
+
+    public bool TryReadSectorSubheader(long logicalBlockAddress, out CdSectorSubheader subheader)
+    {
+        subheader = default;
+        if (logicalBlockAddress < 0 || logicalBlockAddress >= SectorCount)
+        {
+            return false;
+        }
+
+        foreach (var file in _files)
+        {
+            if (logicalBlockAddress < file.BaseSector
+                || logicalBlockAddress >= file.BaseSector + file.SectorCount)
+            {
+                continue;
+            }
+
+            var fileSector = checked((uint)(logicalBlockAddress - file.BaseSector));
+            var userDataOffset = file.Tracks[0].UserDataOffset;
+            foreach (var track in file.Tracks)
+            {
+                if (track.IndexSectors > fileSector)
+                {
+                    break;
+                }
+
+                userDataOffset = track.UserDataOffset;
+            }
+
+            if (userDataOffset != Mode2UserDataOffset)
+            {
+                return true;
+            }
+
+            Span<byte> bytes = stackalloc byte[4];
+            file.Stream.Position = (long)fileSector * RawSectorSize + 16;
+            if (file.Stream.Read(bytes) != bytes.Length)
+            {
+                return false;
+            }
+
+            subheader = new CdSectorSubheader(bytes[0], bytes[1], bytes[2], bytes[3]);
+            return true;
+        }
+
+        return false;
     }
 
     public void Dispose()

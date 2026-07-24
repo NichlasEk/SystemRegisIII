@@ -513,3 +513,49 @@ Play-end/PEND publication, and the CPK buffer callback between `182.63M` and
 the buffer callback until data exists. Do not guard the zero callback,
 special-case `cpkd_sys_start`, change the proven sector payload, or undo the
 separate-`62` Read-File refill.
+
+## July 24 Mode2/XA Filter Routing
+
+The empty CPK buffer was not the end of the Play request and was not caused by
+the 140,000-instruction sector interval. A/B runs at 128,000 and 127,000
+instructions still reached the same zero callback, even though the latter
+advanced the physical pickup through FAD `4DEB` and completed one additional
+`61/62` transfer. The request beginning at `4DDF` with count `013B` remains
+active past that point.
+
+A focused Mednafen probe at the CPK record table found two valid records while
+SystemRegis had a zero count and zero descriptors. The preceding CD command
+history established the missing hardware behavior:
+
+- filter 0 used mode `41`, file `1`, range `4DDF + 013B`, true connection to
+  partition 0, and false connection to filter 1;
+- filter 1 used mode `41`, file `2`, range `4DE1 + 0111`, true connection to
+  partition 1, and no false connection;
+- the CD device was connected to filter 0.
+
+Track 02 is raw `MODE2/2352`, and its XA file byte alternates among the
+interleaved streams. SystemRegis previously ignored the subheader conditions
+and filter connectors, placing every physical sector in partition 0. The CPK
+parser therefore received a mixed and structurally invalid stream.
+
+`CueDiscImage` now exposes the four-byte Mode2/XA subheader, and the CD block
+retains the filter mode, range, subheader conditions, true/false connectors,
+and CD-device connection configured by commands `40`, `42`, `44`, `46`, and
+`30`. Long-Play arrivals traverse that filter graph. Each partition retains
+the accepted physical FADs so transfers and deletions remain correct even when
+its sectors are non-contiguous. Focused smoke coverage uses alternating file
+1/file 2 sectors and verifies both the partition counts and the exact physical
+payload transferred from each partition.
+
+The clean 190M NiGHTS acceptance passes the former fault at 182.76M without a
+Master SH-2 exception. It ends at valid master/slave PCs `060C09A6` and
+`06005FA2`, advances CD pickup through at least FAD `4E1E`, and raises the
+`61/62` command counts from the former 105 to 156. The captured 320x224 frame
+now visibly contains the Saturn/SEGA copyright line at the bottom instead of
+being wholly blank, but it has not yet reached the NiGHTS intro.
+
+Continue after 190M through the now-correct separated XA streams and identify
+the next architectural stop or first complete movie/game frame. Preserve the
+140,000-instruction interval: the timing experiments disproved it as the root
+cause. Do not merge the two XA file streams, add a CPK-specific callback
+guard, or stage the temporary local Mednafen probe.

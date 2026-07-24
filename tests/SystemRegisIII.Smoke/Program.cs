@@ -1270,6 +1270,55 @@ static void VerifySaturnSystemMap()
         File.Delete(largeIsoPath);
     }
 
+    using (var mode2Disc = new AlternatingMode2DiscImage())
+    {
+        var filteredMap = SaturnSystemMap.CreateBringup(
+            bios,
+            new SaturnBringupOptions { DiscImage = mode2Disc });
+        var filteredCd = filteredMap.CdBlock;
+
+        IssueCdCommand(filteredMap.Bus, 0x4200, 0x0000, 0x0001, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x4441, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x4000, 0x0200, 0x0000, 0x0006);
+        IssueCdCommand(filteredMap.Bus, 0x4603, 0x0001, 0x0000, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x4200, 0x0000, 0x0102, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x4441, 0x0000, 0x0100, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x4000, 0x0200, 0x0100, 0x0006);
+        IssueCdCommand(filteredMap.Bus, 0x4603, 0x01FF, 0x0100, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x3000, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x1080, 0x0200, 0x0080, 0x0006);
+        filteredCd.AdvanceMasterInstructions(3_500_000);
+
+        IssueCdCommand(filteredMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(
+            filteredMap.Bus.ReadWord(0x2589_0024) == 1,
+            "CD Block Mode2 filter did not route file 1 to partition 0.");
+        IssueCdCommand(filteredMap.Bus, 0x5100, 0x0000, 0x0100, 0x0000);
+        Require(
+            filteredMap.Bus.ReadWord(0x2589_0024) == 0,
+            "CD Block Mode2 filter incorrectly routed file 1 to partition 1.");
+        IssueCdCommand(filteredMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
+        Require(
+            filteredMap.Bus.ReadWord(0x2589_8000) == 0x016A,
+            "CD Block Mode2 partition 0 transferred the wrong physical sector.");
+        while (filteredCd.DataTransferWordsRead < filteredCd.DataTransferWordCount)
+        {
+            filteredMap.Bus.ReadLong(0x2589_8000);
+        }
+        IssueCdCommand(filteredMap.Bus, 0x0600, 0x0000, 0x0000, 0x0000);
+        IssueCdCommand(filteredMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+        filteredCd.AdvanceMasterInstructions(140_000);
+
+        IssueCdCommand(filteredMap.Bus, 0x5100, 0x0000, 0x0100, 0x0000);
+        Require(
+            filteredMap.Bus.ReadWord(0x2589_0024) == 1,
+            "CD Block Mode2 filter did not route file 2 to partition 1.");
+        IssueCdCommand(filteredMap.Bus, 0x6100, 0x0000, 0x0100, 0x0001);
+        Require(
+            filteredMap.Bus.ReadWord(0x2589_8000) == 0x016B,
+            "CD Block Mode2 partition 1 transferred the wrong physical sector.");
+    }
+
     var cueDirectory = Path.Combine(Path.GetTempPath(), $"systemregis-cue-{Guid.NewGuid():N}");
     try
     {
@@ -2503,4 +2552,42 @@ internal sealed class NullInputSource : IInputSource
 internal sealed class FixedHostClock(SaturnCycleBudget frameBudget) : IHostClock
 {
     public SaturnCycleBudget GetFrameBudget() => frameBudget;
+}
+
+internal sealed class AlternatingMode2DiscImage : IDiscImage, ICdSectorSubheaderSource
+{
+    public string Name => "alternating-mode2";
+    public long LengthBytes => SectorCount * SectorSize;
+    public int SectorSize => 2048;
+    public long SectorCount => 1024;
+
+    public int ReadSector(long logicalBlockAddress, Span<byte> destination)
+    {
+        if (logicalBlockAddress < 0 || logicalBlockAddress >= SectorCount)
+        {
+            return 0;
+        }
+
+        destination[..Math.Min(destination.Length, SectorSize)].Clear();
+        if (destination.Length >= 2)
+        {
+            destination[0] = (byte)(logicalBlockAddress >> 8);
+            destination[1] = (byte)logicalBlockAddress;
+        }
+        return Math.Min(destination.Length, SectorSize);
+    }
+
+    public bool TryReadSectorSubheader(long logicalBlockAddress, out CdSectorSubheader subheader)
+    {
+        subheader = new CdSectorSubheader(
+            (byte)((logicalBlockAddress & 1) == 0 ? 1 : 2),
+            0,
+            0x08,
+            0);
+        return logicalBlockAddress >= 0 && logicalBlockAddress < SectorCount;
+    }
+
+    public void Dispose()
+    {
+    }
 }

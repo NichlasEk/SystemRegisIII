@@ -8,3 +8,10 @@ public interface IDiscImage : IDisposable
     long SectorCount { get; }
     int ReadSector(long logicalBlockAddress, Span<byte> destination);
 }
+
+public interface ICdSectorSubheaderSource
+{
+    bool TryReadSectorSubheader(long logicalBlockAddress, out CdSectorSubheader subheader);
+}
+
+public readonly record struct CdSectorSubheader(byte File, byte Channel, byte Submode, byte CodingInfo);
