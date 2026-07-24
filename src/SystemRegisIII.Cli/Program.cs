@@ -320,6 +320,16 @@ static int RunBios(string[] args)
         0x0603_48EC,
         0x0603_48ED,
         () => GetWatchContext(master));
+    var masterCpkStateWatch = new WatchedBus(
+        masterNightsWaitWordWatch,
+        0x060C_9FA0,
+        0x060C_9FCF,
+        () => GetWatchContext(master));
+    var masterCpkCountWatch = new WatchedBus(
+        masterCpkStateWatch,
+        0x0600_1F30,
+        0x0600_1F31,
+        () => GetWatchContext(master));
     WatchedBus? slaveFlagWatch = slaveInternalBus is null
         ? null
         : new WatchedBus(
@@ -334,7 +344,7 @@ static int RunBios(string[] args)
             0x0605_08D0,
             0x0605_094F,
             () => GetWatchContext(slave));
-    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterNightsWaitWordWatch, trace) : masterNightsWaitWordWatch;
+    ISaturnBus masterBus = traceEnabled ? new TracingBus(masterCpkCountWatch, trace) : masterCpkCountWatch;
     ISaturnBus? slaveBus = slaveInternalBus is null
         ? null
         : traceEnabled ? new TracingBus(slaveNightsReturnCodeWatch!, trace) : slaveNightsReturnCodeWatch!;
@@ -426,6 +436,26 @@ static int RunBios(string[] args)
         focusedProcedureRegister: 0x0601_15BC,
         focusedR6Start: 0x0606_3D54,
         focusedR6End: 0x0606_3D54);
+    var cpkCallerProbe = new PcWindowProbe(
+        "Master SH-2 CPK caller probe",
+        0x060C_25C0,
+        0x060C_2600,
+        capacity: 64);
+    var cpkSetupProbe = new PcWindowProbe(
+        "Master SH-2 CPK setup probe",
+        0x060C_8260,
+        0x060C_82D0,
+        capacity: 96);
+    var cpkDispatcherLoopProbe = new PcWindowProbe(
+        "Master SH-2 CPK dispatcher-loop probe",
+        0x060C_7190,
+        0x060C_7200,
+        capacity: 192);
+    var cpkDispatcherCallerProbe = new PcWindowProbe(
+        "Master SH-2 CPK dispatcher-caller probe",
+        0x060C_76D0,
+        0x060C_7720,
+        capacity: 128);
     var vblankInDue = false;
     var vblankOutDue = false;
     var deferredVblankInChecks = 0L;
@@ -657,6 +687,10 @@ static int RunBios(string[] args)
         transformNodeBuilderProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         geometryProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         geometryLargeProducerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        cpkCallerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        cpkSetupProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        cpkDispatcherLoopProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
+        cpkDispatcherCallerProbe.Record(i, master, addressMap, FormatLoopProbeInstruction);
         if (masterPc is >= 0x0600_083C and <= 0x0600_094C)
         {
             RecordPc(masterHandlerPcHits, masterPc);
@@ -916,6 +950,10 @@ static int RunBios(string[] args)
     transformNodeBuilderProbe.Print(summaryOnly ? 48 : int.MaxValue);
     geometryProducerProbe.Print(pcProbeSampleLimit);
     geometryLargeProducerProbe.Print(pcProbeSampleLimit);
+    cpkCallerProbe.Print(summaryOnly ? 64 : int.MaxValue);
+    cpkSetupProbe.Print(summaryOnly ? 96 : int.MaxValue);
+    cpkDispatcherLoopProbe.Print(summaryOnly ? 192 : int.MaxValue);
+    cpkDispatcherCallerProbe.Print(summaryOnly ? 128 : int.MaxValue);
     if (!summaryOnly)
     {
         PrintMasterPcProbe(master, addressMap);
@@ -948,6 +986,8 @@ static int RunBios(string[] args)
         PrintWatchWindow("Master NiGHTS entry-flag watch", masterNightsEntryFlagWatch);
         PrintWatchWindow("Master NiGHTS header/code watch", masterNightsHeaderWatch);
         PrintWatchWindow("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
+        PrintWatchWindow("Master CPK state watch", masterCpkStateWatch);
+        PrintWatchWindow("Master CPK count watch", masterCpkCountWatch);
         if (slaveFlagWatch is not null)
         {
             PrintWatchWindow("Slave flag watch", slaveFlagWatch);
@@ -972,6 +1012,8 @@ static int RunBios(string[] args)
         PrintWatchSummary("Master NiGHTS entry-flag watch", masterNightsEntryFlagWatch);
         PrintWatchSummary("Master NiGHTS header/code watch", masterNightsHeaderWatch);
         PrintWatchSummary("Master NiGHTS wait-word watch", masterNightsWaitWordWatch);
+        PrintWatchWindow("Master CPK state watch", masterCpkStateWatch);
+        PrintWatchWindow("Master CPK count watch", masterCpkCountWatch);
     }
 
     PrintScuInterruptState(scu, interruptProbe);

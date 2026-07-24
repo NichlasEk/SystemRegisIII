@@ -471,3 +471,45 @@ The next real divergence is therefore the producer of Play CR2 before the
 generic command-helper write at `060683CE`, not the CD block's sector-count
 arithmetic. Follow that producer against Mednafen. Do not compensate by
 subtracting `0x10` in `PlayDisc` or by disabling continuous buffering.
+
+## July 24 CPK Empty-Buffer Provenance
+
+The first invalid low-BIOS transition is now fully explained. At instruction
+182,755,931, game routine `060C7108` loads a nonzero callback flag from
+`060C9FB0`, loads a zero callback pointer from `060C9FB4`, and executes
+`JSR @R3` at `060C713E`. The flag contains the tail of the deliberately copied
+string `cpkd_sys_start`; this is downstream damage, not an indexed-load or
+PC-relative-load error.
+
+The dispatcher at `060C7198` is called with a zero record count from stack word
+`06001F30`. It subtracts one and begins walking the record table until the
+index reaches `FFFFFFFF`; record three is the CPK record whose diagnostic name
+overlaps the callback flag. The zero count is written by the parser itself at
+`060C7484` because its input around low-WRAM `002049F0` is entirely zero. New
+bounded CLI probes retain the CPK setup, caller, dispatcher loop, dispatcher
+caller, state, and count provenance needed to reproduce this chain.
+
+One independent CD defect was found and fixed while following the empty
+partition. Streaming `Read File` partitions were replenished after combined
+Get/Delete Sector Data command `63`, but not after the equivalent separate
+`61` plus `62` sequence. `Delete Sector Data` now uses the same stream advance
+and refill path. Smoke coverage drains a 201-sector file with separate `62`,
+verifies that the final sector is replenished, and transfers its 1,024 words.
+The full smoke suite and Release build pass.
+
+That fix does not change the NiGHTS fault because the active workload is the
+long-Play path, not a `Read File` stream. The final command trace is precise:
+the last pending sector is published at instruction 182,626,893 with pickup
+FAD `4DEA`; commands `52,53,61,06,62` transfer and delete it by 182,639,501.
+Sector queries then correctly return zero while the drive remains Play. The
+modeled long-Play completion is scheduled for one 140,000-instruction sector
+interval after the final arrival, but the CPK parser dispatches its empty
+buffer roughly 11,000 instructions before that deadline and reaches the zero
+callback.
+
+Continue with a Mednafen differential of the final long-Play sector deletion,
+Play-end/PEND publication, and the CPK buffer callback between `182.63M` and
+`182.76M`. Determine whether the reference ends the play earlier or suppresses
+the buffer callback until data exists. Do not guard the zero callback,
+special-case `cpkd_sys_start`, change the proven sector payload, or undo the
+separate-`62` Read-File refill.

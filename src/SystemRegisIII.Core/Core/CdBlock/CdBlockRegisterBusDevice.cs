@@ -1452,7 +1452,14 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             return;
         }
 
-        _partitionSectorCounts[partition] -= sectorCount;
+        if (_partitionStreamEndFads[partition] != 0)
+        {
+            DeleteTransferredSectors(partition, sectorOffset, sectorCount);
+        }
+        else
+        {
+            _partitionSectorCounts[partition] -= sectorCount;
+        }
         if (_playLongSeek && sectorOffset == 0)
         {
             _partitionFads[partition] += sectorCount;

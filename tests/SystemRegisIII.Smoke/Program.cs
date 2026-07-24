@@ -875,6 +875,19 @@ static void VerifySaturnSystemMap()
         Require(largeIsoCd.DataTransferWordCount == 1_024, "CD Block streamed read-file tail length failed.");
         Require(largeIsoCd.ResponseCr4 == 0x017D, "CD Block streamed read-file tail FAD failed.");
 
+        IssueCdCommand(largeIsoMap.Bus, 0x7400, 0x0000, 0x0000, 0x0002);
+        largeIsoCd.AdvanceMasterInstructions(2_000);
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x00C8);
+        IssueCdCommand(largeIsoMap.Bus, 0x5100, 0x0000, 0x0000, 0x0000);
+        Require(
+            largeIsoMap.Bus.ReadWord(0x2589_0024) == 0x0001,
+            "CD Block separate delete-sector streamed read-file refill failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6100, 0x0000, 0x0000, 0x0001);
+        Require(
+            largeIsoCd.DataTransferWordCount == 1_024,
+            "CD Block separate delete-sector streamed read-file tail length failed.");
+        IssueCdCommand(largeIsoMap.Bus, 0x6200, 0x0000, 0x0000, 0x0001);
+
         IssueCdCommand(largeIsoMap.Bus, 0x7500, 0x0000, 0x0000, 0x0000);
         IssueCdCommand(largeIsoMap.Bus, 0x0400, 0x0000, 0x0000, 0x0000);
         IssueCdCommand(largeIsoMap.Bus, 0x6000, 0xFF00, 0x0000, 0x0000);
