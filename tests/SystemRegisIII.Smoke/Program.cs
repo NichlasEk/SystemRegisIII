@@ -1190,16 +1190,16 @@ static void VerifySaturnSystemMap()
             "CD Block multi-sector long play raised PEND before its final sector interval elapsed.");
         largeIsoCd.AdvanceMasterInstructions(1);
         Require(
-            largeIsoCd.ResponseCr1 == 0x2180 && (largeIsoCd.HirqValue & 0x0010) != 0,
-            $"CD Block multi-sector long play did not enter periodic Pause with PEND: CR1=0x{largeIsoCd.ResponseCr1:X4}, HIRQ=0x{largeIsoCd.HirqValue:X4}.");
+            largeIsoCd.ResponseCr1 == 0x0180 && (largeIsoCd.HirqValue & 0x0010) != 0,
+            $"CD Block multi-sector long play did not enter completion Pause with PEND: CR1=0x{largeIsoCd.ResponseCr1:X4}, HIRQ=0x{largeIsoCd.HirqValue:X4}.");
         largeIsoCd.AdvanceMasterInstructions(199_999);
         Require(
             (largeIsoCd.HirqValue & 0x0400) == 0,
             "CD Block multi-sector long play raised its Pause SCDQ too early.");
         largeIsoCd.AdvanceMasterInstructions(1);
         Require(
-            (largeIsoCd.HirqValue & 0x0410) == 0x0410,
-            "CD Block multi-sector long play did not retain PEND through its periodic Pause SCDQ.");
+            largeIsoCd.ResponseCr1 == 0x2180 && (largeIsoCd.HirqValue & 0x0410) == 0x0410,
+            "CD Block multi-sector long play did not retain PEND through its periodic Pause SCDQ status.");
 
         // Keep this synthetic play inside the tiny test image so the
         // multi-sector host transfer validates both buffering and payload.
@@ -1293,8 +1293,15 @@ static void VerifySaturnSystemMap()
             "CUE CD Block continuously buffered play did not leave seek after its next sector.");
         cueMap.CdBlock.AdvanceMasterInstructions(139_999);
         Require(
+            cueMap.Bus.ReadWord(0x2589_0018) == 0x0180,
+            "CUE CD Block continuously buffered play did not publish its non-periodic completion pause.");
+        Require(
+            (cueMap.CdBlock.HirqValue & 0x00D5) == 0x0094,
+            $"CUE CD Block continuously buffered play published the wrong completion HIRQ shape: 0x{cueMap.CdBlock.HirqValue:X4}.");
+        cueMap.CdBlock.AdvanceMasterInstructions(200_000);
+        Require(
             cueMap.Bus.ReadWord(0x2589_0018) == 0x2180,
-            "CUE CD Block continuously buffered play did not publish its final periodic pause.");
+            "CUE CD Block continuously buffered play did not publish its later periodic pause.");
     }
     finally
     {

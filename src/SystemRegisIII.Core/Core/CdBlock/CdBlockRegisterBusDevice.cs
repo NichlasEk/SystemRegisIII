@@ -337,8 +337,9 @@ public sealed class CdBlockRegisterBusDevice : IInspectableBusDevice
             {
                 _playSeekActive = false;
                 _status = (byte)CdBlockDriveStatus.Pause;
-                WriteStatusResponse((byte)(_status | CdStatusPeriodic));
-                _hirq |= HirqPlayEnd;
+                WriteStatusResponse(_status);
+                _hirq &= unchecked((ushort)~(HirqCmok | HirqEndSelector));
+                _hirq |= HirqEndHostIo | HirqPlayEnd;
                 _pausePeriodicInstructionsRemaining = PausePeriodicInstructionCount;
                 startedPausePeriodic = true;
             }

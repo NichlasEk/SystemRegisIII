@@ -354,10 +354,41 @@ special-casing NiGHTS or its FADs.
 
 The corrected 227M Release acceptance reaches FAD `4F1A` at instruction
 225,186,036 with `0380,4102,0100,4F1A`, publishes the Pause/PEND edge 140,000
-instructions later, and leaves the `060683CE` CD-status poll loop. The final
-million instructions execute the normal `0606E5xx` geometry path instead of
-issuing further status commands. No new visible frame is confirmed yet; the
-richest VDP1 capture remains the eight-drawable instruction-89.7M list.
+instructions later, and leaves the `060683CE` command-status poll. It does not
+yet begin the reference's next command chain: the remaining CD activity is
+periodic SCDQ acknowledgement from the `060681EE` handler. No new visible frame
+is confirmed yet; the richest VDP1 capture remains the eight-drawable
+instruction-89.7M list.
+
+## July 24 Long-Play Completion Waveform
+
+The first completion implementation left stale `CMOK|ESEL` asserted and omitted
+`EHST`, producing `HIRQ=0B55`. The Mednafen completion edge is `0B94`:
+`EHST|PEND|CSCT`, without `CMOK|ESEL`. Long-play completion now performs that
+exact bit transition.
+
+The completion status also has two distinct phases. The PEND edge itself is a
+non-periodic Pause response (`0180`); only the later 200,000-instruction Pause
+tick reports `2180` and raises SCDQ. Smoke coverage locks both phases and the
+completion HIRQ mask for synthetic long plays.
+
+A clean 226M Release acceptance confirms the corrected live waveform:
+
+```text
+HIRQ completion/poll: 0F94 -> 0B94
+completion status:    0180
+later periodic status: 2180
+```
+
+NiGHTS still does not issue Mednafen's post-completion `30/48/44/42/46`
+sequence. It repeatedly acknowledges only SCDQ while PEND remains asserted,
+and the final frame hash is unchanged from the old 240M baseline
+(`9d4916c718efa8604f44ff744c2c40118ede43968d7dea4d4ac4212c9268e00e`).
+The next differential is therefore outside the now-matched CD response/HIRQ
+data: trace how a CD completion becomes an SH-2/SCU interrupt in the reference.
+The current bringup map wires VDP1 draw-end into SCU but has no corresponding
+CD Block interrupt path. Do not retune the completion bits or periodic timing
+before that delivery path is compared.
 
 ## Verification
 
